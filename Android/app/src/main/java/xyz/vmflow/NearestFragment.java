@@ -53,9 +53,6 @@ import okhttp3.Response;
 
 public class NearestFragment extends Fragment {
 
-    private static final String SUPABASE_URL = "https://supabase.vmflow.xyz";
-    private static final String SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlLWRlbW8iLCJpYXQiOjE2NDE3NjkyMDAsImV4cCI6MTc5OTUzNTYwMH0.VGEEIztVo-do9cy_Qw2-2sF8bSONckhX71Nvtwj15X4";
-
     private static final UUID WRITE_CHARACTERISTIC_UUID = UUID.fromString("c9af9c76-46de-11ed-b878-0242ac120002");
 
     private final List<RxBleDevice> mListRxBleDevices = new ArrayList<>();
@@ -165,9 +162,9 @@ public class NearestFragment extends Fragment {
 
                                                                         JSONObject jsonAuth = new JSONObject(prefs.getString("auth_json", "{}"));
 
-                                                                        Request request = new Request.Builder().url(SUPABASE_URL + "/functions/v1/request-credit")
+                                                                        Request request = new Request.Builder().url(Constants.getInstance().getSUPABASE_URL() + "/functions/v1/request-credit")
                                                                                 .post(requestBody)
-                                                                                .addHeader("apikey", SUPABASE_KEY)
+                                                                                .addHeader("apikey", Constants.getInstance().getSUPABASE_KEY())
                                                                                 .addHeader("Authorization", "Bearer " + jsonAuth.getString("access_token"))
                                                                                 .addHeader("Content-Type", "application/json")
                                                                                 .build();
@@ -184,9 +181,9 @@ public class NearestFragment extends Fragment {
 
                                                                             RequestBody requestBody_ = RequestBody.create( jsonAuth.toString(), MediaType.parse("application/json") );
 
-                                                                            Request request_ = new Request.Builder().url(SUPABASE_URL + "/auth/v1/token?grant_type=refresh_token")
+                                                                            Request request_ = new Request.Builder().url(Constants.getInstance().getSUPABASE_URL() + "/auth/v1/token?grant_type=refresh_token")
                                                                                     .post(requestBody_)
-                                                                                    .addHeader("apikey", SUPABASE_KEY)
+                                                                                    .addHeader("apikey", Constants.getInstance().getSUPABASE_KEY())
                                                                                     .addHeader("Content-Type", "application/json")
                                                                                     .build();
 

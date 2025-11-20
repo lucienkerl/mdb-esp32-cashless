@@ -39,8 +39,6 @@ public class SalesFragment extends Fragment {
     private final List<JSONObject> mListSales = new ArrayList<>();
     private final ItemAdapter_ itemAdapter_ = new ItemAdapter_();
 
-    private static final String SUPABASE_URL = "https://supabase.vmflow.xyz";
-    private static final String SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlLWRlbW8iLCJpYXQiOjE2NDE3NjkyMDAsImV4cCI6MTc5OTUzNTYwMH0.VGEEIztVo-do9cy_Qw2-2sF8bSONckhX71Nvtwj15X4";
     private View mProgressBar;
 
     class ViewHolder_ extends RecyclerView.ViewHolder {
@@ -129,8 +127,8 @@ public class SalesFragment extends Fragment {
                 JSONObject jsonAuth = new JSONObject(prefs.getString("auth_json", "{}"));
 
                 Request request = new Request.Builder()
-                        .url(SUPABASE_URL + "/rest/v1/sales?select=*,embeddeds(subdomain)&order=created_at.desc")
-                        .addHeader("apikey", SUPABASE_KEY)
+                        .url(Constants.getInstance().getSUPABASE_URL() + "/rest/v1/sales?select=*,embeddeds(subdomain)&order=created_at.desc")
+                        .addHeader("apikey", Constants.getInstance().getSUPABASE_KEY())
                         .addHeader("Authorization", "Bearer " + jsonAuth.getString("access_token"))
                         .addHeader("Content-Type", "application/json")
                         .build();
@@ -157,9 +155,9 @@ public class SalesFragment extends Fragment {
 
                     RequestBody requestBody = RequestBody.create( jsonAuth.toString(), MediaType.parse("application/json") );
 
-                    Request request_ = new Request.Builder().url(SUPABASE_URL + "/auth/v1/token?grant_type=refresh_token")
+                    Request request_ = new Request.Builder().url(Constants.getInstance().getSUPABASE_URL() + "/auth/v1/token?grant_type=refresh_token")
                             .post(requestBody)
-                            .addHeader("apikey", SUPABASE_KEY)
+                            .addHeader("apikey", Constants.getInstance().getSUPABASE_KEY())
                             .addHeader("Content-Type", "application/json")
                             .build();
 
