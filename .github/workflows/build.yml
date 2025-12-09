@@ -7,6 +7,6 @@ jobs:
     container: espressif/idf:latest
     steps:
       - uses: actions/checkout@v4
-      - uses: build-esp-idf-projects-action@v1
+      - uses: espressif/build-esp-idf-projects-action@v1
         with:
           paths: "mdb-slave-esp32s3"
