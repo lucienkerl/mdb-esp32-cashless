@@ -1,0 +1,12 @@
+name: Build ESP-IDF Projects
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: espressif/idf:latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: build-esp-idf-projects-action@v1
+        with:
+          paths: "mdb-slave-esp32s3"
