@@ -9,4 +9,4 @@ jobs:
       - uses: actions/checkout@v4
       - uses: espressif/build-esp-idf-projects-action@v1
         with:
-          paths: "mdb-slave-esp32s3"
+          paths: "./mdb-slave-esp32s3/"
