@@ -75,7 +75,7 @@ public class SalesFragment extends Fragment {
             JSONObject jsonEmbedded = mListSales.get(position);
             try {
                 holder.saleChannelText.setText(jsonEmbedded.getString("channel"));
-                holder.saleItemNumberText.setText(String.format("Item #%03x", jsonEmbedded.getInt("item_number")) );
+                holder.saleItemNumberText.setText(String.format("Item #%03x (#%d)", jsonEmbedded.getInt("item_number"), jsonEmbedded.getInt("item_number")));
                 holder.saleEmbeddedSubdomainText.setText(String.format("Embedded: %06d", jsonEmbedded.getJSONObject("embeddeds").getInt("subdomain")) );
                 holder.saleCreatedAtText.setText( jsonEmbedded.getString("created_at") );
 

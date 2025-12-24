@@ -33,7 +33,7 @@
 #define pin_dex_tx  	GPIO_NUM_43
 #define pin_mdb_rx  	GPIO_NUM_4  // Pin to receive data from MDB
 #define pin_mdb_tx  	GPIO_NUM_5  // Pin to transmit data to MDB
-#define pin_mdb_led 	GPIO_NUM_21 // LED to indicate MDB state
+#define pin_mdb_led 	GPIO_NUM_48 // LED to indicate MDB state
 
 // Functions for scale factor conversion
 #define to_scale_factor(p, x, y) (p / x / pow(10, -(y) ))   // Converts to scale factor
@@ -263,7 +263,7 @@ void mdb_cashless_loop(void *pvParameters) {
 				// RET
 			} else if ((uint8_t) coming_read == NAK) {
 				// NAK
-			} else if ((coming_read & BIT_ADD_SET) == 0x10) {
+			} else if ((coming_read & BIT_ADD_SET) == 0x60) {
 
 				// Reset transmission availability
 				available_tx = 0;
