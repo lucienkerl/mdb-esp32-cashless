@@ -2,6 +2,16 @@
 
 This is a minimal Docker Compose setup for self-hosting VMflow.xyz
 
+## Development Setup
+
+#### Prerequisites
+- have `supabase cli` installed
+- install `docker` and `docker compose`
+
+#### Run local stack
+- start supabase with `supabase start` 
+- 
+
 ## Setup
 
 1. Copy the Docker-Compose file `Docker/docker-compose.yml` to your desired destination folder.
@@ -23,4 +33,3 @@ This is a minimal Docker Compose setup for self-hosting VMflow.xyz
 
     ---
 
-    
