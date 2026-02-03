@@ -2,24 +2,30 @@ name: vmflow-mqtt
 
 services:
   broker:
-    image: eclipse-mosquitto:latest
-    networks:
-      - vmflow-net    
-    restart: unless-stopped
+    image: emqx/emqx-enterprise:6.1.0
+    container_name: emqx1
+    environment:
+    - "EMQX_NODE_NAME=emqx@node1.emqx.com"
+    - "EMQX_CLUSTER__DISCOVERY_STRATEGY=static"
+    - "EMQX_CLUSTER__STATIC__SEEDS=[emqx@node1.emqx.com,emqx@node2.emqx.com]"
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx", "ctl", "status"]
+      interval: 5s
+      timeout: 25s
+      retries: 5
     ports:
-      - "1883:1883"   # MQTT (TCP)
-      - "9001:9001"   # WebSockets (opcional)
+      - 1883:1883
+      - 8083:8083
+      - 8084:8084
+      - 8883:8883
+      - 18083:18083
     volumes:
-      - ./mqtt/config:/mosquitto/config
-      - mqtt-data:/mosquitto/data
-      #- ./volumes/mqtt/log:/mosquitto/log
+      - mqtt-data:/opt/emqx/data
 
   domain:
     build:
       dockerfile: ./mqtt/Dockerfile
     restart: unless-stopped
-    networks:
-      - vmflow-net
     depends_on:
       - broker
     volumes:
@@ -33,10 +39,3 @@ services:
 volumes:
   db-config:
   mqtt-data:
-
-
-networks:
-  vmflow-net:
-    name: vmflow-net
-    external: true
-
