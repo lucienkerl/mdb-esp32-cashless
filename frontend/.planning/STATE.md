@@ -13,17 +13,17 @@
 ## Current Position
 
 **Phase**: 01-foundation-and-auth  
-**Plan**: 01-02  
-**Status**: 🟡 In Progress - Plan 01-02 complete, awaiting 01-01  
-**Last Action**: Completed 01-02 Database Schema with RBAC tables, RLS policies, and auth hooks  
+**Plan**: 01-01  
+**Status**: 🟢 Complete - Wave 1 finished (01-01 + 01-02)  
+**Last Action**: Completed 01-01 Project Setup with Nuxt 3, Supabase, and shadcn-vue  
 
 ### Overall Progress
 
 ```
-[░░░░░░░░░░░░░░░░░░] 5% complete
+[░░░░░░░░░░░░░░░░░░] 10% complete
 
 Phases: 0/6 completed
-Plans: 1/6 completed in Phase 1
+Plans: 2/6 completed in Phase 1
 Requirements: 0/25 delivered
 ```
 
@@ -53,6 +53,9 @@ Requirements: 0/25 delivered
 | 2026-02-16 | Default role 'operator' | Principle of least privilege - new users have limited access by default |
 | 2026-02-16 | RLS at database level | Enforce security at the database layer, not just application layer |
 | 2026-02-16 | Custom JWT claims for roles | Embed user_role in JWT to avoid extra DB queries for role checks |
+| 2026-02-16 | Manual project setup | Node 16 incompatibility with nuxi - created structure manually following conventions |
+| 2026-02-16 | Tailwind CSS v4 | Latest version with @import syntax and CSS variable theming |
+| 2026-02-16 | Supabase SSR cookies | useSsrCookies: true for auth persistence in SSR mode |
 
 ---
 
@@ -81,12 +84,17 @@ Requirements: 0/25 delivered
 
 None currently.
 
+## Notes
+
+- **Node.js Version**: Project requires Node 18+ for development server. Current environment has Node 16.17.0.
+- **Project Structure**: 01-01 completed with all files in place. Ready for development once Node is upgraded.
+
 ---
 
 ## Next Steps
 
-1. **Complete Wave 1**: Execute 01-01 (Project Setup) to finish Foundation phase setup
-2. **Set up Supabase**: Create Supabase project and configure environment variables
+1. **Environment Setup**: Upgrade Node.js to 18+ to run development server
+2. **Supabase Project**: Create Supabase project and add credentials to .env
 3. **Execute Wave 2**: Run plans 01-03 (Auth UI) and 01-04 (Role-based navigation)
 4. **Review checkpoints**: Plans 01-05 and 01-06 have human verification checkpoints
 
@@ -106,10 +114,10 @@ None currently.
 ## Session Continuity
 
 **Last Updated**: 2026-02-16  
-**Context Valid**: Plan 01-02 complete, 01-01 pending  
-**Last Session**: Completed 01-02 Database Schema with RBAC, RLS, and auth hooks  
-**Stopped At**: Completed 01-02-PLAN.md  
-**Next Expected Action**: Execute 01-01 (Project Setup) to complete Wave 1
+**Context Valid**: Wave 1 complete (01-01 + 01-02)  
+**Last Session**: Completed 01-01 Project Initialization  
+**Stopped At**: Completed 01-01-PLAN.md  
+**Next Expected Action**: Wave 2 - Execute 01-03 (Auth UI) and 01-04 (Role-based navigation)
 
 ---
 
