@@ -12,6 +12,7 @@
   "devDependencies": {
     "@nuxt/devtools": "latest",
     "@nuxtjs/supabase": "^1.1.6",
+    "@tailwindcss/postcss": "^4.1.18",
     "@vueuse/nuxt": "^10.7.2",
     "nuxt": "^3.10.0",
     "typescript": "^5.9.3",

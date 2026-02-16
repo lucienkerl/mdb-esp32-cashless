@@ -44,8 +44,7 @@ export default defineNuxtConfig({
   // PostCSS configuration
   postcss: {
     plugins: {
-      tailwindcss: {},
-      autoprefixer: {},
+      '@tailwindcss/postcss': {},
     },
   },
   
