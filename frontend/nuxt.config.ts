@@ -41,15 +41,11 @@ export default defineNuxtConfig({
     componentDir: '~/components/ui',
   },
   
-  // Tailwind CSS v4 via Vite plugin
-  vite: {
-    css: {
-      postcss: {
-        plugins: {
-          tailwindcss: {},
-          autoprefixer: {},
-        },
-      },
+  // PostCSS configuration
+  postcss: {
+    plugins: {
+      tailwindcss: {},
+      autoprefixer: {},
     },
   },
   
