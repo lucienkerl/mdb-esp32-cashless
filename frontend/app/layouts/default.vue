@@ -1,23 +1,11 @@
 <template>
   <div class="min-h-screen bg-background">
-    <!-- Header placeholder - navigation will be built in Plan 04 -->
-    <header class="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div class="container flex h-14 items-center">
-        <div class="mr-4 flex">
-          <a href="/" class="mr-6 flex items-center space-x-2">
-            <span class="font-bold">Vending Manager</span>
-          </a>
-        </div>
-        <!-- Navigation placeholder -->
-        <nav class="flex items-center space-x-6 text-sm font-medium">
-          <!-- Nav items will be added in Plan 04 -->
-        </nav>
-      </div>
-    </header>
+    <!-- Navigation -->
+    <AppNavigation />
 
     <!-- Main content -->
     <main class="flex-1">
-      <slot />
+      <NuxtPage />
     </main>
 
     <!-- Footer -->
