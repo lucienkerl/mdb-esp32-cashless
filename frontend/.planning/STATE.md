@@ -13,18 +13,18 @@
 ## Current Position
 
 **Phase**: 01-foundation-and-auth  
-**Plan**: 01-03  
-**Status**: 🟢 Complete - Wave 2 started (01-03 complete)  
-**Last Action**: Completed 01-03 Authentication UI and Flow  
+**Plan**: 01-04  
+**Status**: 🟢 Complete - Wave 2 finished (01-03 + 01-04)  
+**Last Action**: Completed 01-04 Role-based Navigation and Access Control  
 
 ### Overall Progress
 
 ```
-[███░░░░░░░░░░░░░░░] 15% complete
+[█████░░░░░░░░░░░░░] 20% complete
 
 Phases: 0/6 completed
-Plans: 3/6 completed in Phase 1
-Requirements: 1/25 delivered (USER-01)
+Plans: 4/6 completed in Phase 1
+Requirements: 2/25 delivered (USER-01, USER-02)
 ```
 
 ---
@@ -33,7 +33,7 @@ Requirements: 1/25 delivered (USER-01)
 
 | Phase | Status | Progress | Blockers |
 |-------|--------|----------|----------|
-| 1. Foundation & Auth | In Progress | 50% | None |
+| 1. Foundation & Auth | In Progress | 67% | None |
 | 2. Machine Dashboard | Not started | 0% | Phase 1 |
 | 3. Stock Management | Not started | 0% | Phase 2 |
 | 4. Sales & Reporting | Not started | 0% | Phase 3 |
@@ -60,6 +60,9 @@ Requirements: 1/25 delivered (USER-01)
 | 2026-02-16 | vee-validate + zod | Type-safe form validation with schema reusability |
 | 2026-02-16 | Separate auth/guest middleware | Clear separation of concerns for route protection |
 | 2026-02-16 | Composable-level error handling | Return error objects for UI flexibility vs throwing exceptions |
+| 2026-02-16 | JWT-decoded roles via jwt-decode | Extract user_role from access_token custom claims for client-side checks |
+| 2026-02-16 | Admin middleware chaining | Separate middleware for auth and admin checks - composable and reusable |
+| 2026-02-16 | Role-based navigation with conditionals | Single AppNavigation component with v-if templates based on role checks |
 
 ---
 
@@ -99,7 +102,7 @@ None currently.
 
 1. **Environment Setup**: Upgrade Node.js to 18+ to run development server
 2. **Supabase Project**: Create Supabase project and add credentials to .env
-3. **Execute Wave 2**: Run plans 01-03 (Auth UI) and 01-04 (Role-based navigation)
+3. **Execute Wave 3**: Run plans 01-05 (User Management) and 01-06 (Machine Assignment)
 4. **Review checkpoints**: Plans 01-05 and 01-06 have human verification checkpoints
 
 ## Phase 1 Plans
@@ -118,10 +121,10 @@ None currently.
 ## Session Continuity
 
 **Last Updated**: 2026-02-16  
-**Context Valid**: Wave 2 in progress (01-01, 01-02, 01-03 complete)  
-**Last Session**: Completed 01-03 Authentication UI  
-**Stopped At**: Completed 01-03-PLAN.md  
-**Next Expected Action**: Execute 01-04 (Role-based navigation)
+**Context Valid**: Wave 2 complete (01-01, 01-02, 01-03, 01-04 complete)  
+**Last Session**: Completed 01-04 Role-based Navigation  
+**Stopped At**: Completed 01-04-PLAN.md  
+**Next Expected Action**: Wave 3 - Execute 01-05 (User Management) and 01-06 (Machine Assignment)
 
 ---
 
