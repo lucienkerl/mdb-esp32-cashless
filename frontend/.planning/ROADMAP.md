@@ -25,7 +25,7 @@
 
 | Phase | Plans | Status | Completed |
 |-------|-------|--------|-----------|
-| 1. Foundation & Auth | 0/6 | Planned | - |
+| 1. Foundation & Auth | 3/6 | In Progress | - |
 | 2. Machine Dashboard | 0/0 | Not started | - |
 | 3. Stock Management | 0/0 | Not started | - |
 | 4. Sales & Reporting | 0/0 | Not started | - |
@@ -53,9 +53,9 @@
 6. Operators only see machines explicitly assigned to them in the dashboard
 
 **Plans**:
-- [ ] `01-01-PLAN.md` — Initialize Nuxt 3 project with Supabase and shadcn-vue
-- [ ] `01-02-PLAN.md` — Create database schema with RBAC tables and RLS policies
-- [ ] `01-03-PLAN.md` — Implement authentication UI and flow
+- [x] `01-01-PLAN.md` — Initialize Nuxt 3 project with Supabase and shadcn-vue
+- [x] `01-02-PLAN.md` — Create database schema with RBAC tables and RLS policies
+- [x] `01-03-PLAN.md` — Implement authentication UI and flow
 - [ ] `01-04-PLAN.md` — Build role-based navigation and access control
 - [ ] `01-05-PLAN.md` — Create user management interface (Admin only)
 - [ ] `01-06-PLAN.md` — Implement machine assignment system

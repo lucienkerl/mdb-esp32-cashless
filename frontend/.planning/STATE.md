@@ -13,18 +13,18 @@
 ## Current Position
 
 **Phase**: 01-foundation-and-auth  
-**Plan**: 01-01  
-**Status**: 🟢 Complete - Wave 1 finished (01-01 + 01-02)  
-**Last Action**: Completed 01-01 Project Setup with Nuxt 3, Supabase, and shadcn-vue  
+**Plan**: 01-03  
+**Status**: 🟢 Complete - Wave 2 started (01-03 complete)  
+**Last Action**: Completed 01-03 Authentication UI and Flow  
 
 ### Overall Progress
 
 ```
-[░░░░░░░░░░░░░░░░░░] 10% complete
+[███░░░░░░░░░░░░░░░] 15% complete
 
 Phases: 0/6 completed
-Plans: 2/6 completed in Phase 1
-Requirements: 0/25 delivered
+Plans: 3/6 completed in Phase 1
+Requirements: 1/25 delivered (USER-01)
 ```
 
 ---
@@ -33,7 +33,7 @@ Requirements: 0/25 delivered
 
 | Phase | Status | Progress | Blockers |
 |-------|--------|----------|----------|
-| 1. Foundation & Auth | In Progress | 33% | None |
+| 1. Foundation & Auth | In Progress | 50% | None |
 | 2. Machine Dashboard | Not started | 0% | Phase 1 |
 | 3. Stock Management | Not started | 0% | Phase 2 |
 | 4. Sales & Reporting | Not started | 0% | Phase 3 |
@@ -56,6 +56,10 @@ Requirements: 0/25 delivered
 | 2026-02-16 | Manual project setup | Node 16 incompatibility with nuxi - created structure manually following conventions |
 | 2026-02-16 | Tailwind CSS v4 | Latest version with @import syntax and CSS variable theming |
 | 2026-02-16 | Supabase SSR cookies | useSsrCookies: true for auth persistence in SSR mode |
+| 2026-02-16 | useAuth composable pattern | Centralized auth logic with reactive loading state for consistency |
+| 2026-02-16 | vee-validate + zod | Type-safe form validation with schema reusability |
+| 2026-02-16 | Separate auth/guest middleware | Clear separation of concerns for route protection |
+| 2026-02-16 | Composable-level error handling | Return error objects for UI flexibility vs throwing exceptions |
 
 ---
 
@@ -114,10 +118,10 @@ None currently.
 ## Session Continuity
 
 **Last Updated**: 2026-02-16  
-**Context Valid**: Wave 1 complete (01-01 + 01-02)  
-**Last Session**: Completed 01-01 Project Initialization  
-**Stopped At**: Completed 01-01-PLAN.md  
-**Next Expected Action**: Wave 2 - Execute 01-03 (Auth UI) and 01-04 (Role-based navigation)
+**Context Valid**: Wave 2 in progress (01-01, 01-02, 01-03 complete)  
+**Last Session**: Completed 01-03 Authentication UI  
+**Stopped At**: Completed 01-03-PLAN.md  
+**Next Expected Action**: Execute 01-04 (Role-based navigation)
 
 ---
 
