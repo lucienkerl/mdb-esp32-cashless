@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VMC Simulator</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,system-ui,sans-serif;background:#0f172a;color:#e2e8f0;padding:12px;max-width:800px;margin:0 auto}
+h1{font-size:1.2em;margin-bottom:8px;color:#94a3b8}
+.status-bar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;padding:10px;background:#1e293b;border-radius:8px;align-items:center}
+.state-badge{padding:4px 12px;border-radius:12px;font-weight:700;font-size:.85em;text-transform:uppercase}
+.state-INACTIVE{background:#ef4444;color:#fff}
+.state-DISABLED{background:#f59e0b;color:#000}
+.state-ENABLED{background:#22c55e;color:#000}
+.state-IDLE{background:#3b82f6;color:#fff}
+.state-VEND{background:#a855f7;color:#fff}
+.state-UNKNOWN{background:#6b7280;color:#fff}
+.info-item{font-size:.8em;color:#94a3b8}
+.info-item span{color:#e2e8f0}
+.section{background:#1e293b;border-radius:8px;padding:12px;margin-bottom:12px}
+.section h2{font-size:.95em;margin-bottom:8px;color:#94a3b8;border-bottom:1px solid #334155;padding-bottom:4px}
+.controls{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.input-group{display:flex;gap:4px;align-items:center}
+.input-group label{font-size:.8em;color:#94a3b8;white-space:nowrap}
+.input-group input{width:70px;padding:4px 6px;border-radius:4px;border:1px solid #475569;background:#0f172a;color:#e2e8f0;font-size:.85em}
+button{padding:6px 14px;border-radius:6px;border:none;cursor:pointer;font-size:.82em;font-weight:600;transition:opacity .15s}
+button:hover{opacity:.85}
+button:active{opacity:.7}
+.btn-primary{background:#3b82f6;color:#fff}
+.btn-danger{background:#ef4444;color:#fff}
+.btn-warning{background:#f59e0b;color:#000}
+.btn-success{background:#22c55e;color:#000}
+.btn-secondary{background:#475569;color:#fff}
+#log-container{height:250px;overflow-y:auto;background:#0f172a;border-radius:6px;padding:6px;font-family:'Courier New',monospace;font-size:.75em;line-height:1.5}
+.log-entry{white-space:pre}
+.log-T{color:#60a5fa}
+.log-R{color:#34d399}
+.toast{position:fixed;top:12px;right:12px;padding:8px 16px;border-radius:6px;font-size:.85em;z-index:999;opacity:0;transition:opacity .3s}
+.toast.show{opacity:1}
+.toast-ok{background:#22c55e;color:#000}
+.toast-err{background:#ef4444;color:#fff}
+.wifi-section{display:none}
+.wifi-section.show{display:block}
+#wifi-list{max-height:150px;overflow-y:auto}
+.wifi-item{padding:4px 8px;cursor:pointer;border-radius:4px;font-size:.85em;display:flex;justify-content:space-between}
+.wifi-item:hover{background:#334155}
+</style>
+</head>
+<body>
+<h1>VMC Simulator</h1>
+
+<div class="status-bar">
+  <span id="state-badge" class="state-badge state-INACTIVE">INACTIVE</span>
+  <span class="info-item">IP: <span id="ip">--</span></span>
+  <span class="info-item">Mfr: <span id="mfr">--</span></span>
+  <span class="info-item">SN: <span id="sn">--</span></span>
+  <span class="info-item">Model: <span id="mdl">--</span></span>
+  <span class="info-item">FW: <span id="fw">--</span></span>
+</div>
+
+<div class="section">
+  <h2>Vend Control</h2>
+  <div class="controls">
+    <div class="input-group">
+      <label>Item #</label>
+      <input type="number" id="item-num" value="1" min="1" max="65535">
+    </div>
+    <div class="input-group">
+      <label>Price</label>
+      <input type="number" id="item-price" value="0" min="0" max="65535" placeholder="0=random">
+    </div>
+  </div>
+  <div class="controls">
+    <button class="btn-primary" onclick="doVend()">Vend Request</button>
+    <button class="btn-danger" onclick="doVendCancel()">Cancel Vend</button>
+    <button class="btn-warning" onclick="doCashSale()">Cash Sale</button>
+    <button class="btn-danger" onclick="doReset()">Reset Slave</button>
+    <button class="btn-secondary" id="reader-btn" onclick="toggleReader()">Disable Reader</button>
+  </div>
+</div>
+
+<div class="section">
+  <h2>MDB Log <button class="btn-secondary" onclick="clearLog()" style="float:right;padding:2px 8px;font-size:.75em">Clear</button></h2>
+  <div id="log-container"></div>
+</div>
+
+<div class="section">
+  <h2>WiFi Settings <button class="btn-secondary" onclick="toggleWifi()" style="float:right;padding:2px 8px;font-size:.75em">Setup</button></h2>
+  <div id="wifi-section" class="wifi-section">
+    <button class="btn-secondary" onclick="scanWifi()" style="margin-bottom:6px">Scan Networks</button>
+    <div id="wifi-list"></div>
+    <div class="input-group" style="margin-top:6px">
+      <label>SSID</label>
+      <input type="text" id="wifi-ssid" style="width:140px">
+      <label>Pass</label>
+      <input type="password" id="wifi-pass" style="width:120px">
+      <button class="btn-success" onclick="setWifi()">Connect</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+let readerEnabled = true;
+let pollTimer = null;
+let logTimer = null;
+let lastLogCount = 0;
+
+function toast(msg, ok) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + (ok ? 'toast-ok' : 'toast-err');
+  setTimeout(() => t.className = 'toast', 2000);
+}
+
+async function api(path, method, body) {
+  try {
+    const opts = { method };
+    if (body) { opts.headers = {'Content-Type':'application/json'}; opts.body = JSON.stringify(body); }
+    const r = await fetch(path, opts);
+    return await r.json();
+  } catch(e) { toast('Request failed', false); return null; }
+}
+
+async function fetchState() {
+  const d = await api('/api/state', 'GET');
+  if (!d) return;
+
+  const badge = document.getElementById('state-badge');
+  badge.textContent = d.state;
+  badge.className = 'state-badge state-' + d.state;
+
+  document.getElementById('ip').textContent = d.ip || '--';
+  document.getElementById('mfr').textContent = d.manufacturer || '--';
+  document.getElementById('sn').textContent = d.serial || '--';
+  document.getElementById('mdl').textContent = d.model || '--';
+  document.getElementById('fw').textContent = d.swVersion || '--';
+
+  readerEnabled = d.readerEnabled;
+  const btn = document.getElementById('reader-btn');
+  btn.textContent = readerEnabled ? 'Disable Reader' : 'Enable Reader';
+  btn.className = readerEnabled ? 'btn-secondary' : 'btn-success';
+}
+
+async function fetchLog() {
+  const d = await api('/api/log', 'GET');
+  if (!d || !Array.isArray(d)) return;
+
+  if (d.length === lastLogCount) return;
+  lastLogCount = d.length;
+
+  const c = document.getElementById('log-container');
+  const atBottom = c.scrollTop + c.clientHeight >= c.scrollHeight - 20;
+
+  c.innerHTML = d.map(e => {
+    const ts = (e.ts / 1000).toFixed(1) + 's';
+    return '<div class="log-entry log-' + e.dir + '">[' + ts + '] ' + e.dir + 'X ' + e.msg + '</div>';
+  }).join('');
+
+  if (atBottom) c.scrollTop = c.scrollHeight;
+}
+
+async function doVend() {
+  const item = parseInt(document.getElementById('item-num').value) || 1;
+  const price = parseInt(document.getElementById('item-price').value) || 0;
+  const r = await api('/api/vend', 'POST', {item_number: item, item_price: price});
+  toast(r && r.ok ? 'Vend request sent' : (r && r.error || 'Failed'), !!r && !!r.ok);
+}
+
+async function doVendCancel() {
+  const r = await api('/api/vend-cancel', 'POST', {});
+  toast(r && r.ok ? 'Vend cancelled' : (r && r.error || 'Failed'), !!r && !!r.ok);
+}
+
+async function doCashSale() {
+  const item = parseInt(document.getElementById('item-num').value) || 1;
+  const price = parseInt(document.getElementById('item-price').value) || 0;
+  const r = await api('/api/cashsale', 'POST', {item_number: item, item_price: price});
+  toast(r && r.ok ? 'Cash sale sent' : (r && r.error || 'Failed'), !!r && !!r.ok);
+}
+
+async function doReset() {
+  const r = await api('/api/reset', 'POST', {});
+  toast(r && r.ok ? 'Reset triggered' : 'Failed', !!r && !!r.ok);
+}
+
+async function toggleReader() {
+  const r = await api('/api/reader', 'POST', {enabled: !readerEnabled});
+  if (r && r.ok) {
+    readerEnabled = r.enabled;
+    const btn = document.getElementById('reader-btn');
+    btn.textContent = readerEnabled ? 'Disable Reader' : 'Enable Reader';
+    btn.className = readerEnabled ? 'btn-secondary' : 'btn-success';
+    toast(readerEnabled ? 'Reader enabled' : 'Reader disabled', true);
+  }
+}
+
+function clearLog() {
+  document.getElementById('log-container').innerHTML = '';
+  lastLogCount = 0;
+}
+
+function toggleWifi() {
+  document.getElementById('wifi-section').classList.toggle('show');
+}
+
+async function scanWifi() {
+  const r = await api('/api/wifi/scan', 'GET');
+  if (!r || !r.networks) return;
+  const list = document.getElementById('wifi-list');
+  list.innerHTML = r.networks.map(n =>
+    '<div class="wifi-item" onclick="document.getElementById(\'wifi-ssid\').value=\'' + n.ssid.replace(/'/g,"\\'") + '\'">' +
+    '<span>' + n.ssid + '</span><span>' + n.rssi + ' dBm ' + (n.secure ? '&#128274;' : '') + '</span></div>'
+  ).join('');
+}
+
+async function setWifi() {
+  const ssid = document.getElementById('wifi-ssid').value;
+  const pass = document.getElementById('wifi-pass').value;
+  if (!ssid) { toast('SSID required', false); return; }
+  const r = await api('/api/wifi/set', 'POST', {ssid, password: pass});
+  toast(r && r.ok ? 'Connecting...' : 'Failed', !!r && !!r.ok);
+}
+
+// Start polling
+fetchState();
+fetchLog();
+pollTimer = setInterval(fetchState, 1000);
+logTimer = setInterval(fetchLog, 500);
+</script>
+</body>
+</html>

@@ -596,6 +596,13 @@ CONFIG_PARTITION_TABLE_MD5=y
 # end of Partition Table
 
 #
+# VMC Simulator Configuration
+#
+CONFIG_WIFI_SSID=""
+CONFIG_WIFI_PASSWORD=""
+# end of VMC Simulator Configuration
+
+#
 # Compiler options
 #
 CONFIG_COMPILER_OPTIMIZATION_DEBUG=y

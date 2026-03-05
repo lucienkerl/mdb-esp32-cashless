@@ -1,7 +1,7 @@
 /*
  * VMflow.xyz
  *
- * mdb-master-esp32s3.c - Vending machine controller
+ * mdb-master-esp32s3.c - Vending machine controller (VMC Simulator)
  *
  */
 
@@ -9,18 +9,23 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <float.h>
 #include <math.h>
 #include <driver/gpio.h>
 #include <driver/uart.h>
-#include <driver/gpio.h>
 #include <rom/ets_sys.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <esp_random.h>
+#include <esp_wifi.h>
+#include <esp_event.h>
+#include <esp_netif.h>
+#include <nvs_flash.h>
 
 #include "led_strip.h"
+#include "webui_server.h"
 
 #define TAG "mdb_vmc"
 
@@ -51,28 +56,15 @@ enum MDB_COMMAND {
 	EXPANSION = 0x07
 };
 
-typedef enum MACHINE_STATE {
-	INACTIVE_STATE, DISABLED_STATE, ENABLED_STATE, IDLE_STATE, VEND_STATE
-} machine_state_t;
-
-struct reader_t {
-	uint8_t featureLevel;
-	uint16_t countryCode;
-	uint16_t coinTypeRouting;
-	uint16_t tubeFullStatus;
-	uint8_t scaleFactor;
-	uint8_t decimalPlaces;
-	uint8_t responseTimeSec;
-	uint8_t tubeCounts[16];
-	uint8_t miscellaneous;
-
-	uint8_t poll_fail_count;
-
-	machine_state_t machineState;
-};
 struct reader_t reader0x08 = { .machineState = INACTIVE_STATE };
 struct reader_t reader0x10 = { .machineState = INACTIVE_STATE };
 struct reader_t reader0x60 = { .machineState = INACTIVE_STATE };
+
+// Expansion ID info for WebUI display
+char reader0x10_manufacturer[4] = "";
+char reader0x10_serial[13] = "";
+char reader0x10_model[13] = "";
+char reader0x10_sw_version[3] = "";
 
 /* PA102 - Product Price
  * PA201 - Number of Products Vended Since Initialisation
@@ -86,7 +78,30 @@ coil_t coils[1] = {
     {.pa102 = 1.25f, .pa201 = 0}
 };
 
-static QueueHandle_t button_receive_queue = (void*) 0;
+/* --- Vend request queue (shared between button ISR and WebUI) --- */
+QueueHandle_t vend_request_queue = NULL;
+bool reader_enabled = true; // WebUI can toggle this
+
+/* --- MDB Log Ringbuffer --- */
+mdb_log_entry_t mdb_log[MDB_LOG_SIZE];
+int mdb_log_head = 0;
+int mdb_log_count = 0;
+
+void mdb_log_add(char dir, const char *fmt, ...) {
+    mdb_log_entry_t *e = &mdb_log[mdb_log_head];
+    e->timestamp_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    e->direction = dir;
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(e->description, sizeof(e->description), fmt, args);
+    va_end(args);
+    mdb_log_head = (mdb_log_head + 1) % MDB_LOG_SIZE;
+    if (mdb_log_count < MDB_LOG_SIZE) mdb_log_count++;
+}
+
+/* --- WiFi --- */
+#define WIFI_MAX_RETRY 5
+static int wifi_retry_num = 0;
 
 static volatile int64_t last_button_time = 0;
 
@@ -95,8 +110,8 @@ static void IRAM_ATTR button0_isr_handler(void* arg) {
 	int64_t now = esp_timer_get_time();
 
 	if (now - last_button_time > 500000) { // 500ms debounce
-        uint8_t itemNumber = (esp_random() % 10) + 1; // random slot 1–10
-        xQueueSendFromISR(button_receive_queue, &itemNumber, NULL);
+        vend_request_t req = { .itemNumber = (esp_random() % 10) + 1, .itemPrice = 0 };
+        xQueueSendFromISR(vend_request_queue, &req, NULL);
         last_button_time = now;
     }
 }
@@ -127,11 +142,26 @@ void write_payload_9(uint8_t *mdb_payload_tx, uint8_t mdb_length) {
 	}
 
 	write_9(checksum);
+
+	// Wait for TX to complete, then consume echo bytes caused by
+	// crosstalk between adjacent GPIO4 (RX) and GPIO5 (TX) pins.
+	// Echo bytes arrive synchronously with TX, so they're all in the
+	// RX buffer by now. Use 0 timeout to avoid consuming the slave's response.
+	uart_wait_tx_done(UART_NUM_2, pdMS_TO_TICKS(250));
+	uint8_t echo_discard[36];
+	uart_read_bytes(UART_NUM_2, echo_discard, mdb_length + 1, 0);
+}
+
+void send_ack(void) {
+	write_9(ACK | BIT_MODE_SET);
+	uart_wait_tx_done(UART_NUM_2, pdMS_TO_TICKS(250));
+	uint8_t echo;
+	uart_read_bytes(UART_NUM_2, &echo, 1, 0);
 }
 
 void mdb_vmc_loop(void *pvParameters) {
 
-	uint8_t itemNumber = -1;
+	vend_request_t currentVend = {0};
 
 	uint8_t mdb_payload_tx[36];
 	uint8_t mdb_payload_rx[36];
@@ -147,22 +177,25 @@ void mdb_vmc_loop(void *pvParameters) {
 
 			mdb_payload_tx[0] = (0x10 /*Cashless Device #1*/ & BIT_ADD_SET) | (RESET & BIT_CMD_SET);
 			write_payload_9(mdb_payload_tx, 1);
+			mdb_log_add('T', "RESET");
 
             len = uart_read_bytes(UART_NUM_2, mdb_payload_rx, 1, pdMS_TO_TICKS(30)); // ACK*
-            //assert(len == 1);
 
             if(len == 1){
+                mdb_log_add('R', "ACK (0x%02X)", mdb_payload_rx[0]);
+
                 mdb_payload_tx[0] = (0x10 /*Cashless Device #1*/ & BIT_ADD_SET) | (POLL & BIT_CMD_SET);
                 write_payload_9(mdb_payload_tx, 1);
+                mdb_log_add('T', "POLL");
 
                 len = uart_read_bytes(UART_NUM_2, mdb_payload_rx, 2, pdMS_TO_TICKS(30)); // CHK*
-                assert(len == 2);
+                if (len != 2) { ESP_LOGW(TAG, "POLL response timeout in INACTIVE (got %d)", len); continue; }
+                ESP_LOGI(TAG, "POLL response: 0x%02X 0x%02X", mdb_payload_rx[0], mdb_payload_rx[1]);
 
-                write_9(ACK | BIT_MODE_SET);
-
-                assert(mdb_payload_rx[0] == 0x00);
+                send_ack();
 
                 if (mdb_payload_rx[0] == 0x00 /*Just Reset*/) {
+                    mdb_log_add('R', "Just Reset");
 
                     mdb_payload_tx[0] = (0x10 /*Cashless Device #1*/ & BIT_ADD_SET) | (SETUP & BIT_CMD_SET);
                     mdb_payload_tx[1] = 0x00; 			// Config Data
@@ -172,11 +205,20 @@ void mdb_vmc_loop(void *pvParameters) {
                     mdb_payload_tx[5] = 0b00000001; 	// Display Information
 
                     write_payload_9(mdb_payload_tx, 6);
+                    mdb_log_add('T', "SETUP Config");
 
-                    len = uart_read_bytes(UART_NUM_2, mdb_payload_rx, 9, pdMS_TO_TICKS(40)); // CHK*
-                    assert(len == 9);
+                    len = uart_read_bytes(UART_NUM_2, mdb_payload_rx, 9, pdMS_TO_TICKS(200)); // CHK*
+                    if (len != 9) {
+                        ESP_LOGW(TAG, "SETUP Config response timeout (got %d)", len);
+                        if (len > 0) {
+                            char dbg[64]; int pos = 0;
+                            for (int i = 0; i < len && pos < 60; i++) pos += snprintf(dbg+pos, 64-pos, "%02X ", mdb_payload_rx[i]);
+                            ESP_LOGW(TAG, "SETUP Config bytes: %s", dbg);
+                        }
+                        continue;
+                    }
 
-                    write_9(ACK | BIT_MODE_SET);
+                    send_ack();
 
                     reader0x10.featureLevel = mdb_payload_rx[1];
                     reader0x10.countryCode = (mdb_payload_rx[2] << 8) | mdb_payload_rx[3];
@@ -184,6 +226,8 @@ void mdb_vmc_loop(void *pvParameters) {
                     reader0x10.decimalPlaces = mdb_payload_rx[5];
                     reader0x10.responseTimeSec = mdb_payload_rx[6];
                     reader0x10.miscellaneous = mdb_payload_rx[7];
+
+                    mdb_log_add('R', "Config: FL%d SC%d DP%d", reader0x10.featureLevel, reader0x10.scaleFactor, reader0x10.decimalPlaces);
 
                     reader0x10.machineState = DISABLED_STATE;
 
@@ -217,9 +261,10 @@ void mdb_vmc_loop(void *pvParameters) {
 			mdb_payload_tx[5] = scaledMinPrice;
 
 			write_payload_9(mdb_payload_tx, 6);
+			mdb_log_add('T', "SETUP Max/Min %d/%d", scaledMaxPrice, scaledMinPrice);
 
 			len = uart_read_bytes(UART_NUM_2, mdb_payload_rx, 1, pdMS_TO_TICKS(30)); // ACK*
-            assert(len == 1);
+            if (len != 1) { ESP_LOGW(TAG, "Max/Min Prices ACK timeout"); reader0x10.machineState = INACTIVE_STATE; continue; }
 
 			mdb_payload_tx[0] = (0x10 /*Cashless Device #1*/ & BIT_ADD_SET) | (EXPANSION & BIT_CMD_SET);
 			mdb_payload_tx[1] = 0x00; // Request ID
@@ -258,16 +303,29 @@ void mdb_vmc_loop(void *pvParameters) {
 			mdb_payload_tx[30] = '1';
 
 			write_payload_9(mdb_payload_tx, 31);
+			mdb_log_add('T', "EXPANSION Request ID");
 
-            len = uart_read_bytes(UART_NUM_2, mdb_payload_rx, 31, pdMS_TO_TICKS(125)); // CHK*
-            assert(len == 31);
+            len = uart_read_bytes(UART_NUM_2, mdb_payload_rx, 31, pdMS_TO_TICKS(500)); // CHK*
+            if (len != 31) { ESP_LOGW(TAG, "Expansion ID response timeout (got %d)", len); reader0x10.machineState = INACTIVE_STATE; continue; }
 
-			write_9(ACK | BIT_MODE_SET);
+			send_ack();
 
             ESP_LOGI( TAG, "Manufacture code: %.*s", 3, &mdb_payload_rx[1]);
             ESP_LOGI( TAG, "Serial number: %.*s", 12, &mdb_payload_rx[4]);
             ESP_LOGI( TAG, "Model number: %.*s", 12, &mdb_payload_rx[16]);
             ESP_LOGI( TAG, "Software version: %.*s", 2, &mdb_payload_rx[28]);
+
+            mdb_log_add('R', "ID: %.3s SN:%.12s", &mdb_payload_rx[1], &mdb_payload_rx[4]);
+
+			// Store expansion ID info for WebUI
+			memcpy(reader0x10_manufacturer, &mdb_payload_rx[1], 3);
+			reader0x10_manufacturer[3] = '\0';
+			memcpy(reader0x10_serial, &mdb_payload_rx[4], 12);
+			reader0x10_serial[12] = '\0';
+			memcpy(reader0x10_model, &mdb_payload_rx[16], 12);
+			reader0x10_model[12] = '\0';
+			memcpy(reader0x10_sw_version, &mdb_payload_rx[28], 2);
+			reader0x10_sw_version[2] = '\0';
 
 			ESP_LOGI( TAG, "Reader Enable");
 
@@ -275,27 +333,56 @@ void mdb_vmc_loop(void *pvParameters) {
             mdb_payload_tx[1] = 0x01; // Reader Enable
 
             write_payload_9(mdb_payload_tx, 2);
+            mdb_log_add('T', "READER Enable");
 
             len = uart_read_bytes(UART_NUM_2, mdb_payload_rx, 1, pdMS_TO_TICKS(30)); // ACK*
-            assert(len == 1);
+            if (len != 1) { ESP_LOGW(TAG, "Reader Enable ACK timeout"); reader0x10.machineState = INACTIVE_STATE; continue; }
 
             reader0x10.machineState = ENABLED_STATE;
+            reader_enabled = true;
 
 		} else {
+
+			// Check if WebUI requested Reader Disable/Enable toggle
+			if (reader_enabled && (reader0x10.machineState == ENABLED_STATE || reader0x10.machineState == IDLE_STATE)) {
+				// Reader is enabled, check for disable request — handled below after POLL
+			} else if (!reader_enabled && reader0x10.machineState != INACTIVE_STATE && reader0x10.machineState != DISABLED_STATE) {
+				// WebUI requested disable
+				mdb_payload_tx[0] = (0x10 & BIT_ADD_SET) | (READER & BIT_CMD_SET);
+				mdb_payload_tx[1] = 0x00; // Reader Disable
+				write_payload_9(mdb_payload_tx, 2);
+				mdb_log_add('T', "READER Disable");
+
+				len = uart_read_bytes(UART_NUM_2, mdb_payload_rx, 1, pdMS_TO_TICKS(30));
+				if (len != 1) { ESP_LOGW(TAG, "Reader Disable ACK timeout"); reader0x10.machineState = INACTIVE_STATE; continue; }
+
+				reader0x10.machineState = DISABLED_STATE;
+				mdb_log_add('R', "ACK (Reader Disabled)");
+				continue;
+			}
 
 			mdb_payload_tx[0] = (0x10 /*Cashless Device #1*/ & BIT_ADD_SET) | (POLL & BIT_CMD_SET);
 			write_payload_9(mdb_payload_tx, 1);
 
-            len = uart_read_bytes(UART_NUM_2, mdb_payload_rx, 1, pdMS_TO_TICKS(30)); // ...
+            len = uart_read_bytes(UART_NUM_2, mdb_payload_rx, 1, pdMS_TO_TICKS(30));
             if( len == 1){
                 reader0x10.poll_fail_count = 0;
 
-                if (mdb_payload_rx[0] == 0x07 /*End Session*/ ) {
+                // Handle Just Reset in main poll (0x00 is 2 bytes: data + CHK)
+                if (mdb_payload_rx[0] == 0x00 /*Just Reset*/) {
+                    len += uart_read_bytes(UART_NUM_2, mdb_payload_rx + len, 1, pdMS_TO_TICKS(30)); // CHK
+                    send_ack();
+                    ESP_LOGW(TAG, "Just Reset during active state");
+                    mdb_log_add('R', "Just Reset (unexpected)");
+                    reader0x10.machineState = INACTIVE_STATE;
+
+                } else if (mdb_payload_rx[0] == 0x07 /*End Session*/ ) {
 
 					len += uart_read_bytes(UART_NUM_2, mdb_payload_rx + len, 1, pdMS_TO_TICKS(30)); // CHK*
-					assert(len == 2);
+					if (len != 2) { ESP_LOGW(TAG, "End Session CHK timeout"); reader0x10.machineState = INACTIVE_STATE; continue; }
 
-                    write_9(ACK | BIT_MODE_SET);
+                    send_ack();
+                    mdb_log_add('R', "End Session");
 
 					reader0x10.machineState = ENABLED_STATE;
 
@@ -303,17 +390,19 @@ void mdb_vmc_loop(void *pvParameters) {
 					ESP_LOGI( TAG, "Vend Denied");
 
 				    len += uart_read_bytes(UART_NUM_2, mdb_payload_rx + len, 1, pdMS_TO_TICKS(30)); // CHK*
-					assert(len == 2);
+					if (len != 2) { ESP_LOGW(TAG, "Vend Denied CHK timeout"); reader0x10.machineState = INACTIVE_STATE; continue; }
 
-					write_9(ACK | BIT_MODE_SET);
+					send_ack();
+					mdb_log_add('R', "Vend Denied");
 
 					mdb_payload_tx[0] = (0x10 /*Cashless Device #1*/ & BIT_ADD_SET) | (VEND & BIT_CMD_SET);
 					mdb_payload_tx[1] = 0x04; // Session Complete
 
 					write_payload_9(mdb_payload_tx, 2);
+					mdb_log_add('T', "Session Complete");
 
                     len = uart_read_bytes(UART_NUM_2, mdb_payload_rx, 1, pdMS_TO_TICKS(30)); // ACK*
-                    assert(len == 1);
+                    if (len != 1) { ESP_LOGW(TAG, "Session Complete ACK timeout (Vend Denied)"); reader0x10.machineState = INACTIVE_STATE; continue; }
 
 					reader0x10.machineState = IDLE_STATE;
 
@@ -321,22 +410,23 @@ void mdb_vmc_loop(void *pvParameters) {
 					ESP_LOGI( TAG, "Vend Approved");
 
                     len += uart_read_bytes(UART_NUM_2, mdb_payload_rx + len, 3, pdMS_TO_TICKS(30)); // CHK*
-					assert(len == 4);
+					if (len != 4) { ESP_LOGW(TAG, "Vend Approved payload timeout"); reader0x10.machineState = INACTIVE_STATE; continue; }
 
-					write_9(ACK | BIT_MODE_SET);
+					send_ack();
 
 					uint16_t vendAmount = (mdb_payload_rx[1] << 8) | mdb_payload_rx[2];
-					(void) vendAmount;
+					mdb_log_add('R', "Vend Approved amt=%d", vendAmount);
 
 					mdb_payload_tx[0] = (0x10 /*Cashless Device #1*/ & BIT_ADD_SET) | (VEND & BIT_CMD_SET);
 					mdb_payload_tx[1] = 0x02; // Vend Success
-					mdb_payload_tx[2] = itemNumber >> 8;
-					mdb_payload_tx[3] = itemNumber;
+					mdb_payload_tx[2] = currentVend.itemNumber >> 8;
+					mdb_payload_tx[3] = currentVend.itemNumber;
 
 					write_payload_9(mdb_payload_tx, 4);
+					mdb_log_add('T', "Vend Success item=%d", currentVend.itemNumber);
 
                     len = uart_read_bytes(UART_NUM_2, mdb_payload_rx, 1, pdMS_TO_TICKS(30)); // ACK*
-                    assert(len == 1);
+                    if (len != 1) { ESP_LOGW(TAG, "Vend Success ACK timeout"); reader0x10.machineState = INACTIVE_STATE; continue; }
 
 					reader0x10.machineState = IDLE_STATE;
 
@@ -344,38 +434,40 @@ void mdb_vmc_loop(void *pvParameters) {
 					mdb_payload_tx[1] = 0x04; // Session Complete
 
 					write_payload_9(mdb_payload_tx, 2);
+					mdb_log_add('T', "Session Complete");
 
                     len = uart_read_bytes(UART_NUM_2, mdb_payload_rx, 1, pdMS_TO_TICKS(30)); // ACK*
-                    assert(len == 1);
+                    if (len != 1) { ESP_LOGW(TAG, "Session Complete ACK timeout (Vend Approved)"); reader0x10.machineState = INACTIVE_STATE; continue; }
 
 				} else if (mdb_payload_rx[0] == 0x04 /*Session Cancel Request*/ ) {
-					// IDLE_STATE
 
 					len += uart_read_bytes(UART_NUM_2, mdb_payload_rx + len, 1, pdMS_TO_TICKS(30)); // CHK*
-					assert(len == 2);
+					if (len != 2) { ESP_LOGW(TAG, "Session Cancel CHK timeout"); reader0x10.machineState = INACTIVE_STATE; continue; }
 
-					write_9(ACK | BIT_MODE_SET);
+					send_ack();
+					mdb_log_add('R', "Session Cancel Request");
 
 					mdb_payload_tx[0] = (0x10 /*Cashless Device #1*/ & BIT_ADD_SET) | (VEND & BIT_CMD_SET);
 					mdb_payload_tx[1] = 0x04; // Session Complete
 
 					write_payload_9(mdb_payload_tx, 2);
+					mdb_log_add('T', "Session Complete");
 
                     len = uart_read_bytes(UART_NUM_2, mdb_payload_rx, 1, pdMS_TO_TICKS(30)); // ACK*
-                    assert(len == 1);
+                    if (len != 1) { ESP_LOGW(TAG, "Session Complete ACK timeout (Cancel)"); reader0x10.machineState = INACTIVE_STATE; continue; }
 
 				} else if (mdb_payload_rx[0] == 0x03 /*Begin Session*/ ) {
-					// ENABLED_STATE
 
 					ESP_LOGI( TAG, "Begin Session");
 
                     len += uart_read_bytes(UART_NUM_2, mdb_payload_rx + len, 3, pdMS_TO_TICKS(30)); // CHK*
-					assert(len == 4);
+					if (len != 4) { ESP_LOGW(TAG, "Begin Session payload timeout"); reader0x10.machineState = INACTIVE_STATE; continue; }
 
-					write_9(ACK | BIT_MODE_SET);
+					send_ack();
 
 					uint16_t fundsAvailable = (mdb_payload_rx[1] << 8) | mdb_payload_rx[2];
                     (void) fundsAvailable;
+                    mdb_log_add('R', "Begin Session funds=%d", fundsAvailable);
 
 					reader0x10.machineState = IDLE_STATE;
 
@@ -383,17 +475,39 @@ void mdb_vmc_loop(void *pvParameters) {
 					ESP_LOGI( TAG, "Command Out of Sequence");
 
                     len += uart_read_bytes(UART_NUM_2, mdb_payload_rx + len, 1, pdMS_TO_TICKS(30)); // CHK*
-					assert(len == 2);
+					if (len != 2) { ESP_LOGW(TAG, "Cmd Out of Sequence CHK timeout"); reader0x10.machineState = INACTIVE_STATE; continue; }
 
-                    write_9(ACK | BIT_MODE_SET);
+                    send_ack();
+                    mdb_log_add('R', "Cmd Out of Sequence");
 
 					reader0x10.machineState = INACTIVE_STATE;
 
-				} else if (xQueueReceive(button_receive_queue, &itemNumber, 0)) {
+				} else if (mdb_payload_rx[0] == 0x0a /*Malfunction/Error*/) {
+					ESP_LOGW(TAG, "Malfunction/Error from slave");
 
-					// Random price: whole part 1–5, decimal .1–.9
-					float randomPrice = (float)((esp_random() % 5) + 1) + (float)((esp_random() % 9) + 1) / 10.0f;
-					uint16_t itemPrice = TO_SCALE_FACTOR(randomPrice, reader0x10.scaleFactor, reader0x10.decimalPlaces);
+					len += uart_read_bytes(UART_NUM_2, mdb_payload_rx + len, 2, pdMS_TO_TICKS(30)); // error code + CHK
+					if (len >= 2) {
+						send_ack();
+						mdb_log_add('R', "Malfunction err=0x%02X", mdb_payload_rx[1]);
+					}
+
+				} else if (mdb_payload_rx[0] == 0x08 /*Cancelled*/) {
+					ESP_LOGI(TAG, "Cancelled response");
+
+					len += uart_read_bytes(UART_NUM_2, mdb_payload_rx + len, 1, pdMS_TO_TICKS(30)); // CHK
+					if (len == 2) send_ack();
+					mdb_log_add('R', "Cancelled");
+
+				} else if (xQueueReceive(vend_request_queue, &currentVend, 0)) {
+
+					uint16_t itemPrice;
+					if (currentVend.itemPrice == 0) {
+						// Random price: whole part 1–5, decimal .1–.9
+						float randomPrice = (float)((esp_random() % 5) + 1) + (float)((esp_random() % 9) + 1) / 10.0f;
+						itemPrice = TO_SCALE_FACTOR(randomPrice, reader0x10.scaleFactor, reader0x10.decimalPlaces);
+					} else {
+						itemPrice = currentVend.itemPrice;
+					}
 
 					if (reader0x10.machineState == IDLE_STATE) {
 						ESP_LOGI( TAG, "Vend request");
@@ -402,13 +516,14 @@ void mdb_vmc_loop(void *pvParameters) {
 						mdb_payload_tx[1] = 0x00; // Vend Request
 						mdb_payload_tx[2] = itemPrice >> 8;
 						mdb_payload_tx[3] = itemPrice;
-						mdb_payload_tx[4] = itemNumber >> 8;
-						mdb_payload_tx[5] = itemNumber;
+						mdb_payload_tx[4] = currentVend.itemNumber >> 8;
+						mdb_payload_tx[5] = currentVend.itemNumber;
 
 						write_payload_9(mdb_payload_tx, 6);
+						mdb_log_add('T', "Vend Request item=%d price=%d", currentVend.itemNumber, itemPrice);
 
 						len = uart_read_bytes(UART_NUM_2, mdb_payload_rx, 1, pdMS_TO_TICKS(30)); // ACK*
-					    assert(len == 1);
+					    if (len != 1) { ESP_LOGW(TAG, "Vend Request ACK timeout"); reader0x10.machineState = INACTIVE_STATE; continue; }
 
 						reader0x10.machineState = VEND_STATE;
 
@@ -420,13 +535,14 @@ void mdb_vmc_loop(void *pvParameters) {
 						mdb_payload_tx[2] = itemPrice >> 8;
 						mdb_payload_tx[3] = itemPrice;
 
-						mdb_payload_tx[4] = itemNumber >> 8;
-						mdb_payload_tx[5] = itemNumber;
+						mdb_payload_tx[4] = currentVend.itemNumber >> 8;
+						mdb_payload_tx[5] = currentVend.itemNumber;
 
 						write_payload_9(mdb_payload_tx, 6);
+						mdb_log_add('T', "Cash Sale item=%d price=%d", currentVend.itemNumber, itemPrice);
 
 						len = uart_read_bytes(UART_NUM_2, mdb_payload_rx, 1, pdMS_TO_TICKS(30)); // ACK*
-					    assert(len == 1);
+					    if (len != 1) { ESP_LOGW(TAG, "Cash Sale ACK timeout"); reader0x10.machineState = INACTIVE_STATE; continue; }
 					}
 				}
 
@@ -475,7 +591,7 @@ void mdb_vmc_loop(void *pvParameters) {
 				reader0x08.decimalPlaces = mdb_payload_rx[4];
 				reader0x08.coinTypeRouting = (mdb_payload_rx[5] << 8) | mdb_payload_rx[6];
 
-				write_9(ACK | BIT_MODE_SET);
+				send_ack();
 
 				// Send TUBE STATUS
 				mdb_payload_tx[0] = (0x08 *//*Changer*//* & BIT_ADD_SET) | (0x02 *//*TUBE STATUS*//* & BIT_CMD_SET);
@@ -494,7 +610,7 @@ void mdb_vmc_loop(void *pvParameters) {
 
 					ESP_LOGI(TAG, "Changer Tube Status received");
 
-					write_9(ACK | BIT_MODE_SET);
+					send_ack();
 
 					reader0x08.machineState = ENABLED_STATE;
 				}
@@ -693,7 +809,84 @@ void eva_dts_loop(void *pvParameters) {
 	}
 }
 
+/* --- WiFi Event Handler --- */
+static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
+
+    if (event_base == WIFI_EVENT)
+        switch (event_id) {
+        case WIFI_EVENT_STA_START: {
+            wifi_retry_num = 0;
+            ESP_LOGI(TAG, "WIFI STA started");
+
+            wifi_config_t sta_cfg = {0};
+            esp_wifi_get_config(WIFI_IF_STA, &sta_cfg);
+            ESP_LOGI(TAG, "Saved SSID: \"%s\"", (char *)sta_cfg.sta.ssid);
+
+            if (strlen((char *)sta_cfg.sta.ssid) == 0) {
+                ESP_LOGI(TAG, "No saved WiFi credentials — starting SoftAP");
+                start_softap();
+                start_dns_server();
+                start_webui_server();
+            } else {
+                esp_err_t conn_err = esp_wifi_connect();
+                ESP_LOGI(TAG, "esp_wifi_connect() → %s", esp_err_to_name(conn_err));
+                if (conn_err != ESP_OK) {
+                    ESP_LOGW(TAG, "Connect failed immediately — starting SoftAP");
+                    start_softap();
+                    start_dns_server();
+                    start_webui_server();
+                }
+            }
+            break;
+        }
+        case WIFI_EVENT_AP_START:
+            ESP_LOGI(TAG, "WIFI AP started — SSID \"" VMC_AP_SSID "\"");
+            break;
+        case WIFI_EVENT_AP_STACONNECTED:
+            ESP_LOGI(TAG, "Client connected to SoftAP");
+            break;
+        case WIFI_EVENT_STA_CONNECTED:
+            break;
+        case WIFI_EVENT_STA_DISCONNECTED:
+            if (wifi_retry_num++ < WIFI_MAX_RETRY) {
+                esp_wifi_connect();
+            } else {
+                start_softap();
+                start_dns_server();
+                start_webui_server();
+            }
+            break;
+        }
+
+    if (event_base == IP_EVENT)
+        switch (event_id) {
+        case IP_EVENT_STA_GOT_IP: {
+            ip_event_got_ip_t *event_ip = (ip_event_got_ip_t *)event_data;
+            ESP_LOGW(TAG, "GOT IP: " IPSTR, IP2STR(&event_ip->ip_info.ip));
+
+            wifi_retry_num = 0;
+
+            stop_dns_server();
+
+            // Switch to STA-only mode
+            esp_wifi_set_mode(WIFI_MODE_STA);
+
+            // Start WebUI server (accessible on STA IP)
+            start_webui_server();
+            break;
+        }
+        }
+}
+
 void app_main(void) {
+
+    //--------------- NVS ---------------//
+    esp_err_t nvs_err = nvs_flash_init();
+    if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES || nvs_err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        nvs_flash_erase();
+        nvs_err = nvs_flash_init();
+    }
+    ESP_LOGI(TAG, "NVS init: %s", esp_err_to_name(nvs_err));
 
     //--------------- Strip LED configuration ---------------//
     led_strip_handle_t led_strip;
@@ -713,6 +906,33 @@ void app_main(void) {
 
     ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip));
 
+    //--------------- WiFi ---------------//
+    esp_netif_init();
+    esp_event_loop_create_default();
+    esp_netif_create_default_wifi_sta();
+    esp_netif_create_default_wifi_ap();
+
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    esp_wifi_init(&cfg);
+
+    esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler, NULL, NULL);
+    esp_event_handler_instance_register(IP_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler, NULL, NULL);
+
+    // Apply Kconfig WiFi credentials if set
+    #ifdef CONFIG_WIFI_SSID
+    if (strlen(CONFIG_WIFI_SSID) > 0) {
+        wifi_config_t sta_config = {0};
+        strncpy((char *)sta_config.sta.ssid, CONFIG_WIFI_SSID, sizeof(sta_config.sta.ssid) - 1);
+        #ifdef CONFIG_WIFI_PASSWORD
+        strncpy((char *)sta_config.sta.password, CONFIG_WIFI_PASSWORD, sizeof(sta_config.sta.password) - 1);
+        #endif
+        esp_wifi_set_config(WIFI_IF_STA, &sta_config);
+    }
+    #endif
+
+    esp_wifi_set_mode(WIFI_MODE_APSTA);
+    esp_wifi_start();
+
     //--------------- MDB ---------------//
 	uart_config_t uart_config_2 = {
         .baud_rate = 9600,
@@ -726,10 +946,10 @@ void app_main(void) {
 	uart_driver_install(UART_NUM_2, 256, 256, 0, (void*) 0, 0);
 
 	//
-	button_receive_queue = xQueueCreate(1 /*queue-length*/, sizeof(uint8_t));
+	vend_request_queue = xQueueCreate(1 /*queue-length*/, sizeof(vend_request_t));
 
 	gpio_config_t io_conf = {
-			.intr_type = GPIO_INTR_NEGEDGE, // Borda de descida (pressionado)
+			.intr_type = GPIO_INTR_NEGEDGE,
 			.mode = GPIO_MODE_INPUT,
 			.pin_bit_mask = (1ULL << GPIO_NUM_0),
 			.pull_up_en = GPIO_PULLUP_ENABLE,
