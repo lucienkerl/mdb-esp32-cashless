@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MDB Master - VMC Simulator</title>
+<style>
+:root {
+  --bg: #0f172a; --card: #1e293b; --border: #334155; --border-hover: #475569;
+  --text: #e2e8f0; --text-dim: #94a3b8; --text-muted: #64748b;
+  --blue: #3b82f6; --blue-hover: #2563eb; --green: #22c55e; --amber: #f59e0b;
+  --red: #ef4444; --orange: #f97316; --purple: #a855f7;
+  --radius: 8px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; padding: 12px; min-height: 100vh; }
+.container { max-width: 720px; margin: 0 auto; }
+
+/* Header */
+.header { display: flex; align-items: center; justify-content: space-between; padding: 12px 0 16px; }
+.header h1 { font-size: 1.1rem; font-weight: 600; }
+.header .sub { font-size: 0.75rem; color: var(--text-dim); }
+.conn-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0; }
+.conn-dot.active { background: var(--green); box-shadow: 0 0 8px var(--green); }
+
+/* Cards */
+.card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
+.card-title { font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.card-title svg { width: 16px; height: 16px; opacity: 0.7; }
+
+/* Status */
+.status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.status-item { background: var(--bg); border-radius: 6px; padding: 10px 12px; }
+.status-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.status-value { font-size: 0.95rem; font-weight: 500; margin-top: 2px; }
+.badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+.badge-gray { background: #374151; color: #9ca3af; }
+.badge-amber { background: #78350f; color: #fbbf24; }
+.badge-blue { background: #1e3a5f; color: #60a5fa; }
+.badge-green { background: #14532d; color: #4ade80; }
+.badge-orange { background: #7c2d12; color: #fb923c; }
+
+/* Table */
+table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+th { text-align: left; color: var(--text-muted); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+td { padding: 4px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+input.cell { background: transparent; border: 1px solid transparent; color: var(--text); padding: 4px 6px; border-radius: 4px; width: 100%; font-size: 0.85rem; font-family: inherit; }
+input.cell:focus { outline: none; border-color: var(--blue); background: var(--bg); }
+input.cell-slot { width: 50px; text-align: center; }
+input.cell-price { width: 70px; text-align: right; }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 6px; border: none; font-size: 0.8rem; font-weight: 500; cursor: pointer; transition: all 0.15s; font-family: inherit; }
+.btn-primary { background: var(--blue); color: #fff; }
+.btn-primary:hover { background: var(--blue-hover); }
+.btn-danger { background: transparent; color: var(--red); border: 1px solid var(--border); }
+.btn-danger:hover { background: #7f1d1d22; border-color: var(--red); }
+.btn-ghost { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+.btn-ghost:hover { border-color: var(--border-hover); color: var(--text); }
+.btn-sm { padding: 3px 8px; font-size: 0.75rem; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+/* Vend Control */
+.vend-section { display: flex; flex-direction: column; gap: 12px; }
+.vend-row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.field select, .field input { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 8px 10px; border-radius: 6px; font-size: 0.85rem; font-family: inherit; }
+.field select:focus, .field input:focus { outline: none; border-color: var(--blue); }
+.field select { min-width: 180px; }
+.btn-vend { background: var(--green); color: #fff; padding: 10px 28px; font-size: 0.95rem; font-weight: 600; border-radius: 8px; border: none; cursor: pointer; transition: all 0.15s; font-family: inherit; }
+.btn-vend:hover { background: #16a34a; transform: translateY(-1px); }
+.btn-vend:active { transform: translateY(0); }
+.btn-vend:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.btn-cash { background: var(--amber); color: #000; padding: 10px 20px; font-size: 0.85rem; font-weight: 600; border-radius: 8px; border: none; cursor: pointer; transition: all 0.15s; font-family: inherit; }
+.btn-cash:hover { background: #d97706; }
+.vend-result { padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; font-weight: 500; display: none; }
+.vend-result.ok { display: block; background: #14532d; color: #4ade80; }
+.vend-result.err { display: block; background: #7f1d1d; color: #fca5a5; }
+.vend-result.wait { display: block; background: #78350f; color: #fbbf24; }
+
+/* Events */
+.event-log { max-height: 220px; overflow-y: auto; font-size: 0.8rem; font-family: 'SF Mono', 'Fira Code', monospace; background: var(--bg); border-radius: 6px; padding: 8px; }
+.event-log::-webkit-scrollbar { width: 6px; }
+.event-log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.ev { padding: 3px 0; border-bottom: 1px solid #1e293b; display: flex; gap: 8px; }
+.ev:last-child { border-bottom: none; }
+.ev-time { color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
+.ev-text { word-break: break-word; }
+.ev-text.info { color: var(--text-dim); }
+.ev-text.success { color: var(--green); }
+.ev-text.error { color: var(--red); }
+.ev-text.warning { color: var(--amber); }
+
+/* WiFi */
+.collapse-toggle { cursor: pointer; user-select: none; }
+.collapse-toggle::after { content: ' +'; font-weight: bold; }
+.collapse-toggle.open::after { content: ' -'; }
+.collapse-body { display: none; margin-top: 12px; }
+.collapse-body.show { display: block; }
+.wifi-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+.wifi-list { margin-top: 10px; max-height: 180px; overflow-y: auto; }
+.wifi-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 6px; cursor: pointer; transition: background 0.1s; }
+.wifi-item:hover { background: var(--bg); }
+.wifi-item.selected { background: var(--bg); border: 1px solid var(--blue); }
+.wifi-ssid { font-size: 0.85rem; }
+.wifi-rssi { font-size: 0.75rem; color: var(--text-muted); }
+.wifi-bars { display: flex; gap: 2px; align-items: end; height: 14px; }
+.wifi-bars span { width: 3px; background: var(--text-muted); border-radius: 1px; }
+.wifi-bars span.on { background: var(--green); }
+.wifi-status { font-size: 0.8rem; color: var(--text-dim); margin-bottom: 8px; }
+
+/* Toast */
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 10px 20px; border-radius: 8px; font-size: 0.85rem; z-index: 100; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="container">
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <h1>MDB Master - VMC Simulator</h1>
+      <div class="sub">Web control interface for MDB testing</div>
+    </div>
+    <div class="conn-dot" id="connDot" title="Polling status"></div>
+  </div>
+
+  <!-- Status -->
+  <div class="card">
+    <div class="card-title">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+      Device Status
+    </div>
+    <div class="status-grid">
+      <div class="status-item">
+        <div class="status-label">MDB State</div>
+        <div class="status-value"><span class="badge badge-gray" id="stateBadge">INACTIVE</span></div>
+      </div>
+      <div class="status-item">
+        <div class="status-label">Poll Fails</div>
+        <div class="status-value" id="pollFails">0</div>
+      </div>
+      <div class="status-item">
+        <div class="status-label">Manufacturer</div>
+        <div class="status-value" id="devMfg">--</div>
+      </div>
+      <div class="status-item">
+        <div class="status-label">Serial</div>
+        <div class="status-value" id="devSerial">--</div>
+      </div>
+      <div class="status-item">
+        <div class="status-label">Model</div>
+        <div class="status-value" id="devModel">--</div>
+      </div>
+      <div class="status-item">
+        <div class="status-label">WiFi IP</div>
+        <div class="status-value" id="staIp">--</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Vend Control -->
+  <div class="card">
+    <div class="card-title">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M12 8v8m-4-4h8"/></svg>
+      Vend Control
+    </div>
+    <div class="vend-section">
+      <div class="vend-row">
+        <div class="field" style="flex:1">
+          <label>Product</label>
+          <select id="vendProduct"></select>
+        </div>
+        <div class="field">
+          <label>Price Override (EUR)</label>
+          <input type="number" id="vendPrice" step="0.01" min="0" style="width:100px">
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn-vend" id="btnVend" onclick="doVend()">VEND</button>
+        <button class="btn-cash" id="btnCash" onclick="doCashSale()">CASH SALE</button>
+      </div>
+      <div class="vend-result" id="vendResult"></div>
+    </div>
+  </div>
+
+  <!-- Products -->
+  <div class="card">
+    <div class="card-title">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>
+      Products
+    </div>
+    <table>
+      <thead><tr><th>Slot</th><th>Name</th><th>Price (EUR)</th><th></th></tr></thead>
+      <tbody id="prodBody"></tbody>
+    </table>
+    <div class="btn-row">
+      <button class="btn btn-ghost btn-sm" onclick="addProductRow()">+ Add Product</button>
+      <button class="btn btn-primary btn-sm" onclick="saveProducts()">Save to Device</button>
+    </div>
+  </div>
+
+  <!-- Event Log -->
+  <div class="card">
+    <div class="card-title">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      Event Log
+    </div>
+    <div class="event-log" id="eventLog">
+      <div style="color:var(--text-muted); text-align:center; padding:20px;">Waiting for events...</div>
+    </div>
+  </div>
+
+  <!-- WiFi -->
+  <div class="card">
+    <div class="card-title collapse-toggle" id="wifiToggle" onclick="toggleWifi()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0114.08 0"/><path d="M1.42 9a16 16 0 0121.16 0"/><path d="M8.53 16.11a6 6 0 016.95 0"/><circle cx="12" cy="20" r="1"/></svg>
+      WiFi Settings
+    </div>
+    <div class="collapse-body" id="wifiBody">
+      <div class="wifi-status" id="wifiStatus">Not connected</div>
+      <div class="wifi-row">
+        <div class="field" style="flex:1">
+          <label>SSID</label>
+          <input type="text" id="wifiSsid" placeholder="Network name">
+        </div>
+        <div class="field" style="flex:1">
+          <label>Password</label>
+          <input type="password" id="wifiPass" placeholder="Password">
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-ghost btn-sm" id="btnScan" onclick="scanWifi()">Scan Networks</button>
+        <button class="btn btn-primary btn-sm" onclick="connectWifi()">Connect</button>
+      </div>
+      <div class="wifi-list" id="wifiList"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+let currentProducts = [];
+let pollTimer = null;
+let lastEventCount = 0;
+
+/* ---- Status polling ---- */
+async function pollStatus() {
+  try {
+    const r = await fetch('/api/v1/status');
+    const d = await r.json();
+    $('connDot').classList.add('active');
+
+    const badge = $('stateBadge');
+    badge.textContent = d.state;
+    badge.className = 'badge badge-' + ({INACTIVE:'gray',DISABLED:'amber',ENABLED:'blue',IDLE:'green',VEND:'orange'}[d.state] || 'gray');
+
+    $('pollFails').textContent = d.poll_fails;
+    $('devMfg').textContent = d.manufacturer || '--';
+    $('devSerial').textContent = d.serial && d.serial.trim() ? d.serial.trim() : '--';
+    $('devModel').textContent = d.model && d.model.trim() ? d.model.trim() : '--';
+    $('staIp').textContent = d.sta_ip || '--';
+    $('wifiStatus').textContent = d.sta_ip ? 'Connected: ' + d.sta_ip : 'Not connected';
+  } catch(e) {
+    $('connDot').classList.remove('active');
+  }
+}
+
+/* ---- Events polling ---- */
+async function pollEvents() {
+  try {
+    const r = await fetch('/api/v1/events');
+    const d = await r.json();
+    if (!d.events || d.events.length === lastEventCount) return;
+    lastEventCount = d.events.length;
+
+    const log = $('eventLog');
+    log.innerHTML = '';
+    // Show newest first
+    for (let i = d.events.length - 1; i >= 0; i--) {
+      const ev = d.events[i];
+      const div = document.createElement('div');
+      div.className = 'ev';
+
+      const secs = Math.floor(ev.time / 1000);
+      const h = String(Math.floor(secs/3600) % 24).padStart(2,'0');
+      const m = String(Math.floor(secs/60) % 60).padStart(2,'0');
+      const s = String(secs % 60).padStart(2,'0');
+
+      const timeSpan = document.createElement('span');
+      timeSpan.className = 'ev-time';
+      timeSpan.textContent = h+':'+m+':'+s;
+
+      const textSpan = document.createElement('span');
+      let cls = 'info';
+      const t = ev.text.toUpperCase();
+      if (t.includes('APPROVED') || t.includes('CONNECTED') || t.includes('ENABLED')) cls = 'success';
+      else if (t.includes('DENIED') || t.includes('ERROR') || t.includes('FAIL') || t.includes('TIMEOUT')) cls = 'error';
+      else if (t.includes('QUEUED') || t.includes('REQUEST') || t.includes('CANCEL') || t.includes('SEQUENCE')) cls = 'warning';
+      textSpan.className = 'ev-text ' + cls;
+      textSpan.textContent = ev.text;
+
+      div.appendChild(timeSpan);
+      div.appendChild(textSpan);
+      log.appendChild(div);
+    }
+  } catch(e) {}
+}
+
+/* ---- Products ---- */
+async function loadProducts() {
+  try {
+    const r = await fetch('/api/v1/products');
+    const d = await r.json();
+    currentProducts = d.products || [];
+    renderProducts();
+    populateVendSelect();
+  } catch(e) {}
+}
+
+function renderProducts() {
+  const body = $('prodBody');
+  body.innerHTML = '';
+  currentProducts.forEach((p, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input class="cell cell-slot" type="number" value="${p.slot}" min="1" max="255" data-idx="${i}" data-field="slot"></td>
+      <td><input class="cell" type="text" value="${esc(p.name)}" maxlength="31" data-idx="${i}" data-field="name"></td>
+      <td><input class="cell cell-price" type="number" value="${(p.price/100).toFixed(2)}" step="0.01" min="0" data-idx="${i}" data-field="price"></td>
+      <td><button class="btn btn-danger btn-sm" onclick="removeProduct(${i})">Del</button></td>
+    `;
+    body.appendChild(tr);
+  });
+  // Attach change listeners
+  body.querySelectorAll('input.cell').forEach(inp => {
+    inp.addEventListener('change', () => {
+      const i = parseInt(inp.dataset.idx);
+      const f = inp.dataset.field;
+      if (f === 'slot') currentProducts[i].slot = parseInt(inp.value) || 1;
+      else if (f === 'name') currentProducts[i].name = inp.value;
+      else if (f === 'price') currentProducts[i].price = Math.round(parseFloat(inp.value) * 100) || 0;
+      populateVendSelect();
+    });
+  });
+}
+
+function addProductRow() {
+  const nextSlot = currentProducts.length > 0 ? Math.max(...currentProducts.map(p=>p.slot)) + 1 : 1;
+  currentProducts.push({ slot: nextSlot, name: 'New Product', price: 100 });
+  renderProducts();
+  populateVendSelect();
+}
+
+function removeProduct(idx) {
+  currentProducts.splice(idx, 1);
+  renderProducts();
+  populateVendSelect();
+}
+
+async function saveProducts() {
+  // Read current values from inputs
+  $('prodBody').querySelectorAll('input.cell').forEach(inp => {
+    const i = parseInt(inp.dataset.idx);
+    const f = inp.dataset.field;
+    if (f === 'slot') currentProducts[i].slot = parseInt(inp.value) || 1;
+    else if (f === 'name') currentProducts[i].name = inp.value;
+    else if (f === 'price') currentProducts[i].price = Math.round(parseFloat(inp.value) * 100) || 0;
+  });
+
+  try {
+    const r = await fetch('/api/v1/products', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ products: currentProducts })
+    });
+    const d = await r.json();
+    if (d.ok) toast('Products saved');
+    else toast(d.error || 'Save failed', true);
+  } catch(e) {
+    toast('Network error', true);
+  }
+}
+
+/* ---- Vend ---- */
+function populateVendSelect() {
+  const sel = $('vendProduct');
+  sel.innerHTML = '';
+  currentProducts.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = JSON.stringify({ slot: p.slot, price: p.price });
+    opt.textContent = `#${p.slot} ${p.name} - EUR ${(p.price/100).toFixed(2)}`;
+    sel.appendChild(opt);
+  });
+  // Update price field
+  updatePriceFromSelect();
+  sel.onchange = updatePriceFromSelect;
+}
+
+function updatePriceFromSelect() {
+  const sel = $('vendProduct');
+  if (!sel.value) return;
+  try {
+    const v = JSON.parse(sel.value);
+    $('vendPrice').value = (v.price / 100).toFixed(2);
+  } catch(e) {}
+}
+
+async function doVend() {
+  const sel = $('vendProduct');
+  if (!sel.value) return;
+  const v = JSON.parse(sel.value);
+  const priceOverride = parseFloat($('vendPrice').value);
+  const priceCents = Math.round((isNaN(priceOverride) ? v.price/100 : priceOverride) * 100);
+
+  $('btnVend').disabled = true;
+  const res = $('vendResult');
+  res.className = 'vend-result wait';
+  res.textContent = 'Sending vend request...';
+  res.style.display = 'block';
+
+  try {
+    const r = await fetch('/api/v1/vend', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ item_number: v.slot, price: priceCents })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      res.className = 'vend-result wait';
+      res.textContent = 'Vend queued - waiting for device response...';
+    } else {
+      res.className = 'vend-result err';
+      res.textContent = d.error || 'Failed';
+    }
+  } catch(e) {
+    res.className = 'vend-result err';
+    res.textContent = 'Network error';
+  }
+  $('btnVend').disabled = false;
+}
+
+async function doCashSale() {
+  const sel = $('vendProduct');
+  if (!sel.value) return;
+  const v = JSON.parse(sel.value);
+  const priceOverride = parseFloat($('vendPrice').value);
+  const priceCents = Math.round((isNaN(priceOverride) ? v.price/100 : priceOverride) * 100);
+
+  try {
+    const r = await fetch('/api/v1/vend', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ item_number: v.slot, price: priceCents })
+    });
+    const d = await r.json();
+    if (d.ok) toast('Cash sale queued');
+    else toast(d.error || 'Failed', true);
+  } catch(e) {
+    toast('Network error', true);
+  }
+}
+
+/* ---- WiFi ---- */
+function toggleWifi() {
+  const t = $('wifiToggle');
+  const b = $('wifiBody');
+  t.classList.toggle('open');
+  b.classList.toggle('show');
+}
+
+async function scanWifi() {
+  const btn = $('btnScan');
+  btn.disabled = true;
+  btn.textContent = 'Scanning...';
+
+  try {
+    const r = await fetch('/api/v1/wifi/scan');
+    const d = await r.json();
+    const list = $('wifiList');
+    list.innerHTML = '';
+    if (!d.networks || d.networks.length === 0) {
+      list.innerHTML = '<div style="color:var(--text-muted);padding:10px;text-align:center">No networks found</div>';
+    } else {
+      d.networks.forEach(n => {
+        const div = document.createElement('div');
+        div.className = 'wifi-item';
+        div.innerHTML = `
+          <div>
+            <div class="wifi-ssid">${esc(n.ssid)}${n.secure ? ' &#128274;' : ''}</div>
+            <div class="wifi-rssi">${n.rssi} dBm</div>
+          </div>
+          ${signalBars(n.rssi)}
+        `;
+        div.onclick = () => {
+          $('wifiSsid').value = n.ssid;
+          list.querySelectorAll('.wifi-item').forEach(x => x.classList.remove('selected'));
+          div.classList.add('selected');
+        };
+        list.appendChild(div);
+      });
+    }
+  } catch(e) {
+    toast('Scan failed', true);
+  }
+  btn.disabled = false;
+  btn.textContent = 'Scan Networks';
+}
+
+function signalBars(rssi) {
+  const bars = rssi > -50 ? 4 : rssi > -60 ? 3 : rssi > -70 ? 2 : 1;
+  let html = '<div class="wifi-bars">';
+  for (let i = 1; i <= 4; i++) {
+    html += `<span style="height:${i*3+2}px" class="${i<=bars?'on':''}"></span>`;
+  }
+  return html + '</div>';
+}
+
+async function connectWifi() {
+  const ssid = $('wifiSsid').value.trim();
+  if (!ssid) { toast('Enter SSID', true); return; }
+
+  try {
+    const r = await fetch('/api/v1/wifi/connect', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ ssid: ssid, password: $('wifiPass').value })
+    });
+    const d = await r.json();
+    if (d.ok) toast('Connecting to ' + ssid + '...');
+    else toast(d.error || 'Failed', true);
+  } catch(e) {
+    toast('Network error', true);
+  }
+}
+
+/* ---- Helpers ---- */
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function toast(msg, isErr) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.style.borderColor = isErr ? 'var(--red)' : 'var(--green)';
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+/* ---- Init ---- */
+window.addEventListener('DOMContentLoaded', () => {
+  loadProducts();
+  pollStatus();
+  pollEvents();
+
+  setInterval(() => {
+    pollStatus();
+    pollEvents();
+  }, 2000);
+});
+</script>
+</body>
+</html>
