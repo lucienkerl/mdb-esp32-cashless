@@ -1,0 +1,16 @@
+menu "VMC Simulator Configuration"
+
+    config WIFI_SSID
+        string "WiFi SSID"
+        default ""
+        help
+            SSID of the WiFi network to connect to.
+            Leave empty to start in SoftAP mode only.
+
+    config WIFI_PASSWORD
+        string "WiFi Password"
+        default ""
+        help
+            Password for the WiFi network.
+
+endmenu
