@@ -1,0 +1,86 @@
+menu "MDB Cashless Device"
+
+    choice
+        prompt "Peripheral Addresses"
+        default CASHLESS_ADDR_1
+
+        config CASHLESS_ADDR_1
+            bool "Cashless Device #1"
+
+        config CASHLESS_ADDR_2
+            bool "Cashless Device #2"
+
+    endchoice
+
+    config CASHLESS_DEVICE_ADDRESS
+        int
+        default 16 if CASHLESS_ADDR_1
+        default 96 if CASHLESS_ADDR_2
+
+    choice
+        prompt "Country / Currency Code"
+        default CURRENCY_UNKNOWN
+
+        config CURRENCY_EUR
+            bool "EUR - 0x0978"
+
+        config CURRENCY_USD
+            bool "USD - 0x0840"
+
+        config CURRENCY_BRL
+            bool "BRL - 0x0986"
+
+        config CURRENCY_UNKNOWN
+            bool "UNKNOWN - 0xffff"
+    endchoice
+
+    config MDB_CURRENCY_CODE
+        int
+        default 6520 if CURRENCY_EUR
+        default 6208 if CURRENCY_USD
+        default 6534 if CURRENCY_BRL
+        default 65535 if CURRENCY_UNKNOWN
+
+    choice
+        prompt "Scale Factor (MDB)"
+        default SCALE_FACTOR_1
+
+        config SCALE_FACTOR_1
+            bool "1"
+
+        config SCALE_FACTOR_10
+            bool "10"
+
+        config SCALE_FACTOR_100
+            bool "100"
+
+    endchoice
+
+    config MDB_SCALE_FACTOR
+        int
+        default 1 if SCALE_FACTOR_1
+        default 10 if SCALE_FACTOR_10
+        default 100 if SCALE_FACTOR_100
+
+    config MDB_DECIMAL_PLACES
+        int "Decimal Places (MDB)"
+        default 2
+        range 0 3
+
+    config MDB_SNIFF_OTHER_CASHLESS
+        bool "Sniff other cashless device (credit card detection)"
+        default y
+        help
+            Passively listen to MDB traffic addressed to the other cashless
+            device (e.g. Nayax credit card terminal). When a vend succeeds
+            on that device, a CARD_SALE (0x23) is published via MQTT.
+            The sniffed address is automatically set to the opposite of
+            this device's address (0x10 ↔ 0x60).
+            The device never transmits on the sniffed address.
+
+    config MDB_SNIFF_ADDRESS
+        int
+        default 96 if CASHLESS_ADDR_1
+        default 16 if CASHLESS_ADDR_2
+
+endmenu # MDB Cashless Device
