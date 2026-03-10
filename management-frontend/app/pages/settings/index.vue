@@ -120,14 +120,16 @@ async function handlePushToggle(enabled: boolean) {
 }
 
 // ── Test notification ─────────────────────────────────────────────────────────
-const testLoading = ref(false)
+const testLoading = ref<string | null>(null)
 const testResult = ref('')
 
-async function sendTestNotification() {
+async function sendTestNotification(type: string = 'test') {
   testResult.value = ''
-  testLoading.value = true
+  testLoading.value = type
   try {
-    const { data, error } = await supabase.functions.invoke('test-push')
+    const { data, error } = await supabase.functions.invoke('test-push', {
+      body: { type },
+    })
     if (error) throw error
     const sent = data?.sent ?? 0
     if (sent > 0) {
@@ -138,7 +140,7 @@ async function sendTestNotification() {
   } catch (err: unknown) {
     testResult.value = err instanceof Error ? err.message : 'Failed to send test notification'
   } finally {
-    testLoading.value = false
+    testLoading.value = null
   }
 }
 
@@ -542,36 +544,33 @@ async function changeEmail() {
                 <div
                   v-for="nt in notificationTypes"
                   :key="nt.key"
-                  class="flex items-center justify-between"
+                  class="flex items-center justify-between gap-2"
                 >
-                  <div class="space-y-0.5">
+                  <div class="min-w-0 space-y-0.5">
                     <label class="text-sm font-medium">{{ nt.label }}</label>
                     <p class="text-sm text-muted-foreground">{{ nt.description }}</p>
                   </div>
-                  <Switch
-                    :checked="isTypeEnabled(nt.key)"
-                    @update:checked="(val: boolean) => togglePreference(nt.key, val)"
-                  />
+                  <div class="flex items-center gap-2 shrink-0">
+                    <button
+                      :disabled="!!testLoading || !isTypeEnabled(nt.key)"
+                      class="inline-flex h-7 items-center gap-1 rounded-md border border-input bg-background px-2 text-xs font-medium shadow-sm transition-colors hover:bg-muted disabled:opacity-50"
+                      :title="`Send test ${nt.label.toLowerCase()}`"
+                      @click="sendTestNotification(nt.key)"
+                    >
+                      <IconSend class="size-3" />
+                      <span v-if="testLoading === nt.key">Sending…</span>
+                      <span v-else>Test</span>
+                    </button>
+                    <Switch
+                      :checked="isTypeEnabled(nt.key)"
+                      @update:checked="(val: boolean) => togglePreference(nt.key, val)"
+                    />
+                  </div>
                 </div>
 
-                <!-- Test notification -->
-                <div class="flex items-center justify-between pt-2">
-                  <div class="space-y-0.5">
-                    <label class="text-sm font-medium">Test notification</label>
-                    <p class="text-sm text-muted-foreground">
-                      {{ testResult || 'Send a test push to verify the full flow.' }}
-                    </p>
-                  </div>
-                  <button
-                    :disabled="testLoading"
-                    class="inline-flex h-9 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm transition-colors hover:bg-muted disabled:opacity-50"
-                    @click="sendTestNotification"
-                  >
-                    <IconSend class="size-3.5" />
-                    <span v-if="testLoading">Sending…</span>
-                    <span v-else>Send test</span>
-                  </button>
-                </div>
+                <p v-if="testResult" class="text-sm text-muted-foreground">
+                  {{ testResult }}
+                </p>
 
                 <!-- Registered devices -->
                 <div v-if="devices.length > 0" class="mt-2 pt-4 border-t">
