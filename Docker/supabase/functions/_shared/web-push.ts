@@ -14,9 +14,11 @@ import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-
 
 interface PushSubscription {
   id: string
-  endpoint: string
-  p256dh: string
-  auth: string
+  endpoint: string | null
+  p256dh: string | null
+  auth: string | null
+  platform: 'web' | 'android' | 'ios'
+  fcm_token: string | null
 }
 
 interface VapidConfig {
@@ -237,6 +239,145 @@ async function hkdf(
   return new Uint8Array(bits)
 }
 
+// ─── FCM HTTP v1 API ────────────────────────────────────────────────────────
+
+interface FcmServiceAccount {
+  project_id: string
+  private_key: string
+  client_email: string
+}
+
+let _fcmAccessToken: { token: string; expiresAt: number } | null = null
+
+async function getFcmAccessToken(sa: FcmServiceAccount): Promise<string> {
+  // Reuse cached token if still valid (with 60s buffer)
+  if (_fcmAccessToken && Date.now() < _fcmAccessToken.expiresAt - 60_000) {
+    return _fcmAccessToken.token
+  }
+
+  const now = Math.floor(Date.now() / 1000)
+  const header = { alg: 'RS256', typ: 'JWT' }
+  const payload = {
+    iss: sa.client_email,
+    sub: sa.client_email,
+    aud: 'https://oauth2.googleapis.com/token',
+    iat: now,
+    exp: now + 3600,
+    scope: 'https://www.googleapis.com/auth/firebase.messaging',
+  }
+
+  const headerB64 = uint8ArrayToBase64url(new TextEncoder().encode(JSON.stringify(header)))
+  const payloadB64 = uint8ArrayToBase64url(new TextEncoder().encode(JSON.stringify(payload)))
+  const signingInput = new TextEncoder().encode(`${headerB64}.${payloadB64}`)
+
+  // Import RSA private key (PEM → PKCS8)
+  const pemBody = sa.private_key
+    .replace(/-----BEGIN PRIVATE KEY-----/, '')
+    .replace(/-----END PRIVATE KEY-----/, '')
+    .replace(/\s/g, '')
+  const keyBytes = Uint8Array.from(atob(pemBody), c => c.charCodeAt(0))
+
+  const key = await crypto.subtle.importKey(
+    'pkcs8',
+    keyBytes,
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  )
+
+  const signature = new Uint8Array(
+    await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, signingInput),
+  )
+
+  const jwt = `${headerB64}.${payloadB64}.${uint8ArrayToBase64url(signature)}`
+
+  // Exchange JWT for access token
+  const resp = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`,
+  })
+
+  if (!resp.ok) {
+    throw new Error(`FCM token exchange failed: ${resp.status} ${await resp.text()}`)
+  }
+
+  const data = await resp.json()
+  _fcmAccessToken = {
+    token: data.access_token,
+    expiresAt: Date.now() + data.expires_in * 1000,
+  }
+
+  return data.access_token
+}
+
+async function sendFcmNotification(
+  fcmToken: string,
+  platform: 'android' | 'ios',
+  payload: PushPayload,
+  sa: FcmServiceAccount,
+): Promise<{ ok: boolean; expired: boolean }> {
+  const accessToken = await getFcmAccessToken(sa)
+
+  const message: Record<string, unknown> = {
+    token: fcmToken,
+    notification: {
+      title: payload.title,
+      body: payload.body,
+      ...(payload.image ? { image: payload.image } : {}),
+    },
+    data: payload.data
+      ? Object.fromEntries(Object.entries(payload.data).map(([k, v]) => [k, String(v)]))
+      : undefined,
+  }
+
+  // Platform-specific config
+  if (platform === 'android') {
+    message.android = {
+      notification: {
+        click_action: 'FLUTTER_NOTIFICATION_CLICK',
+        ...(payload.icon ? { icon: payload.icon } : {}),
+      },
+    }
+  } else {
+    message.apns = {
+      payload: {
+        aps: {
+          'mutable-content': 1,
+          sound: 'default',
+        },
+      },
+      ...(payload.image ? { fcm_options: { image: payload.image } } : {}),
+    }
+  }
+
+  const resp = await fetch(
+    `https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ message }),
+    },
+  )
+
+  if (resp.ok) return { ok: true, expired: false }
+
+  // Token no longer valid (unregistered / app uninstalled)
+  if (resp.status === 404 || resp.status === 400) {
+    const body = await resp.json().catch(() => ({}))
+    const code = body?.error?.details?.[0]?.errorCode ?? body?.error?.code ?? ''
+    if (code === 'UNREGISTERED' || code === 'INVALID_ARGUMENT' || resp.status === 404) {
+      return { ok: false, expired: true }
+    }
+  }
+
+  console.warn(`FCM push failed for token ${fcmToken.slice(0, 8)}...: ${resp.status}`)
+  return { ok: false, expired: false }
+}
+
 // ─── Send Push Notification ─────────────────────────────────────────────────
 
 async function sendPushNotification(
@@ -280,22 +421,36 @@ export async function sendPushToUsers(
   notificationType: string,
   payload: PushPayload,
 ): Promise<{ sent: number; expired: number }> {
-  // Graceful degradation: skip if VAPID keys are not configured
+  // VAPID config for web push
   const publicKey = Deno.env.get('VAPID_PUBLIC_KEY')
   const privateKey = Deno.env.get('VAPID_PRIVATE_KEY')
   const subject = Deno.env.get('VAPID_SUBJECT')
+  const hasVapid = !!(publicKey && privateKey && subject)
 
-  if (!publicKey || !privateKey || !subject) {
+  // FCM config for native push
+  const fcmJson = Deno.env.get('FCM_SERVICE_ACCOUNT_JSON')
+  let fcmServiceAccount: FcmServiceAccount | null = null
+  if (fcmJson) {
+    try {
+      fcmServiceAccount = JSON.parse(fcmJson)
+    } catch {
+      console.warn('FCM_SERVICE_ACCOUNT_JSON is not valid JSON — native push disabled')
+    }
+  }
+
+  // If neither is configured, skip entirely
+  if (!hasVapid && !fcmServiceAccount) {
     return { sent: 0, expired: 0 }
   }
 
-  const vapid: VapidConfig = { publicKey, privateKey, subject }
+  const vapid: VapidConfig | null = hasVapid
+    ? { publicKey: publicKey!, privateKey: privateKey!, subject: subject! }
+    : null
 
   // Query subscriptions for users in this company who want this notification type.
-  // Absence of a preference row = enabled (opt-in by default).
   const { data: allSubs, error: subsError } = await adminClient
     .from('push_subscriptions')
-    .select('id, endpoint, p256dh, auth, user_id')
+    .select('id, endpoint, p256dh, auth, user_id, platform, fcm_token')
 
   if (subsError || !allSubs || allSubs.length === 0) {
     return { sent: 0, expired: 0 }
@@ -324,35 +479,68 @@ export async function sendPushToUsers(
 
   const subscriptions = allSubs.filter(
     (s: { user_id: string }) => memberIds.has(s.user_id) && !disabledUserIds.has(s.user_id),
-  )
+  ) as PushSubscription[]
 
   if (subscriptions.length === 0) {
     return { sent: 0, expired: 0 }
   }
 
+  // Split into web and native subscriptions
+  const webSubs = subscriptions.filter(s => s.platform === 'web' && s.endpoint && s.p256dh && s.auth)
+  const nativeSubs = subscriptions.filter(s => (s.platform === 'android' || s.platform === 'ios') && s.fcm_token)
+
   let sent = 0
   let expired = 0
   const expiredIds: string[] = []
 
-  // Send push to each subscription in parallel
-  await Promise.allSettled(
-    subscriptions.map(async (sub: PushSubscription) => {
-      try {
-        const response = await sendPushNotification(sub, payload, vapid)
-        if (response.ok || response.status === 201) {
-          sent++
-        } else if (response.status === 404 || response.status === 410) {
-          // Subscription expired or invalid — mark for deletion
-          expired++
-          expiredIds.push(sub.id)
-        } else {
-          console.warn(`Push failed for ${sub.endpoint}: ${response.status}`)
+  // Send web push notifications
+  if (vapid && webSubs.length > 0) {
+    await Promise.allSettled(
+      webSubs.map(async (sub) => {
+        try {
+          const response = await sendPushNotification(
+            { endpoint: sub.endpoint!, p256dh: sub.p256dh!, auth: sub.auth! },
+            payload,
+            vapid,
+          )
+          if (response.ok || response.status === 201) {
+            sent++
+          } else if (response.status === 404 || response.status === 410) {
+            expired++
+            expiredIds.push(sub.id)
+          } else {
+            console.warn(`Push failed for ${sub.endpoint}: ${response.status}`)
+          }
+        } catch (err) {
+          console.warn(`Push error for ${sub.endpoint}:`, err)
         }
-      } catch (err) {
-        console.warn(`Push error for ${sub.endpoint}:`, err)
-      }
-    }),
-  )
+      }),
+    )
+  }
+
+  // Send native (FCM) push notifications
+  if (fcmServiceAccount && nativeSubs.length > 0) {
+    await Promise.allSettled(
+      nativeSubs.map(async (sub) => {
+        try {
+          const result = await sendFcmNotification(
+            sub.fcm_token!,
+            sub.platform as 'android' | 'ios',
+            payload,
+            fcmServiceAccount!,
+          )
+          if (result.ok) {
+            sent++
+          } else if (result.expired) {
+            expired++
+            expiredIds.push(sub.id)
+          }
+        } catch (err) {
+          console.warn(`FCM push error for token ${sub.fcm_token?.slice(0, 8)}...:`, err)
+        }
+      }),
+    )
+  }
 
   // Clean up expired subscriptions
   if (expiredIds.length > 0) {

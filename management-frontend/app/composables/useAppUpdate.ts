@@ -1,10 +1,21 @@
 /**
  * Detects when a new service worker version is available
  * and provides a way to activate it (skip waiting + reload).
+ * On native Capacitor apps, updates come via App Store — this is a no-op.
  */
+import { Capacitor } from '@capacitor/core'
+
 export function useAppUpdate() {
   const updateAvailable = ref(false)
   const registration = ref<ServiceWorkerRegistration | null>(null)
+
+  // Native apps update via App Store, not service workers
+  if (import.meta.client && Capacitor.isNativePlatform()) {
+    return {
+      updateAvailable,
+      applyUpdate: () => {},
+    }
+  }
 
   function applyUpdate() {
     const waiting = registration.value?.waiting

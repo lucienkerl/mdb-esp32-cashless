@@ -31,31 +31,51 @@ Deno.serve(async (req) => {
     const body = await req.json()
 
     if (req.method === 'POST') {
-      // Register / update push subscription
-      const { endpoint, keys } = body
-      if (!endpoint || !keys?.p256dh || !keys?.auth) {
-        return new Response(JSON.stringify({ error: 'Missing endpoint or keys' }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
-      }
-
       const userAgent = req.headers.get('User-Agent') ?? null
 
-      const { error } = await adminClient
-        .from('push_subscriptions')
-        .upsert(
-          {
-            user_id: user.id,
-            endpoint,
-            p256dh: keys.p256dh,
-            auth: keys.auth,
-            user_agent: userAgent,
-          },
-          { onConflict: 'user_id,endpoint' },
-        )
+      if (body.fcm_token) {
+        // Native registration (iOS/Android via FCM)
+        const platform = body.platform === 'ios' ? 'ios' : 'android'
 
-      if (error) throw error
+        const { error } = await adminClient
+          .from('push_subscriptions')
+          .upsert(
+            {
+              user_id: user.id,
+              fcm_token: body.fcm_token,
+              platform,
+              user_agent: userAgent,
+            },
+            { onConflict: 'user_id,fcm_token' },
+          )
+
+        if (error) throw error
+      } else {
+        // Web registration (existing VAPID flow)
+        const { endpoint, keys } = body
+        if (!endpoint || !keys?.p256dh || !keys?.auth) {
+          return new Response(JSON.stringify({ error: 'Missing endpoint or keys' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+
+        const { error } = await adminClient
+          .from('push_subscriptions')
+          .upsert(
+            {
+              user_id: user.id,
+              endpoint,
+              p256dh: keys.p256dh,
+              auth: keys.auth,
+              platform: 'web',
+              user_agent: userAgent,
+            },
+            { onConflict: 'user_id,endpoint' },
+          )
+
+        if (error) throw error
+      }
 
       return new Response(JSON.stringify({ ok: true }), {
         status: 201,
@@ -65,21 +85,33 @@ Deno.serve(async (req) => {
 
     if (req.method === 'DELETE') {
       // Unregister push subscription
-      const { endpoint } = body
-      if (!endpoint) {
-        return new Response(JSON.stringify({ error: 'Missing endpoint' }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
+      if (body.fcm_token) {
+        // Native unregistration
+        const { error } = await adminClient
+          .from('push_subscriptions')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('fcm_token', body.fcm_token)
+
+        if (error) throw error
+      } else {
+        // Web unregistration
+        const { endpoint } = body
+        if (!endpoint) {
+          return new Response(JSON.stringify({ error: 'Missing endpoint or fcm_token' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+
+        const { error } = await adminClient
+          .from('push_subscriptions')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('endpoint', endpoint)
+
+        if (error) throw error
       }
-
-      const { error } = await adminClient
-        .from('push_subscriptions')
-        .delete()
-        .eq('user_id', user.id)
-        .eq('endpoint', endpoint)
-
-      if (error) throw error
 
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,

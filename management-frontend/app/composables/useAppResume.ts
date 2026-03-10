@@ -1,5 +1,6 @@
 /**
  * Handles iOS PWA (and general browser) resume from background.
+ * Also handles Capacitor native app state changes.
  *
  * When the app becomes visible again after being backgrounded:
  * 1. Refreshes the Supabase session (prevents "session expired" re-login)
@@ -9,6 +10,8 @@
  *   const { onResume } = useAppResume()
  *   onResume(() => fetchMachines())
  */
+
+import { Capacitor } from '@capacitor/core'
 
 type ResumeCallback = () => void | Promise<void>
 
@@ -27,6 +30,36 @@ export function useAppResume() {
     }
   }
 
+  async function handleResume() {
+    // Debounce: don't refresh more than once per 30s
+    if (Date.now() - lastRefresh.value < MIN_BACKGROUND_MS) return
+    lastRefresh.value = Date.now()
+
+    // 1. Refresh the Supabase session token
+    try {
+      const supabase = useSupabaseClient()
+      const { error } = await supabase.auth.refreshSession()
+      if (error) {
+        console.warn('[app-resume] Session refresh failed:', error.message)
+        await navigateTo('/auth/login')
+        return
+      }
+    } catch (e) {
+      console.warn('[app-resume] Session refresh error:', e)
+      await navigateTo('/auth/login')
+      return
+    }
+
+    // 2. Run all registered data-refresh callbacks
+    for (const cb of callbacks) {
+      try {
+        await cb()
+      } catch (e) {
+        console.warn('[app-resume] Refresh callback error:', e)
+      }
+    }
+  }
+
   if (import.meta.client) {
     let hiddenAt = 0
 
@@ -40,38 +73,20 @@ export function useAppResume() {
       const elapsed = hiddenAt ? Date.now() - hiddenAt : 0
       if (elapsed < MIN_BACKGROUND_MS) return
 
-      // Debounce: don't refresh more than once per 30s
-      if (Date.now() - lastRefresh.value < MIN_BACKGROUND_MS) return
-      lastRefresh.value = Date.now()
-
-      // 1. Refresh the Supabase session token
-      try {
-        const supabase = useSupabaseClient()
-        const { error } = await supabase.auth.refreshSession()
-        if (error) {
-          console.warn('[app-resume] Session refresh failed:', error.message)
-          // If refresh fails, redirect to login
-          await navigateTo('/auth/login')
-          return
-        }
-      } catch (e) {
-        console.warn('[app-resume] Session refresh error:', e)
-        await navigateTo('/auth/login')
-        return
-      }
-
-      // 2. Run all registered data-refresh callbacks
-      for (const cb of callbacks) {
-        try {
-          await cb()
-        } catch (e) {
-          console.warn('[app-resume] Refresh callback error:', e)
-        }
-      }
+      await handleResume()
     }
 
     onMounted(() => {
       document.addEventListener('visibilitychange', handleVisibilityChange)
+
+      // Capacitor native: also listen for app state changes
+      if (Capacitor.isNativePlatform()) {
+        import('@capacitor/app').then(({ App }) => {
+          App.addListener('appStateChange', ({ isActive }) => {
+            if (isActive) handleResume()
+          })
+        }).catch(() => {})
+      }
     })
 
     onUnmounted(() => {

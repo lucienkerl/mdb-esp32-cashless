@@ -160,6 +160,13 @@ else
     success "MQTT admin credentials present"
 fi
 
+# ─── FCM_SERVICE_ACCOUNT_JSON (informational only) ────────────────────────────
+if [ -z "${FCM_SERVICE_ACCOUNT_JSON:-}" ]; then
+    info "FCM_SERVICE_ACCOUNT_JSON not set — native iOS/Android push notifications disabled"
+else
+    success "FCM_SERVICE_ACCOUNT_JSON is configured"
+fi
+
 # ─── GITHUB_FIRMWARE_REPO (informational only) ───────────────────────────────
 if [ -z "${GITHUB_FIRMWARE_REPO:-}" ]; then
     info "GITHUB_FIRMWARE_REPO not set — GitHub release imports disabled on firmware page"

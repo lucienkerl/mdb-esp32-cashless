@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { IconX, IconKeyboard } from '@tabler/icons-vue'
+import { Capacitor } from '@capacitor/core'
 
 const props = withDefaults(defineProps<{
   formats?: string[]
@@ -18,17 +19,77 @@ const stream = ref<MediaStream | null>(null)
 const error = ref('')
 const manualInput = ref(false)
 const manualBarcode = ref('')
+const isNative = Capacitor.isNativePlatform()
 let detecting = false
 let animationFrameId: number | null = null
 
 onMounted(async () => {
-  await startCamera()
+  if (isNative) {
+    await startNativeScanner()
+  } else {
+    await startCamera()
+  }
 })
 
 onUnmounted(() => {
   stopCamera()
 })
 
+// ── Native ML Kit scanner ─────────────────────────────────────────────────
+async function startNativeScanner() {
+  error.value = ''
+  try {
+    const { BarcodeScanner: NativeScanner } = await import('@capacitor-mlkit/barcode-scanning')
+
+    const { supported } = await NativeScanner.isSupported()
+    if (!supported) {
+      error.value = 'Barcode scanning not supported on this device.'
+      manualInput.value = true
+      return
+    }
+
+    const { camera } = await NativeScanner.requestPermissions()
+    if (camera !== 'granted') {
+      error.value = 'Camera permission denied. Please allow camera access in settings.'
+      manualInput.value = true
+      return
+    }
+
+    // Map web format names to ML Kit format names
+    const formatMap: Record<string, string> = {
+      ean_13: 'EAN_13',
+      ean_8: 'EAN_8',
+      code_128: 'CODE_128',
+      code_39: 'CODE_39',
+      qr_code: 'QR_CODE',
+      upc_a: 'UPC_A',
+      upc_e: 'UPC_E',
+    }
+    const mlkitFormats = props.formats.map(f => formatMap[f] ?? f.toUpperCase()) as any[]
+
+    const result = await NativeScanner.scan({
+      formats: mlkitFormats,
+    })
+
+    if (result.barcodes.length > 0) {
+      const barcode = result.barcodes[0]!
+      // Haptic feedback
+      try {
+        const { Haptics, ImpactStyle } = await import('@capacitor/haptics')
+        await Haptics.impact({ style: ImpactStyle.Medium })
+      } catch {}
+      emit('detected', barcode.rawValue ?? barcode.displayValue ?? '', barcode.format ?? 'unknown')
+    } else {
+      // User cancelled the scan
+      emit('close')
+    }
+  } catch (err: any) {
+    error.value = `Scanner error: ${err.message}`
+    manualInput.value = true
+  }
+}
+
+// ── Web camera scanner ────────────────────────────────────────────────────
 async function startCamera() {
   error.value = ''
 
@@ -142,8 +203,8 @@ function close() {
       <IconX class="size-5" />
     </button>
 
-    <!-- Camera view -->
-    <div v-if="!manualInput" class="relative overflow-hidden rounded-t-lg">
+    <!-- Camera view (web only — native uses fullscreen ML Kit overlay) -->
+    <div v-if="!manualInput && !isNative" class="relative overflow-hidden rounded-t-lg">
       <video
         ref="videoRef"
         class="h-48 w-full object-cover sm:h-56"
@@ -161,7 +222,7 @@ function close() {
     <div class="p-3">
       <p v-if="error" class="mb-2 text-xs text-red-600 dark:text-red-400">{{ error }}</p>
 
-      <div v-if="!manualInput" class="flex justify-center">
+      <div v-if="!manualInput && !isNative" class="flex justify-center">
         <button
           class="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
           @click="manualInput = true"
@@ -171,7 +232,7 @@ function close() {
         </button>
       </div>
 
-      <div v-else class="flex gap-2">
+      <div v-if="manualInput" class="flex gap-2">
         <input
           v-model="manualBarcode"
           type="text"

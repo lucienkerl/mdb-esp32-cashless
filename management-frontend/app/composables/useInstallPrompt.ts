@@ -1,10 +1,25 @@
 /**
  * Handles PWA install prompt for Android/Desktop (beforeinstallprompt)
  * and provides iOS detection for "Add to Home Screen" guidance.
+ * On native Capacitor apps, all values are inert (no install banner).
  */
+import { Capacitor } from '@capacitor/core'
+
 export function useInstallPrompt() {
   const deferredPrompt = ref<any>(null)
   const dismissed = ref(false)
+
+  // Native apps are already installed — never show install prompts
+  if (import.meta.client && Capacitor.isNativePlatform()) {
+    return {
+      isIOS: computed(() => false),
+      isStandalone: computed(() => true),
+      canInstall: computed(() => false),
+      showBanner: computed(() => false),
+      dismiss: () => {},
+      promptInstall: async () => {},
+    }
+  }
 
   const isIOS = computed(() => {
     if (!import.meta.client) return false

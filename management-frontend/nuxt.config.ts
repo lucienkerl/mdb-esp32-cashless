@@ -1,8 +1,12 @@
 import pkg from './package.json'
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
+const isCapacitorBuild = process.env.CAPACITOR_BUILD === '1'
+
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
+  // Capacitor requires SPA mode (no Node.js server in native shell)
+  ...(isCapacitorBuild ? { ssr: false } : {}),
   modules: ['@nuxtjs/supabase', '@nuxtjs/tailwindcss', 'shadcn-nuxt', '@vite-pwa/nuxt'],
   devtools: { enabled: true },
   app: {

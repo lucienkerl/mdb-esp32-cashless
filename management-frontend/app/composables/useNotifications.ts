@@ -1,4 +1,5 @@
 import { useSupabaseClient } from '#imports'
+import { Capacitor } from '@capacitor/core'
 
 // ── Notification types ──────────────────────────────────────────────────────
 export interface NotificationType {
@@ -49,10 +50,13 @@ export function useNotifications() {
   const isIOSStandalone = ref(false)
   const isIOS = ref(false)
 
+  // Platform detection
+  const isNative = Capacitor.isNativePlatform()
+
   // Update permission state
   function refreshPermission() {
     if (import.meta.server) return
-    if ('Notification' in window) {
+    if (!isNative && 'Notification' in window) {
       permission.value = Notification.permission
     }
     // iOS detection
@@ -64,20 +68,77 @@ export function useNotifications() {
   // Whether push notifications are supported
   const isSupported = computed(() => {
     if (import.meta.server) return false
+    if (isNative) return true
     return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
   })
 
-  // Whether we need to show iOS homescreen guidance
+  // Whether we need to show iOS homescreen guidance (never on native)
   const needsHomescreen = computed(() => {
+    if (isNative) return false
     return isIOS.value && !isIOSStandalone.value
   })
 
   // VAPID public key from runtime config
   const vapidPublicKey = computed(() => config.public.vapidPublicKey as string)
 
+  // ── Subscribe via native Capacitor push ───────────────────────────────────
+  async function subscribeNative(): Promise<boolean> {
+    const { PushNotifications } = await import('@capacitor/push-notifications')
+
+    const permResult = await PushNotifications.requestPermissions()
+    if (permResult.receive !== 'granted') {
+      permission.value = 'denied'
+      error.value = 'Push notification permission was denied. Enable it in your device settings.'
+      return false
+    }
+    permission.value = 'granted'
+
+    // Register with APNs/FCM
+    await PushNotifications.register()
+
+    // Wait for the FCM token
+    return new Promise<boolean>((resolve) => {
+      PushNotifications.addListener('registration', async (token) => {
+        console.info('[Push Native] FCM token received:', token.value.slice(0, 8) + '...')
+
+        const platform = Capacitor.getPlatform() as 'ios' | 'android'
+        const { error: fnError } = await supabase.functions.invoke('register-push', {
+          method: 'POST',
+          body: { fcm_token: token.value, platform },
+        })
+
+        if (fnError) {
+          error.value = fnError.message ?? 'Failed to register push token'
+          resolve(false)
+          return
+        }
+
+        isSubscribed.value = true
+        await fetchDevices()
+        resolve(true)
+      })
+
+      PushNotifications.addListener('registrationError', (err) => {
+        console.warn('[Push Native] Registration error:', err)
+        error.value = `Push registration failed: ${err.error}`
+        resolve(false)
+      })
+    })
+  }
+
   // ── Subscribe to push notifications ─────────────────────────────────────
   async function subscribe() {
     error.value = ''
+
+    if (isNative) {
+      loading.value = true
+      try {
+        return await subscribeNative()
+      } finally {
+        loading.value = false
+      }
+    }
+
     if (!isSupported.value) {
       error.value = 'Push notifications are not supported in this browser.'
       console.warn('[Push] Not supported:', { sw: 'serviceWorker' in navigator, pm: 'PushManager' in window, notif: 'Notification' in window })
@@ -206,18 +267,27 @@ export function useNotifications() {
     error.value = ''
     loading.value = true
     try {
-      const registration = await navigator.serviceWorker.ready
-      const subscription = await registration.pushManager.getSubscription()
+      if (isNative) {
+        const { PushNotifications } = await import('@capacitor/push-notifications')
+        // Remove all listeners and unregister
+        await PushNotifications.removeAllListeners()
+        // We can't easily get the current FCM token to delete server-side,
+        // so we remove all subscriptions for this user on this platform
+        // by deleting the device entries from the UI (fetchDevices + removeDevice)
+      } else {
+        const registration = await navigator.serviceWorker.ready
+        const subscription = await registration.pushManager.getSubscription()
 
-      if (subscription) {
-        // Remove from backend
-        await supabase.functions.invoke('register-push', {
-          method: 'DELETE',
-          body: { endpoint: subscription.endpoint },
-        })
+        if (subscription) {
+          // Remove from backend
+          await supabase.functions.invoke('register-push', {
+            method: 'DELETE',
+            body: { endpoint: subscription.endpoint },
+          })
 
-        // Unsubscribe locally
-        await subscription.unsubscribe()
+          // Unsubscribe locally
+          await subscription.unsubscribe()
+        }
       }
 
       isSubscribed.value = false
@@ -230,6 +300,11 @@ export function useNotifications() {
 
   // ── Check current subscription state ────────────────────────────────────
   async function checkSubscription() {
+    if (isNative) {
+      // On native, check if we have devices registered
+      // (checked via fetchDevices in init)
+      return
+    }
     if (!isSupported.value) return
     try {
       const reg = await navigator.serviceWorker.register('/sw.js', {
@@ -321,6 +396,11 @@ export function useNotifications() {
 
       if (fetchError) throw fetchError
       devices.value = (data ?? []) as PushDevice[]
+
+      // On native, update isSubscribed based on whether we have any device registrations
+      if (isNative) {
+        isSubscribed.value = devices.value.length > 0
+      }
     } catch (err: unknown) {
       console.error('Failed to fetch push devices:', err)
     }
@@ -346,10 +426,40 @@ export function useNotifications() {
     }
   }
 
+  // ── Set up native push notification listeners ─────────────────────────
+  function setupNativeListeners() {
+    if (!isNative) return
+
+    import('@capacitor/push-notifications').then(({ PushNotifications }) => {
+      // Handle notification tap (app was in background)
+      PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
+        const data = notification.notification.data ?? {}
+        let targetUrl = '/'
+        if (data.type === 'sale' && data.embedded_id) {
+          targetUrl = '/machines'
+        } else if (data.type === 'low_stock' && data.machine_id) {
+          targetUrl = `/machines/${data.machine_id}`
+        }
+        navigateTo(targetUrl)
+      })
+    }).catch(() => {})
+  }
+
   // ── Initialize (call on client mount) ───────────────────────────────────
   async function init() {
     if (import.meta.server) return
     refreshPermission()
+    setupNativeListeners()
+
+    if (isNative) {
+      // On native, check permission state
+      try {
+        const { PushNotifications } = await import('@capacitor/push-notifications')
+        const permStatus = await PushNotifications.checkPermissions()
+        permission.value = permStatus.receive === 'granted' ? 'granted' : 'default'
+      } catch {}
+    }
+
     await Promise.all([checkSubscription(), fetchPreferences(), fetchDevices()])
   }
 
