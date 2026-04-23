@@ -1,6 +1,193 @@
 <resources>
     <string name="app_name">VMflow</string>
-    <!-- Supabase configuration (override via gradle properties or BuildConfig) -->
-    <string name="supabase_url">https://supabase.vmflow.xyz</string>
-    <string name="supabase_anon_key">your-anon-key-here</string>
+
+    <!-- Auth -->
+    <string name="auth_email">Email</string>
+    <string name="auth_password">Password</string>
+    <string name="auth_first_name">First name</string>
+    <string name="auth_last_name">Last name</string>
+    <string name="auth_sign_in">Sign In</string>
+    <string name="auth_sign_up">Sign Up</string>
+    <string name="auth_sign_out">Sign Out</string>
+    <string name="auth_no_account">Don\'t have an account?</string>
+    <string name="auth_have_account">Already have an account?</string>
+    <string name="auth_welcome">Vending Machine Management</string>
+    <string name="auth_connected_to">Connected to</string>
+    <string name="auth_select_server">Select Server</string>
+    <string name="auth_add_server">Add Server</string>
+    <string name="auth_edit_server">Edit Server</string>
+    <string name="auth_server_name">Server name</string>
+    <string name="auth_server_url">Server URL</string>
+    <string name="auth_server_anon_key">Anon key</string>
+    <string name="auth_scan_qr">Scan QR</string>
+
+    <!-- Navigation -->
+    <string name="nav_dashboard">Dashboard</string>
+    <string name="nav_machines">Machines</string>
+    <string name="nav_refill">Refill</string>
+    <string name="nav_inbox">Inbox</string>
+    <string name="nav_more">More</string>
+    <string name="nav_products">Products</string>
+    <string name="nav_warehouse">Warehouse</string>
+    <string name="nav_deals">Deals</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Dashboard -->
+    <string name="dashboard_today_revenue">Today\'s Revenue</string>
+    <string name="dashboard_today_sales">Today\'s Sales</string>
+    <string name="dashboard_yesterday">Yesterday: %1$s</string>
+    <string name="dashboard_this_week">This week: %1$d</string>
+    <string name="dashboard_machines">Machines</string>
+    <string name="dashboard_online">Online</string>
+    <string name="dashboard_stock_alerts">Stock Alerts</string>
+    <string name="dashboard_x_critical_y_low">%1$d critical, %2$d low</string>
+    <string name="dashboard_revenue_30_days">Revenue (30 days)</string>
+    <string name="dashboard_no_sales_data">No sales data</string>
+    <string name="dashboard_recent_sales">Recent Sales</string>
+    <string name="dashboard_no_recent_sales">No recent sales</string>
+    <string name="dashboard_start_refill">Start Refill</string>
+    <string name="dashboard_continue_refill">Continue Refill</string>
+
+    <!-- Machines -->
+    <string name="machines_search">Search machines</string>
+    <string name="machines_empty_title">No Machines</string>
+    <string name="machines_empty_body">Machines will appear here once registered via the web dashboard.</string>
+    <string name="machines_online">Online</string>
+    <string name="machines_offline">Offline</string>
+    <string name="machines_empty_count">Empty: %1$d</string>
+    <string name="machines_low_count">Low: %1$d</string>
+    <string name="machines_swap_count">Swap: %1$d</string>
+    <string name="machines_no_stock_count">No Stock: %1$d</string>
+    <string name="machines_today">Today</string>
+    <string name="machines_yesterday">Yesterday</string>
+    <string name="machines_this_week">This Week</string>
+    <string name="machines_last_week">Last Week</string>
+    <string name="machines_in_stock">In Stock</string>
+    <string name="machines_swap">Swap</string>
+    <string name="machines_no_stock">No Stock</string>
+    <string name="machines_discontinued">DC</string>
+
+    <!-- Trays -->
+    <string name="trays_tab">Trays</string>
+    <string name="trays_empty">No trays configured yet.</string>
+    <string name="trays_add">Add Tray</string>
+    <string name="trays_batch_add">Batch Add</string>
+    <string name="trays_fill_all">Fill All</string>
+    <string name="trays_slot">Slot %1$d</string>
+    <string name="trays_capacity">Capacity</string>
+    <string name="trays_stock">Current stock</string>
+    <string name="trays_min_stock">Min stock</string>
+    <string name="trays_fill_when_below">Fill when below</string>
+    <string name="trays_product">Product</string>
+    <string name="trays_no_product">No product assigned</string>
+    <string name="trays_save">Save</string>
+    <string name="trays_cancel">Cancel</string>
+    <string name="trays_delete">Delete</string>
+    <string name="trays_start_slot">Start slot</string>
+    <string name="trays_count">Count</string>
+
+    <!-- Refill -->
+    <string name="refill_step_review">Review</string>
+    <string name="refill_step_packing">Pack</string>
+    <string name="refill_step_refill">Refill</string>
+    <string name="refill_step_summary">Summary</string>
+    <string name="refill_start_tour">Start Tour</string>
+    <string name="refill_confirm">Confirm Refill</string>
+    <string name="refill_skip">Skip Machine</string>
+    <string name="refill_finish">Finish</string>
+    <string name="refill_items_for_machines">%1$d items for %2$d machines</string>
+    <string name="refill_no_machines_need_refill">All machines are fully stocked. 🎉</string>
+
+    <!-- Inbox -->
+    <string name="inbox_filter_all">All</string>
+    <string name="inbox_filter_problem">Problem</string>
+    <string name="inbox_filter_feedback">Feedback</string>
+    <string name="inbox_filter_wish">Wish</string>
+    <string name="inbox_show_open">Show only open</string>
+    <string name="inbox_empty">No messages yet.</string>
+    <string name="inbox_mark_reviewed">Mark reviewed</string>
+    <string name="inbox_dismiss">Dismiss</string>
+    <string name="inbox_reopen">Reopen</string>
+    <string name="inbox_delete">Delete</string>
+
+    <!-- Settings -->
+    <string name="settings_push">Push Notifications</string>
+    <string name="settings_push_enable">Enable Notifications</string>
+    <string name="settings_push_registering">Registering…</string>
+    <string name="settings_push_denied">Notifications are disabled in system settings. Open Settings to enable them.</string>
+    <string name="settings_open_system">Open Settings</string>
+    <string name="settings_push_test">Send Test Notification</string>
+    <string name="settings_notif_sale">Sale Notifications</string>
+    <string name="settings_notif_sale_desc">Get notified for every vending machine sale</string>
+    <string name="settings_notif_low_stock">Low Stock Alerts</string>
+    <string name="settings_notif_low_stock_desc">Get notified when a product drops below the refill threshold</string>
+    <string name="settings_notif_inbox">Customer Inbox</string>
+    <string name="settings_notif_inbox_desc">Get notified when a customer reports a problem, leaves feedback, or submits a product wish</string>
+    <string name="settings_deals">Deals</string>
+    <string name="settings_deals_enable">Enable Deal Search</string>
+    <string name="settings_deals_desc">Automatically find retailer offers matching your products based on your ZIP code.</string>
+    <string name="settings_deals_zip">ZIP Code</string>
+    <string name="settings_account">Account</string>
+    <string name="settings_organization">Organization</string>
+    <string name="settings_role">Role</string>
+    <string name="settings_sign_out_confirm">Are you sure you want to sign out?</string>
+
+    <!-- Warehouse -->
+    <string name="warehouse_empty">No products in stock yet.</string>
+    <string name="warehouse_intake">Book Intake</string>
+    <string name="warehouse_select">Select warehouse</string>
+    <string name="warehouse_quantity">Quantity</string>
+    <string name="warehouse_batch_number">Batch number</string>
+    <string name="warehouse_expiration">Expiration date</string>
+    <string name="warehouse_has_expiration">Track expiration</string>
+    <string name="warehouse_scan_barcode">Scan barcode</string>
+    <string name="warehouse_out_of_stock">Out</string>
+    <string name="warehouse_low_stock">Low</string>
+
+    <!-- Products -->
+    <string name="products_tab_products">Products</string>
+    <string name="products_tab_categories">Categories</string>
+    <string name="products_empty">No products yet.</string>
+    <string name="products_add">Add Product</string>
+    <string name="products_name">Name</string>
+    <string name="products_price">Sell price</string>
+    <string name="products_category">Category</string>
+    <string name="products_discontinued">Discontinued</string>
+    <string name="products_upload_image">Upload image</string>
+    <string name="products_search_images">Search images</string>
+    <string name="products_barcodes">Barcodes</string>
+    <string name="products_add_barcode">Add barcode</string>
+
+    <!-- Deals -->
+    <string name="deals_empty">No deals found yet.</string>
+    <string name="deals_refresh">Refresh</string>
+    <string name="deals_group_retailer">Retailer</string>
+    <string name="deals_group_product">Product</string>
+    <string name="deals_upcoming">Upcoming</string>
+    <string name="deals_active">Active</string>
+    <string name="deals_expiring">Expiring soon</string>
+    <string name="deals_expired">Expired</string>
+
+    <!-- Common -->
+    <string name="common_ok">OK</string>
+    <string name="common_cancel">Cancel</string>
+    <string name="common_save">Save</string>
+    <string name="common_error">Error</string>
+    <string name="common_retry">Retry</string>
+    <string name="common_loading">Loading…</string>
+    <string name="common_search">Search</string>
+    <string name="common_no_organization_title">No Organization</string>
+    <string name="common_no_organization_body">You are not a member of any organization yet. Please create or join one using the web dashboard.</string>
+    <string name="common_just_now">Just now</string>
+    <string name="common_minutes_ago">%1$dm ago</string>
+    <string name="common_hours_ago">%1$dh ago</string>
+    <string name="common_days_ago">%1$dd ago</string>
+
+    <!-- Content descriptions (a11y) -->
+    <string name="cd_back">Back</string>
+    <string name="cd_more">More</string>
+    <string name="cd_close">Close</string>
+    <string name="cd_product_image">Product image</string>
+    <string name="cd_refresh">Refresh</string>
+    <string name="cd_account_menu">Account menu</string>
 </resources>

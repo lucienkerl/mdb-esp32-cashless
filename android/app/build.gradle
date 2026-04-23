@@ -3,64 +3,134 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.hilt)
+}
+
+// Auto-increment versionCode from git commit count (mirrors iOS behavior)
+def gitCommitCount = { ->
+    try {
+        def stdout = new ByteArrayOutputStream()
+        exec {
+            commandLine 'git', 'rev-list', '--count', 'HEAD'
+            standardOutput = stdout
+            ignoreExitValue = true
+        }
+        return stdout.toString().trim().toInteger()
+    } catch (Exception ignored) {
+        return 1
+    }
 }
 
 android {
-    namespace 'xyz.vmflow'
+    namespace 'de.kerlhandel.vmflow'
     compileSdk 36
 
     defaultConfig {
-        applicationId "xyz.vmflow.app"
+        applicationId "de.kerlhandel.vmflow"
         minSdk 26
         targetSdk 36
-        versionCode 7
-        versionName "v2.0.0"
+        versionCode gitCommitCount()
+        versionName "1.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        vectorDrawables.useSupportLibrary = true
+    }
 
-        buildConfigField "String", "SUPABASE_URL", "\"${project.findProperty('SUPABASE_URL') ?: 'https://supabase.vmflow.xyz'}\""
-        buildConfigField "String", "SUPABASE_ANON_KEY", "\"${project.findProperty('SUPABASE_ANON_KEY') ?: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlLWRlbW8iLCJpYXQiOjE2NDE3NjkyMDAsImV4cCI6MTc5OTUzNTYwMH0.VGEEIztVo-do9cy_Qw2-2sF8bSONckhX71Nvtwj15X4'}\""
+    flavorDimensions += "env"
+    productFlavors {
+        dev {
+            dimension "env"
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-dev"
+            buildConfigField "String", "SUPABASE_URL", "\"${project.findProperty('SUPABASE_URL_DEV') ?: 'http://10.0.1.130:54321'}\""
+            buildConfigField "String", "SUPABASE_ANON_KEY", "\"${project.findProperty('SUPABASE_ANON_KEY_DEV') ?: 'sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH'}\""
+            buildConfigField "String", "DEFAULT_SERVER_NAME", "\"VMflow Dev\""
+        }
+        prod {
+            dimension "env"
+            buildConfigField "String", "SUPABASE_URL", "\"${project.findProperty('SUPABASE_URL') ?: 'https://supabase.kerl-handel.de'}\""
+            buildConfigField "String", "SUPABASE_ANON_KEY", "\"${project.findProperty('SUPABASE_ANON_KEY') ?: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzcyMzc3NzY3LCJleHAiOjIwODc3Mzc3Njd9.5Mu3-BgmHhekSP6vm0W20iwwT3mOjcYQPjO9b-oqgwA'}\""
+            buildConfigField "String", "DEFAULT_SERVER_NAME", "\"VMflow Cloud\""
+        }
     }
 
     buildTypes {
+        debug {
+            // Keep inspectable in debug
+        }
         release {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
+
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_11
-        targetCompatibility JavaVersion.VERSION_11
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
     kotlinOptions {
-        jvmTarget = '11'
+        jvmTarget = '17'
+        freeCompilerArgs += [
+            '-opt-in=kotlin.RequiresOptIn',
+            '-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi',
+            '-opt-in=androidx.compose.material3.ExperimentalMaterial3Api',
+            '-opt-in=androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi',
+            '-opt-in=androidx.compose.foundation.layout.ExperimentalLayoutApi',
+            '-opt-in=androidx.compose.foundation.ExperimentalFoundationApi',
+            '-opt-in=io.github.jan.supabase.annotations.SupabaseInternal',
+            '-opt-in=io.github.jan.supabase.annotations.SupabaseExperimental',
+        ]
     }
     buildFeatures {
         compose true
         buildConfig true
+    }
+    packaging {
+        resources {
+            excludes += [
+                '/META-INF/{AL2.0,LGPL2.1}',
+                'META-INF/DEPENDENCIES',
+                'META-INF/LICENSE',
+                'META-INF/LICENSE.txt',
+                'META-INF/NOTICE',
+                'META-INF/NOTICE.txt',
+            ]
+        }
     }
 }
 
 dependencies {
     // Core
     implementation libs.androidx.core.ktx
+    implementation libs.androidx.splashscreen
+    implementation libs.androidx.datastore.preferences
     implementation libs.androidx.lifecycle.runtime.ktx
     implementation libs.androidx.lifecycle.viewmodel.compose
     implementation libs.androidx.lifecycle.runtime.compose
     implementation libs.androidx.activity.compose
 
-    // Compose
+    // Compose + Material3 (BOM controls versions)
     implementation platform(libs.androidx.compose.bom)
     implementation libs.androidx.ui
     implementation libs.androidx.ui.graphics
     implementation libs.androidx.ui.tooling.preview
     implementation libs.androidx.material3
+    implementation libs.androidx.material3.windowsizeclass
+    implementation libs.androidx.material3.adaptive
+    implementation libs.androidx.material3.adaptive.layout
+    implementation libs.androidx.material3.adaptive.navigation
     implementation libs.androidx.material.icons.extended
     implementation libs.androidx.navigation.compose
 
+    // Hilt DI
+    implementation libs.hilt.android
+    implementation libs.hilt.navigation.compose
+    ksp libs.hilt.compiler
+
     // Supabase
-    implementation libs.supabase.gotrue
+    implementation libs.supabase.auth
     implementation libs.supabase.postgrest
     implementation libs.supabase.realtime
     implementation libs.supabase.storage
@@ -74,13 +144,32 @@ dependencies {
     // Coil (image loading)
     implementation libs.coil.compose
 
-    // Kotlin
+    // Kotlin serialization + coroutines + datetime
     implementation libs.kotlinx.serialization.json
     implementation libs.kotlinx.coroutines.android
     implementation libs.kotlinx.datetime
 
-    // Test
+    // Firebase / FCM
+    implementation platform(libs.firebase.bom)
+    implementation libs.firebase.messaging
+
+    // CameraX (Barcode + QR scanner)
+    implementation libs.camerax.core
+    implementation libs.camerax.camera2
+    implementation libs.camerax.lifecycle
+    implementation libs.camerax.view
+
+    // ML Kit Barcode
+    implementation libs.mlkit.barcode
+
+    // Permissions helper
+    implementation libs.accompanist.permissions
+
+    // Tests
     testImplementation libs.junit
+    testImplementation libs.mockk
+    testImplementation libs.turbine
+    testImplementation libs.kotlinx.coroutines.test
     androidTestImplementation libs.androidx.junit
     androidTestImplementation libs.androidx.espresso.core
     androidTestImplementation platform(libs.androidx.compose.bom)

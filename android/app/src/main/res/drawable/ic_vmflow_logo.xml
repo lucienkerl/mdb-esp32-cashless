@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- VMflow mark: two white bars (left half of the MDB signal) + two lime bars
+     (right half) + lime data-flow arrow. Foreground only — overlay on any
+     background colour. Mirrors brand/logo-mark.svg (without the rounded slate
+     square). See BRANDING.md. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <group
+        android:translateX="8"
+        android:translateY="11">
+
+        <!-- Bar 1 (tall, white) -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M1.5 0 L3.5 0 A1.5 1.5 0 0 1 5 1.5 L5 20.5 A1.5 1.5 0 0 1 3.5 22 L1.5 22 A1.5 1.5 0 0 1 0 20.5 L0 1.5 A1.5 1.5 0 0 1 1.5 0 Z"/>
+
+        <!-- Bar 2 (short, white) -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M9.5 0 L11.5 0 A1.5 1.5 0 0 1 13 1.5 L13 12.5 A1.5 1.5 0 0 1 11.5 14 L9.5 14 A1.5 1.5 0 0 1 8 12.5 L8 1.5 A1.5 1.5 0 0 1 9.5 0 Z"/>
+
+        <!-- Bar 3 (tall, lime) -->
+        <path
+            android:fillColor="#FFA3E635"
+            android:pathData="M17.5 0 L19.5 0 A1.5 1.5 0 0 1 21 1.5 L21 20.5 A1.5 1.5 0 0 1 19.5 22 L17.5 22 A1.5 1.5 0 0 1 16 20.5 L16 1.5 A1.5 1.5 0 0 1 17.5 0 Z"/>
+
+        <!-- Bar 4 (short, lime) -->
+        <path
+            android:fillColor="#FFA3E635"
+            android:pathData="M25.5 0 L27.5 0 A1.5 1.5 0 0 1 29 1.5 L29 12.5 A1.5 1.5 0 0 1 27.5 14 L25.5 14 A1.5 1.5 0 0 1 24 12.5 L24 1.5 A1.5 1.5 0 0 1 25.5 0 Z"/>
+
+        <!-- Data-flow arrow (lime) -->
+        <path
+            android:strokeColor="#FFA3E635"
+            android:strokeWidth="2.5"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M0 28 L30 28 M26.5 25 L30 28 L26.5 31"/>
+
+    </group>
+</vector>
