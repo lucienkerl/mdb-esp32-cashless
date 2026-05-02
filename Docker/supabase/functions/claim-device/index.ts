@@ -8,6 +8,18 @@ function generatePasskey(): string {
   return Array.from(bytes).map(b => chars[b % chars.length]).join('')
 }
 
+// Generates a random 12-character SoftAP password. Alphabet excludes the
+// confusable characters 0/O/1/l/I so a technician can read it off the
+// management UI and type it without ambiguity.
+function generateSoftApPassword(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
+  const bytes = new Uint8Array(12)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes).map(b => chars[b % chars.length]).join('')
+}
+
+export { generateSoftApPassword }
+
 Deno.serve(async (req) => {
   // Only accept POST
   if (req.method !== 'POST') {
@@ -50,17 +62,31 @@ Deno.serve(async (req) => {
     if (token.used_at && token.embedded_id) {
       const { data: existing, error: existingError } = await adminClient
         .from('embeddeds')
-        .select('id, passkey')
+        .select('id, passkey, softap_password')
         .eq('id', token.embedded_id)
         .single()
 
       if (existingError) throw existingError
+
+      // Backfill softap_password for rows created by older revisions of this
+      // function (column was added 2026-04-30, but rows pre-existed). Generate
+      // once and store; subsequent retries return the same value.
+      let softapPassword = existing.softap_password as string | null
+      if (!softapPassword) {
+        softapPassword = generateSoftApPassword()
+        const { error: updErr } = await adminClient
+          .from('embeddeds')
+          .update({ softap_password: softapPassword })
+          .eq('id', existing.id)
+        if (updErr) throw updErr
+      }
 
       return new Response(
         JSON.stringify({
           company_id: token.company_id,
           device_id: existing.id,
           passkey: existing.passkey,
+          softap_password: softapPassword,
           mqtt_host: Deno.env.get('MQTT_PUBLIC_HOST') ?? 'mqtt.vmflow.xyz',
           mqtt_port: Deno.env.get('MQTT_PUBLIC_PORT') ?? '1883',
           mqtt_user: 'vmflow',
@@ -82,6 +108,7 @@ Deno.serve(async (req) => {
     }
 
     const passkey = generatePasskey()
+    const softapPassword = generateSoftApPassword()
 
     // Create embeddeds row — subdomain auto-increments
     const { data: embedded, error: embeddedError } = await adminClient
@@ -91,6 +118,7 @@ Deno.serve(async (req) => {
         owner_id: token.created_by,
         mac_address: mac_address ?? null,
         passkey,
+        softap_password: softapPassword,
         status: 'offline',
       })
       .select('id, subdomain')
@@ -124,6 +152,7 @@ Deno.serve(async (req) => {
         company_id: token.company_id,
         device_id: embedded.id,
         passkey,
+        softap_password: softapPassword,
         mqtt_host: Deno.env.get('MQTT_PUBLIC_HOST') ?? 'mqtt.vmflow.xyz',
         mqtt_port: Deno.env.get('MQTT_PUBLIC_PORT') ?? '1883',
         mqtt_user: 'vmflow',
