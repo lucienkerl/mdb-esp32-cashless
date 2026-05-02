@@ -449,6 +449,10 @@ verify_jwt = false
 import_map = "./functions/claim-device/deno.json"
 entrypoint = "./functions/claim-device/index.ts"
 
+[functions.sync-softap-password]
+verify_jwt = false
+import_map = "./functions/sync-softap-password/deno.json"
+
 [functions.trigger-ota]
 enabled = true
 verify_jwt = false
