@@ -2278,6 +2278,185 @@ static void provision_claim_task(void *arg) {
     tracked_restart("provision");
 }
 
+/* ============================================================================
+ * SoftAP password sync task — runs once per boot for already-claimed devices
+ * that don't yet have softap_pwd in NVS. Posts an HMAC-authenticated request
+ * to /functions/v1/sync-softap-password, writes the returned password to NVS,
+ * and reloads the SoftAP config in place.
+ * ============================================================================ */
+
+#include "mbedtls/md.h"
+
+static bool s_softap_sync_running = false;
+static bool s_softap_sync_done    = false;
+
+#define SOFTAP_SYNC_MAX_ATTEMPTS  3
+static const int SOFTAP_SYNC_RETRY_DELAYS_S[] = { 5, 30 };
+
+static void compute_softap_sync_signature(const char *passkey,
+                                          const char *device_id,
+                                          const char *mac_str,
+                                          uint32_t timestamp,
+                                          char *out_hex,
+                                          size_t out_hex_len)
+{
+    char message[160];
+    snprintf(message, sizeof(message), "%s|%s|%lu",
+             device_id, mac_str, (unsigned long)timestamp);
+
+    uint8_t digest[32];
+    const mbedtls_md_info_t *md = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+    mbedtls_md_hmac(md,
+                    (const uint8_t *)passkey, strlen(passkey),
+                    (const uint8_t *)message, strlen(message),
+                    digest);
+
+    if (out_hex_len < 65) { out_hex[0] = '\0'; return; }
+    static const char HEX[] = "0123456789abcdef";
+    for (int i = 0; i < 32; i++) {
+        out_hex[i * 2]     = HEX[digest[i] >> 4];
+        out_hex[i * 2 + 1] = HEX[digest[i] & 0x0F];
+    }
+    out_hex[64] = '\0';
+}
+
+void softap_sync_task(void *arg) {
+    if (s_softap_sync_running || s_softap_sync_done) {
+        ESP_LOGI(TAG, "SOFTAP SYNC: already running or done, skipping");
+        vTaskDelete(NULL);
+        return;
+    }
+    s_softap_sync_running = true;
+
+    /* Read NVS prerequisites. Bail if anything missing — the device is in
+     * an in-between state we don't try to repair from here. */
+    char device_id[64] = {0};
+    char passkey[32]   = {0};
+    char srv_url[128]  = {0};
+    char softap_pwd_existing[16] = {0};
+
+    nvs_handle_t h;
+    if (nvs_open("vmflow", NVS_READONLY, &h) != ESP_OK) {
+        ESP_LOGW(TAG, "SOFTAP SYNC: NVS open failed");
+        goto done;
+    }
+    size_t l;
+    l = sizeof(device_id);            nvs_get_str(h, "device_id", device_id, &l);
+    l = sizeof(passkey);              nvs_get_str(h, "passkey",   passkey,   &l);
+    l = sizeof(srv_url);              nvs_get_str(h, "srv_url",   srv_url,   &l);
+    l = sizeof(softap_pwd_existing);  nvs_get_str(h, "softap_pwd", softap_pwd_existing, &l);
+    nvs_close(h);
+
+    if (strlen(device_id) == 0 || strlen(passkey) == 0 || strlen(srv_url) == 0) {
+        ESP_LOGI(TAG, "SOFTAP SYNC: device not claimed yet, skipping");
+        goto done;
+    }
+    if (strlen(softap_pwd_existing) >= 8) {
+        ESP_LOGI(TAG, "SOFTAP SYNC: softap_pwd already set, skipping");
+        goto done;
+    }
+
+    /* Wait briefly for SNTP-synced time. The signature timestamp must be
+     * within ±60 s of server time, so a 1970 clock will fail. SNTP usually
+     * completes within a few seconds of WiFi/cellular bring-up. */
+    for (int i = 0; i < 30; i++) {
+        time_t now_t = time(NULL);
+        if (now_t > 1700000000) break;
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+    time_t now_t = time(NULL);
+    if (now_t <= 1700000000) {
+        ESP_LOGW(TAG, "SOFTAP SYNC: time not synced after 30 s, bailing");
+        goto done;
+    }
+
+    uint8_t mac[6];
+    esp_wifi_get_mac(WIFI_IF_STA, mac);
+    char mac_str[18];
+    snprintf(mac_str, sizeof(mac_str), "%02x:%02x:%02x:%02x:%02x:%02x",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+    char sig[65];
+    compute_softap_sync_signature(passkey, device_id, mac_str, (uint32_t)now_t,
+                                  sig, sizeof(sig));
+
+    char body[384];
+    snprintf(body, sizeof(body),
+             "{\"device_id\":\"%s\",\"mac_address\":\"%s\",\"timestamp\":%lu,\"signature\":\"%s\"}",
+             device_id, mac_str, (unsigned long)now_t, sig);
+
+    char url[192];
+    snprintf(url, sizeof(url), "%s/functions/v1/sync-softap-password", srv_url);
+
+    for (int attempt = 1; attempt <= SOFTAP_SYNC_MAX_ATTEMPTS; attempt++) {
+        char resp[256] = {0};
+        size_t resp_len = 0;
+        int http_status = 0;
+        esp_err_t err = ESP_FAIL;
+
+        esp_http_client_config_t cfg = {
+            .url               = url,
+            .crt_bundle_attach = (strncmp(url, "https://", 8) == 0) ? esp_crt_bundle_attach : NULL,
+            .method            = HTTP_METHOD_POST,
+            .timeout_ms        = 30000,
+        };
+        esp_http_client_handle_t cli = esp_http_client_init(&cfg);
+        if (cli) {
+            esp_http_client_set_header(cli, "Content-Type", "application/json");
+            esp_http_client_set_post_field(cli, body, strlen(body));
+            err = esp_http_client_open(cli, strlen(body));
+            if (err == ESP_OK && esp_http_client_write(cli, body, strlen(body)) >= 0) {
+                if (esp_http_client_fetch_headers(cli) >= 0) {
+                    http_status = esp_http_client_get_status_code(cli);
+                    int rl = esp_http_client_read_response(cli, resp, sizeof(resp) - 1);
+                    if (rl < 0) rl = 0;
+                    resp[rl] = '\0';
+                    resp_len = rl;
+                }
+            }
+            esp_http_client_close(cli);
+            esp_http_client_cleanup(cli);
+        }
+
+        ESP_LOGI(TAG, "SOFTAP SYNC: attempt %d HTTP %d (%zu B)", attempt, http_status, resp_len);
+
+        if (http_status == 200) {
+            cJSON *root = cJSON_Parse(resp);
+            cJSON *j_pwd = root ? cJSON_GetObjectItem(root, "softap_password") : NULL;
+            if (j_pwd && cJSON_IsString(j_pwd) && strlen(j_pwd->valuestring) >= 8) {
+                nvs_handle_t hw;
+                if (nvs_open("vmflow", NVS_READWRITE, &hw) == ESP_OK) {
+                    nvs_set_str(hw, "softap_pwd", j_pwd->valuestring);
+                    nvs_commit(hw);
+                    nvs_close(hw);
+                }
+                ESP_LOGW(TAG, "SOFTAP SYNC: applied backend-assigned password — reloading AP");
+                start_softap();   /* re-applies wifi_config, deauths existing clients */
+                cJSON_Delete(root);
+                goto done;
+            }
+            if (root) cJSON_Delete(root);
+            ESP_LOGE(TAG, "SOFTAP SYNC: HTTP 200 but no usable softap_password — giving up");
+            break;
+        }
+        if (http_status >= 400 && http_status < 500) {
+            ESP_LOGW(TAG, "SOFTAP SYNC: server rejected %d — giving up", http_status);
+            break;
+        }
+
+        if (attempt < SOFTAP_SYNC_MAX_ATTEMPTS) {
+            int delay_s = SOFTAP_SYNC_RETRY_DELAYS_S[attempt - 1];
+            ESP_LOGI(TAG, "SOFTAP SYNC: retrying in %d s", delay_s);
+            vTaskDelay(pdMS_TO_TICKS(delay_s * 1000));
+        }
+    }
+
+done:
+    s_softap_sync_done    = true;
+    s_softap_sync_running = false;
+    vTaskDelete(NULL);
+}
+
 static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
 
 	if (event_base == WIFI_EVENT)
@@ -2400,6 +2579,14 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                     xTaskCreate(provision_claim_task, "prov_claim", 8192, NULL, 5, NULL);
                     break;
                 }
+            }
+
+            /* Also try a SoftAP password sync for already-claimed
+             * devices that don't yet have softap_pwd in NVS. The
+             * task itself early-exits if the conditions aren't met,
+             * so this is safe to spawn unconditionally. */
+            if (!s_softap_sync_done) {
+                xTaskCreate(softap_sync_task, "softap_sync", 8192, NULL, 4, NULL);
             }
 
             if (!sntp_started) {
