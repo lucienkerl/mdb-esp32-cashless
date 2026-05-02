@@ -41,6 +41,15 @@ const { onResume } = useAppResume()
 
 const isAdmin = computed(() => role.value === 'admin')
 
+// ── SoftAP credentials modal ────────────────────────────────────────────
+const softapModalOpen = ref(false)
+function openSoftapModal() {
+  softapModalOpen.value = true
+}
+function closeSoftapModal() {
+  softapModalOpen.value = false
+}
+
 import { fuzzyFilter } from '@/lib/fuzzySearch'
 
 const traySearch = ref('')
@@ -172,7 +181,7 @@ const errorMsg = ref('')
 async function fetchMachine() {
   const { data, error } = await supabase
     .from('vendingMachine')
-    .select('id, name, location_lat, location_lon, embedded, country_code, public_listing, address_street, address_house_number, address_postal_code, address_city, formatted_address, embeddeds(id, status, status_at, subdomain, mac_address, firmware_version, firmware_build_date, mdb_address, mdb_diagnostics, last_restart_reason, last_restart_at, online_since)')
+    .select('id, name, location_lat, location_lon, embedded, country_code, public_listing, address_street, address_house_number, address_postal_code, address_city, formatted_address, embeddeds(id, status, status_at, subdomain, mac_address, firmware_version, firmware_build_date, mdb_address, mdb_diagnostics, last_restart_reason, last_restart_at, online_since, softap_password)')
     .eq('id', route.params.id)
     .single()
   if (error) {
@@ -2231,7 +2240,23 @@ async function handleAddSale() {
             <!-- MAC Address -->
             <div class="flex justify-between items-center gap-2">
               <span class="shrink-0 text-muted-foreground">{{ t('machineDetail.macAddress') }}</span>
-              <span class="font-mono text-xs truncate">{{ machine.embeddeds.mac_address ?? '—' }}</span>
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="font-mono text-xs truncate">{{ machine.embeddeds.mac_address ?? '—' }}</span>
+                <button
+                  v-if="isAdmin"
+                  type="button"
+                  class="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-xs hover:bg-muted"
+                  @click="openSoftapModal"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
+                    <path d="M1.42 9a16 16 0 0 1 21.16 0"/>
+                    <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+                    <line x1="12" x2="12.01" y1="20" y2="20"/>
+                  </svg>
+                  {{ t('softap.title') }}
+                </button>
+              </div>
             </div>
 
             <!-- Subdomain -->
@@ -2847,5 +2872,16 @@ async function handleAddSale() {
           country_code: machine.country_code,
         }"
         @saved="fetchMachine"
+      />
+
+      <SoftApCredentialsModal
+        :open="softapModalOpen"
+        :device="machine?.embeddeds ? {
+          id: (machine.embeddeds as any).id,
+          mac_address: (machine.embeddeds as any).mac_address ?? null,
+          subdomain: (machine.embeddeds as any).subdomain ?? null,
+          softap_password: (machine.embeddeds as any).softap_password ?? null,
+        } : null"
+        @close="closeSoftapModal"
       />
 </template>
