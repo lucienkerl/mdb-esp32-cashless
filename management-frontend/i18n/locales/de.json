@@ -730,10 +730,8 @@
     "unassigned": "Nicht zugewiesen",
     "registerDescription": "Generieren Sie einen einmaligen Provisionierungscode für ein neues Gerät. Das Gerät wird ohne Verkaufsautomaten registriert — Sie können es später einem Automaten zuweisen.",
     "validUntil": "Gültig bis {date}. Einmalige Verwendung.",
-    "wifiNetwork": "VMflow",
-    "wifiPassword": "12345678",
     "ipAddress": "192.168.4.1",
-    "step1": "Verbinden Sie Ihr Telefon mit dem WLAN des Geräts: {network} (Passwort: {password})",
+    "step1": "Verbinde dein Handy mit dem WLAN des Geräts — wähle das Netzwerk mit dem Präfix 'VMflow-'. Neue Geräte haben ein offenes WLAN (kein Passwort); registrierte Geräte zeigen ihr Passwort in der Management-UI im jeweiligen Geräte-Eintrag.",
     "step2": "Öffnen Sie {ip} in Ihrem Browser",
     "step3": "Tippen Sie auf QR-Code scannen und scannen Sie den obigen Code — oder geben Sie Code und Server-URL manuell ein",
     "step4": "Wählen Sie Ihr WLAN-Netzwerk und speichern Sie — das Gerät registriert sich automatisch",
@@ -1022,6 +1020,18 @@
     "backfillDescription": "Aktualisiert ältere Verkaufsdaten mit Steuerinformationen basierend auf der aktuellen Konfiguration.",
     "backfillSuccess": "{count} Verkäufe mit Steuerdaten aktualisiert.",
     "backfillNoChanges": "Alle Verkäufe haben bereits Steuerdaten — nichts zu aktualisieren."
+  },
+  "softap": {
+    "title": "WLAN-Zugang (SoftAP)",
+    "ssid": "Netzwerkname (SSID)",
+    "password": "Passwort",
+    "reveal": "Anzeigen",
+    "hide": "Verbergen",
+    "copy": "Kopieren",
+    "copied": "Kopiert!",
+    "openAp": "Der SoftAP dieses Geräts ist derzeit offen (kein Passwort).",
+    "openApHint": "Den Factory-Reset auslösen und das Gerät neu claimen, um ein gerätespezifisches Passwort zuzuweisen.",
+    "qrHelp": "Mit der Handy-Kamera scannen, um automatisch zu verbinden."
   },
   "activity": {
     "saleRecorded": "Verkauf erfasst",

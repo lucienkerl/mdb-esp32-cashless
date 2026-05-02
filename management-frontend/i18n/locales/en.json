@@ -730,10 +730,8 @@
     "unassigned": "Unassigned",
     "registerDescription": "Generate a one-time provisioning code for a new embedded device. The device will be registered without creating a vending machine — you can assign it to a machine later.",
     "validUntil": "Valid until {date}. Single use.",
-    "wifiNetwork": "VMflow",
-    "wifiPassword": "12345678",
     "ipAddress": "192.168.4.1",
-    "step1": "Connect your phone to the device's WiFi network: {network} (password: {password})",
+    "step1": "Connect your phone to the device's WiFi network — pick the network starting with 'VMflow-'. Fresh devices have an open WiFi (no password needed); claimed devices show their password in the management UI under their device entry.",
     "step2": "Open {ip} in your browser",
     "step3": "Tap Scan QR Code and scan the code above — or enter the code and server URL manually",
     "step4": "Select your WiFi network and save — the device will register automatically",
@@ -1022,6 +1020,18 @@
     "backfillDescription": "Updates older sales records with tax data based on current configuration.",
     "backfillSuccess": "{count} sales updated with tax data.",
     "backfillNoChanges": "All sales already have tax data — nothing to update."
+  },
+  "softap": {
+    "title": "WiFi access (SoftAP)",
+    "ssid": "Network name (SSID)",
+    "password": "Password",
+    "reveal": "Show",
+    "hide": "Hide",
+    "copy": "Copy",
+    "copied": "Copied!",
+    "openAp": "This device's SoftAP is currently open (no password).",
+    "openApHint": "Factory-reset the device and re-claim it from the management UI to assign a unique per-device password.",
+    "qrHelp": "Scan with your phone's camera to connect automatically."
   },
   "activity": {
     "saleRecorded": "Sale recorded",
