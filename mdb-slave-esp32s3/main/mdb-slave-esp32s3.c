@@ -2246,6 +2246,11 @@ static void provision_claim_task(void *arg) {
                         if (j_mqtt_port && cJSON_IsString(j_mqtt_port) && strlen(j_mqtt_port->valuestring) > 0) {
                             nvs_set_str(h, "mqtt_port", j_mqtt_port->valuestring);
                         }
+                        cJSON *j_softap = cJSON_GetObjectItem(root, "softap_password");
+                        if (j_softap && cJSON_IsString(j_softap) && strlen(j_softap->valuestring) >= 8) {
+                            nvs_set_str(h, "softap_pwd", j_softap->valuestring);
+                            ESP_LOGI(TAG, "PROV: stored backend-assigned SoftAP password");
+                        }
                         nvs_erase_key(h, "prov_code");
                         nvs_commit(h);
                         nvs_close(h);
