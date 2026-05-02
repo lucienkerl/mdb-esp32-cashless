@@ -50,6 +50,8 @@ interface EmbeddedDevice {
   status_at: string
   firmware_version: string | null
   firmware_build_date: string | null
+  mdb_diagnostics: Record<string, unknown> | null
+  softap_password: string | null
   machine_name: string | null
   machine_id: string | null
 }
@@ -63,7 +65,7 @@ async function fetchDevices() {
     // Fetch all embedded devices with their linked vendingMachine (if any)
     const { data, error } = await supabase
       .from('embeddeds')
-      .select('id, created_at, subdomain, mac_address, status, status_at, firmware_version, firmware_build_date')
+      .select('id, created_at, subdomain, mac_address, status, status_at, firmware_version, firmware_build_date, mdb_diagnostics, softap_password')
       .order('created_at', { ascending: false })
 
     if (error) throw error
@@ -229,6 +231,19 @@ async function confirmDelete() {
   })
 }
 
+// ── SoftAP credentials modal ────────────────────────────────────────────
+const softapModalOpen = ref(false)
+const softapModalDevice = ref<EmbeddedDevice | null>(null)
+
+function openSoftapModal(device: EmbeddedDevice) {
+  softapModalDevice.value = device
+  softapModalOpen.value = true
+}
+
+function closeSoftapModal() {
+  softapModalOpen.value = false
+  softapModalDevice.value = null
+}
 
 </script>
 
@@ -318,13 +333,29 @@ async function confirmDelete() {
                   {{ device.status === 'ota_updating' ? t('machineDetail.updating') : device.status === 'ota_success' ? t('machineDetail.updated') : device.status === 'ota_failed' ? t('machineDetail.updateFailed') : device.status }}
                 </Badge>
               </div>
-              <button
-                class="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                @click.prevent="openDeleteModal(device)"
-                :title="t('devices.deleteDevice')"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-              </button>
+              <div class="flex items-center gap-1">
+                <button
+                  v-if="isAdmin"
+                  type="button"
+                  class="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                  :title="t('softap.title')"
+                  @click.stop="openSoftapModal(device)"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
+                    <path d="M1.42 9a16 16 0 0 1 21.16 0"/>
+                    <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+                    <line x1="12" x2="12.01" y1="20" y2="20"/>
+                  </svg>
+                </button>
+                <button
+                  class="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  @click.prevent="openDeleteModal(device)"
+                  :title="t('devices.deleteDevice')"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                </button>
+              </div>
             </div>
 
             <!-- Info grid -->
@@ -441,12 +472,28 @@ async function confirmDelete() {
                   {{ formatDate(device.created_at) }}
                 </td>
                 <td class="px-4 py-3">
-                  <button
-                    class="text-xs text-destructive hover:underline"
-                    @click.prevent="openDeleteModal(device)"
-                  >
-                    {{ t('common.delete') }}
-                  </button>
+                  <div class="flex items-center gap-1">
+                    <button
+                      v-if="isAdmin"
+                      type="button"
+                      class="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                      :title="t('softap.title')"
+                      @click.stop="openSoftapModal(device)"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
+                        <path d="M1.42 9a16 16 0 0 1 21.16 0"/>
+                        <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+                        <line x1="12" x2="12.01" y1="20" y2="20"/>
+                      </svg>
+                    </button>
+                    <button
+                      class="text-xs text-destructive hover:underline"
+                      @click.prevent="openDeleteModal(device)"
+                    >
+                      {{ t('common.delete') }}
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -538,7 +585,7 @@ async function confirmDelete() {
         <ol class="mb-5 space-y-2 text-sm text-muted-foreground">
           <li class="flex gap-2">
             <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground">1</span>
-            <span v-html="t('devices.step1', { network: `<strong class='text-foreground'>${t('devices.wifiNetwork')}</strong>`, password: `<strong class='text-foreground'>${t('devices.wifiPassword')}</strong>` })" />
+            <span>{{ t('devices.step1') }}</span>
           </li>
           <li class="flex gap-2">
             <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground">2</span>
@@ -563,4 +610,10 @@ async function confirmDelete() {
       </template>
     </div>
   </div>
+
+  <SoftApCredentialsModal
+    :open="softapModalOpen"
+    :device="softapModalDevice"
+    @close="closeSoftapModal"
+  />
 </template>
