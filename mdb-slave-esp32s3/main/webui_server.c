@@ -262,6 +262,9 @@ static esp_err_t wifi_scan_get_handler(httpd_req_t *req) {
     cJSON *root = cJSON_CreateObject();
     cJSON *networks = cJSON_AddArrayToObject(root, "networks");
 
+    char own_ssid[SOFTAP_SSID_MAX] = {0};
+    softap_get_ssid(own_ssid, sizeof(own_ssid));
+
     char seen_ssids[20][33];
     int seen_count = 0;
 
@@ -272,7 +275,7 @@ static esp_err_t wifi_scan_get_handler(httpd_req_t *req) {
         if (strlen(ssid) == 0) continue;
 
         /* Skip own AP */
-        if (strcmp(ssid, AP_SSID) == 0) continue;
+        if (strcmp(ssid, own_ssid) == 0) continue;
 
         /* Skip duplicates (already sorted by RSSI, first occurrence is strongest) */
         bool dup = false;
@@ -360,16 +363,61 @@ void start_rest_server(void) {
 
 /* ---------- SoftAP ---------- */
 
+esp_err_t softap_get_ssid(char *out, size_t out_len) {
+    if (!out || out_len < 14) return ESP_ERR_INVALID_ARG;  /* "VMflow-AABBCC" + NUL = 14 */
+    uint8_t mac[6];
+    esp_err_t err = esp_wifi_get_mac(WIFI_IF_STA, mac);
+    if (err != ESP_OK) return err;
+    snprintf(out, out_len, "VMflow-%02X%02X%02X", mac[3], mac[4], mac[5]);
+    return ESP_OK;
+}
+
+esp_err_t softap_get_password(char *out, size_t out_len) {
+    if (!out || out_len < 9) return ESP_ERR_INVALID_ARG;  /* WPA2 PSK min is 8 + NUL */
+    out[0] = '\0';  /* default: empty string ⇒ open AP */
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open("vmflow", NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        size_t len = out_len;
+        err = nvs_get_str(h, "softap_pwd", out, &len);
+        nvs_close(h);
+        if (err != ESP_OK || strlen(out) < 8) {
+            /* Missing, too short, or read error — fall through to empty.
+             * This is the path taken before the device is claimed, and on
+             * existing already-claimed devices that haven't been re-claimed
+             * since OTA. start_softap brings up the AP as open. */
+            out[0] = '\0';
+        }
+    }
+    return ESP_OK;
+}
+
 void start_softap(void) {
+    char ssid[SOFTAP_SSID_MAX];
+    char pwd[SOFTAP_PWD_MAX];
+
+    if (softap_get_ssid(ssid, sizeof(ssid)) != ESP_OK) {
+        ESP_LOGE(TAG, "SoftAP SSID fetch failed; using static fallback");
+        snprintf(ssid, sizeof(ssid), "VMflow");
+    }
+    softap_get_password(pwd, sizeof(pwd));  /* never errors; empty pwd ⇒ open */
+
+    bool open = (pwd[0] == '\0');
+
     wifi_config_t wifi_config = {
         .ap = {
-            .ssid           = AP_SSID,
-            .ssid_len       = strlen(AP_SSID),
-            .password       = AP_PASS,
+            .ssid_len       = strlen(ssid),
             .max_connection = 4,
-            .authmode       = WIFI_AUTH_WPA_WPA2_PSK,
+            .authmode       = open ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA_WPA2_PSK,
         },
     };
+    strncpy((char *)wifi_config.ap.ssid, ssid, sizeof(wifi_config.ap.ssid));
+    if (!open) {
+        strncpy((char *)wifi_config.ap.password, pwd, sizeof(wifi_config.ap.password));
+    }
+
     esp_err_t err = esp_wifi_set_config(WIFI_IF_AP, &wifi_config);
-    ESP_LOGI(TAG, "SoftAP config set (SSID=\"%s\") → %s", AP_SSID, esp_err_to_name(err));
+    ESP_LOGI(TAG, "SoftAP config set (SSID=\"%s\" auth=%s) → %s",
+             ssid, open ? "OPEN" : "WPA2", esp_err_to_name(err));
 }
