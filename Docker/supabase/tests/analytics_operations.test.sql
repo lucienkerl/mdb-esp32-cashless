@@ -71,11 +71,16 @@ BEGIN
      v_company_a)
   RETURNING id INTO v_stockout_id;
 
-  -- Seed a refill tour in activity_log (action = 'stock_refill_tour')
+  -- Seed a refill tour in activity_log (action = 'stock_refill_tour').
+  -- Backdate created_at so it falls strictly inside the [p_from, p_to) window
+  -- the RPC uses. Inside a BEGIN/ROLLBACK transaction now() is fixed, so an
+  -- INSERT with default created_at = now() would equal p_to and fail the
+  -- strict-less-than filter.
   INSERT INTO public.activity_log
-    (company_id, user_id, entity_type, entity_id, action, metadata)
+    (created_at, company_id, user_id, entity_type, entity_id, action, metadata)
   VALUES
-    (v_company_a, v_user_a, 'stock', v_machine_a::text, 'stock_refill_tour',
+    (now() - interval '1 hour',
+     v_company_a, v_user_a, 'stock', v_machine_a::text, 'stock_refill_tour',
      jsonb_build_object(
        'tour_id',       v_tour_id,
        'machine_id',    v_machine_a,
