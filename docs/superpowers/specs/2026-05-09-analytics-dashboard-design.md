@@ -127,7 +127,7 @@ CREATE TABLE public.tray_stockout_events (
   id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tray_id                uuid NOT NULL REFERENCES public.machine_trays(id) ON DELETE CASCADE,
   machine_id             uuid NOT NULL REFERENCES public."vendingMachine"(id) ON DELETE CASCADE,
-  item_number            int  NOT NULL,
+  item_number            bigint NOT NULL,                            -- matches machine_trays.item_number
   product_id             uuid REFERENCES public.products(id) ON DELETE SET NULL,
   started_at             timestamptz NOT NULL,
   ended_at               timestamptz,
@@ -236,6 +236,14 @@ AS $$
     AND s.product_id = p_product_id
     AND s.created_at >= now() - (p_days || ' days')::interval;
 $$;
+
+-- Internal-only: revoke from authenticated to prevent cross-company velocity probe via PostgREST.
+-- The trigger calls it from SECURITY DEFINER context inside this migration (own privileges, still works).
+REVOKE ALL ON FUNCTION public.get_product_velocity_one(uuid, uuid, int) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_product_velocity_one(uuid, uuid, int) TO service_role;
+-- Same hardening applies to _analytics_filtered_sales (declared in migration 2):
+-- REVOKE ALL ON FUNCTION public._analytics_filtered_sales(jsonb) FROM PUBLIC;
+-- GRANT EXECUTE TO service_role only.
 ```
 
 **Edge cases (documented behavior):**
@@ -272,9 +280,9 @@ All RPCs:
 
 **Note for implementer:** `my_company_id()` and `i_am_admin()` themselves must remain `SECURITY DEFINER` — see `20260418000000_fix_rls_recursion_api_auth.sql`. A regression here causes RLS recursion (54001). This broke production once.
 
-**Internal helper `_analytics_filtered_sales(p_filters jsonb) RETURNS SETOF sales`**: applies the shared `WHERE` clause. All six RPCs `SELECT FROM _analytics_filtered_sales(jsonb_build_object(...))` so filter logic is not duplicated six times. `p_filters` includes the relevant subset of the parameters above as JSON. Filter rules:
+**Internal helper `_analytics_filtered_sales(p_filters jsonb) RETURNS SETOF sales`**: applies the shared `WHERE` clause. Declared `LANGUAGE sql STABLE SECURITY DEFINER SET search_path = ''` — the SQL language plus STABLE volatility lets Postgres inline the SRF and push predicates from callsites through it (the whole point of factoring the helper). All six RPCs `SELECT FROM _analytics_filtered_sales(jsonb_build_object(...))` so filter logic is not duplicated six times. `p_filters` includes the relevant subset of the parameters above as JSON. Filter rules:
 - `tax_rate_snapshot` filter: when `p_vat_rates` is NULL or empty, all rows pass (including NULL `tax_rate_snapshot`). When set, only rows with `tax_rate_snapshot = ANY(p_vat_rates)` pass — NULL-snapshot rows are excluded.
-- `category_ids` filter joins through `products.category` (column name on `products` is `category`, not `category_id` — verified against current schema).
+- `category_ids` filter joins through `products.category` (column name on `products` is `category`, not `category_id` — verified against current schema). RPC return shapes use the key `category_id` for external consistency; SQL aliases via `SELECT p.category AS category_id`. The aliasing is intentional — do not propose a column rename.
 - `machine_ids` filters on `sales.machine_id`.
 - `channels` filters on `sales.channel`.
 
@@ -491,8 +499,9 @@ Phases 0 and 1 are strict prerequisites; Phases 2-5 contain parallelizable work.
 
 ### Phase 3 — Web Tabs (parallelizable after Phase 2)
 
-10. Six tab components in priority order: Overview → Sales → Machines → Products → Conversion → Operations.
-    Overview includes the AI insights block from this phase (the existing `companyInsights` component is rendered inside `TabOverview.vue`).
+10a. **Extract** the existing AI-insights inline JSX from `pages/index.vue` (currently lives as inline template around the `companyInsights` ref returned by `useInsights()`) into a new shared component `app/components/CompanyInsights.vue`. Render the new component from both `pages/index.vue` (until Phase 6) **and** `TabOverview.vue` (from Phase 3). This intermediate refactor avoids markup duplication during the Phase 3-to-6 window.
+
+10b. Six tab components in priority order: Overview → Sales → Machines → Products → Conversion → Operations. Overview embeds `<CompanyInsights />`.
 
 ### Phase 4 — iOS Foundation (parallelizable with Phase 2)
 
@@ -509,7 +518,7 @@ Phases 0 and 1 are strict prerequisites; Phases 2-5 contain parallelizable work.
 
 16. i18n strings for all keys (Web `de.json` / `en.json`, iOS `Localizable.xcstrings`)
 17. CSV export wiring + PNG chart snapshot (web)
-18. **Remove duplicate AI insights from `/` Dashboard** — the block was only added to `TabOverview` in Phase 3 step 10; this step deletes the older copy from `pages/index.vue`. Net effect: AI insights migrate from Dashboard to Analytics. (No new code in Phase 6, just deletion.)
+18. **Remove duplicate AI insights from `/` Dashboard** — Phase 3 step 10a already extracted the block into `<CompanyInsights />` and added it to `TabOverview`; this step deletes only the `<CompanyInsights />` reference (and now-unused `useInsights()` import) from `pages/index.vue`. Net effect: AI insights migrate from Dashboard to Analytics. The component itself stays — it's just no longer mounted on `/`.
 19. Test suites complete: Vitest, Deno, SQL trigger tests, XCTest baseline
 20. Update `CLAUDE.md` with new table, RPCs, migration order
 21. Verification on real production-like data set (or staging)
