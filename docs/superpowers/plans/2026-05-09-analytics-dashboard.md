@@ -1472,7 +1472,7 @@ BEGIN
     AND ended_at IS NOT NULL;
 
   WITH per_machine AS (
-    SELECT vm.id, vm.name, vm.lat, vm.lng, e.status, e.online_since,
+    SELECT vm.id, vm.name, vm.location_lat AS lat, vm.location_lon AS lng, e.status, e.online_since,
            COALESCE(SUM(s.item_price), 0) AS revenue,
            COUNT(s.id) AS units,
            MAX(s.created_at) AS last_sold_at
@@ -1481,7 +1481,7 @@ BEGIN
     LEFT JOIN public._analytics_filtered_sales(v_filters) s ON s.machine_id = vm.id
     WHERE vm.company = p_company_id
       AND (cardinality(COALESCE(p_machine_ids, '{}'::uuid[])) = 0 OR vm.id = ANY (p_machine_ids))
-    GROUP BY vm.id, vm.name, vm.lat, vm.lng, e.status, e.online_since
+    GROUP BY vm.id, vm.name, vm.location_lat, vm.location_lon, e.status, e.online_since
   ),
   pax_per_machine AS (
     SELECT p.machine_id,
@@ -1509,7 +1509,7 @@ BEGIN
 
   -- machines[]
   WITH per_machine AS (
-    SELECT vm.id, vm.name, vm.lat, vm.lng, e.status, e.online_since,
+    SELECT vm.id, vm.name, vm.location_lat AS lat, vm.location_lon AS lng, e.status, e.online_since,
            COALESCE(SUM(s.item_price), 0) AS revenue,
            COUNT(s.id) AS units,
            MAX(s.created_at) AS last_sold_at
@@ -1518,7 +1518,7 @@ BEGIN
     LEFT JOIN public._analytics_filtered_sales(v_filters) s ON s.machine_id = vm.id
     WHERE vm.company = p_company_id
       AND (cardinality(COALESCE(p_machine_ids, '{}'::uuid[])) = 0 OR vm.id = ANY (p_machine_ids))
-    GROUP BY vm.id, vm.name, vm.lat, vm.lng, e.status, e.online_since
+    GROUP BY vm.id, vm.name, vm.location_lat, vm.location_lon, e.status, e.online_since
   ),
   pax_per_machine AS (
     SELECT p.machine_id, COALESCE(SUM(p.count), 0) AS pax_count
@@ -2849,9 +2849,18 @@ Similar pattern to TabSales but uses `analytics_products` RPC. Renders: 4 KPIs (
 
 - [ ] **Step 1: Edit `AppNavigation.swift`**
 
-Find the `SidebarItem` enum, add a new case:
+Find the `SidebarItem` enum, add `analytics` immediately after `inbox` (so it appears in the iPad sidebar between `inbox` and `cashBook` — high prominence):
 ```swift
-case analytics
+case dashboard
+case machines
+case refill
+case inbox
+case analytics      // NEW — between inbox and cashBook
+case cashBook
+case products
+case warehouse
+case deals
+case settings
 ```
 
 Add to `label`, `icon`, and `compactTab` switch statements:
@@ -3255,27 +3264,51 @@ final class AnalyticsOverviewViewModel: ObservableObject {
       .store(in: &cancellables)
   }
 
+  // Match the existing iOS RPC pattern (see CashBookViewModel.swift:154-171,
+  // ProductDetailSheet.swift, RefillWizardViewModel.swift):
+  //   SupabaseService.shared.client.rpc(name, params: TypedStruct)
+  //     .execute()
+  //     .value
+  // — typed Encodable struct, NOT [String: Any].
+  struct Params: Encodable {
+    let p_company_id: UUID
+    let p_from: Date
+    let p_to: Date
+    let p_compare_from: Date?
+    let p_compare_to: Date?
+    let p_machine_ids: [UUID]
+    let p_channels: [String]
+    let p_category_ids: [UUID]
+    let p_vat_rates: [Double]
+  }
+
   func load() async {
     guard let filter else { return }
+    guard let companyIdStr = AuthService.shared.organization?.id,
+          let companyId = UUID(uuidString: companyIdStr) else { return }
+
     isLoading = true
     error = nil
     defer { isLoading = false }
+
+    let params = Params(
+      p_company_id:    companyId,
+      p_from:          filter.from,
+      p_to:            filter.to,
+      p_compare_from:  filter.compare ? Calendar.current.date(byAdding: .day, value: -Calendar.current.dateComponents([.day], from: filter.from, to: filter.to).day!, to: filter.from) : nil,
+      p_compare_to:    filter.compare ? filter.from : nil,
+      p_machine_ids:   filter.machines.compactMap(UUID.init),
+      p_channels:      filter.channels,
+      p_category_ids:  filter.categories.compactMap(UUID.init),
+      p_vat_rates:     filter.vatRates
+    )
+
     do {
-      // Use SupabaseService.shared (or however the project exposes the rpc client) to call analytics_overview
-      let companyId: String = ...   // from AuthService.shared.organization?.id
-      let payload: [String: Any] = [
-        "p_company_id":   companyId,
-        "p_from":         filter.from.iso8601String,
-        "p_to":           filter.to.iso8601String,
-        "p_compare_from": filter.compare ? /* compute */ NSNull() : NSNull(),
-        "p_compare_to":   NSNull(),
-        "p_machine_ids":  filter.machines,
-        "p_channels":     filter.channels,
-        "p_category_ids": filter.categories,
-        "p_vat_rates":    filter.vatRates,
-      ]
-      let json = try await SupabaseService.shared.rpc("analytics_overview", params: payload)
-      self.data = try AnalyticsOverviewData(json: json)
+      let result: AnalyticsOverviewData = try await SupabaseService.shared.client
+        .rpc("analytics_overview", params: params)
+        .execute()
+        .value
+      self.data = result
       self.hasNewData = false
     } catch {
       self.error = error.localizedDescription
@@ -3294,8 +3327,58 @@ struct AnalyticsOverviewData: Codable {
   let version: Int
   let kpis: KPIs
   let kpisCompare: KPIs?
-  // … (decode the jsonb shape)
-  init(json: Any) throws { /* implement */ }
+  let dailySeries: [DailyPoint]
+  let topProducts: [TopProductRow]
+  let topMachines: [TopMachineRow]
+
+  enum CodingKeys: String, CodingKey {
+    case version, kpis
+    case kpisCompare = "kpis_compare"
+    case dailySeries = "daily_series"
+    case topProducts = "top_products"
+    case topMachines = "top_machines"
+  }
+
+  struct KPIs: Codable {
+    let revenue: Double
+    let units: Int
+    let avgBasket: Double
+    let conversionPct: Double?
+    enum CodingKeys: String, CodingKey {
+      case revenue, units
+      case avgBasket = "avg_basket"
+      case conversionPct = "conversion_pct"
+    }
+  }
+  struct DailyPoint: Codable {
+    let date: String  // 'YYYY-MM-DD' from jsonb
+    let revenue: Double
+    let units: Int
+  }
+  struct TopProductRow: Codable {
+    let productId: UUID
+    let name: String
+    let imagePath: String?
+    let units: Int
+    let revenue: Double
+    let mixPct: Double
+    enum CodingKeys: String, CodingKey {
+      case productId = "product_id"
+      case name; case imagePath = "image_path"
+      case units; case revenue
+      case mixPct = "mix_pct"
+    }
+  }
+  struct TopMachineRow: Codable {
+    let machineId: UUID
+    let name: String
+    let status: String?
+    let revenue: Double
+    enum CodingKeys: String, CodingKey {
+      case machineId = "machine_id"
+      case name; case status; case revenue
+    }
+  }
 }
 ```
 
@@ -3622,6 +3705,7 @@ If any issue surfaces, fix it as a separate targeted commit and reference this v
 ## Plan-Level Done When
 
 - [ ] Chunks 1–7 each pass their own "Done When"
+- [ ] Both migrations (`20260509000000_analytics_stockout_events.sql` and `20260509000100_analytics_rpcs.sql`) applied successfully via `supabase migration up` on dev DB
 - [ ] Web `/analytics` ships all six tabs with the global filter bar
 - [ ] iOS Analytics ships all six sections with adaptive layout
 - [ ] AI insights migrated from `/` to `/analytics#overview`
