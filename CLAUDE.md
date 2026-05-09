@@ -210,6 +210,7 @@ Tables:
 - `low_stock_notifications` – queue table for push alerts when stock drops below minimum; auto-enqueued via trigger
 - `stock_decrement_log` – audit log for stock decrements
 - `mdb_log` – MDB state-change diagnostics history per device
+- `tray_stockout_events` – per-tray stockout history with lost-revenue estimates; trigger-managed (`zzz_tray_stockout_event` on `machine_trays.current_stock`); SELECT-only RLS for authenticated users; uses internal helper `get_product_velocity_one(company_id, product_id, days)` (SECURITY DEFINER, service_role-only, REVOKE PUBLIC)
 - `push_subscriptions` – browser push notification registrations (endpoint, keys, user_agent)
 - `history` – activity log for audit trail
 
