@@ -220,6 +220,12 @@ Key RPC functions:
 - `delete_sale_and_restore_stock(sale_id)` – manual sale deletion with stock restoration
 - `insert_manual_sale(machine_id, item_number, price, channel, created_at)` – manual sale insertion
 - `deduct_warehouse_stock_fifo(...)` – FIFO warehouse stock deduction for refills
+- `analytics_overview(company_id, from, to, compare_from, compare_to, machine_ids[], channels[], category_ids[], vat_rates[])` – KPIs + daily series + top products/machines for /analytics Overview tab
+- `analytics_sales_breakdown(..., dimension)` – Sales-tab breakdown by machine/product/category/channel/vat/hour/dow
+- `analytics_products(...)` – per-product KPIs + mix-shift series for Products tab
+- `analytics_machines(...)` – per-machine KPIs + sales-count heatmaps (dow/hour) for Machines tab
+- `analytics_conversion(...)` – Pax × Sales conversion KPIs + heatmaps for Conversion tab
+- `analytics_operations(...)` – stockouts + refill tours + stock-cover-days for Operations tab
 
 ### Supabase Storage
 
