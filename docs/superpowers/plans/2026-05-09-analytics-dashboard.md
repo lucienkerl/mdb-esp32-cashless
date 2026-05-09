@@ -945,6 +945,13 @@ git commit -m "test(analytics): add failing tests for the five remaining analyti
 
 ### Task 2.3: Write Migration 2 — full RPC implementation
 
+> **Post-execution note (2026-05-09, commit `8dfd598`):** the SQL below contains three bugs caught during integration testing. The actually-deployed migration in `Docker/supabase/migrations/20260509000100_analytics_rpcs.sql` is corrected — diff against it before re-implementing. The bugs were:
+> 1. `ROUND(SUM(s.item_price) / NULLIF(COUNT(*), 0), 2)` — `ROUND(float8, int)` doesn't exist in Postgres. Fixed by adding `::numeric` cast: `ROUND((SUM(s.item_price) / NULLIF(COUNT(*), 0))::numeric, 2)`. Same bug class as the 2026-04-11 tax-trigger prod outage.
+> 2. `analytics_machines` heatmap returned 28 elements per `hour` array (instead of 24): the `LEFT JOIN cells c ON ... AND c.hour = gs.h` produced one row per matching cell (Mon@10, Tue@10, etc), so `array_agg` saw multiple values per hour. Fixed by introducing `cells_dow` and `cells_hour` CTEs that pre-aggregate per (machine, bucket) before the join.
+> 3. `analytics_sales_breakdown`'s `jsonb_agg(jsonb_build_object(SUM(...)))` with same-level `GROUP BY` raised "aggregate function calls cannot be nested". Fixed by wrapping each of the 7 dimension branches in a subquery so `jsonb_agg` consumes plain rows post-GROUP-BY (matches the `analytics_overview.top_products` pattern that already worked).
+>
+> Plus a test-side bug: `analytics_operations.test.sql` seeded `activity_log` with default `created_at = now()`, which inside a `BEGIN/ROLLBACK` transaction equals the RPC's `p_to` value — the strict `created_at < p_to` filter then rejected the seed. Fixed by backdating `created_at = now() - interval '1 hour'` (commit `8dfd598` covers this too).
+
 **Files:**
 - Create: `Docker/supabase/migrations/20260509000100_analytics_rpcs.sql`
 
