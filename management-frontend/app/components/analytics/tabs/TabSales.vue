@@ -26,6 +26,7 @@ import { useAnalyticsFilters } from '@/composables/useAnalyticsFilters'
 import { useAnalyticsData } from '@/composables/useAnalyticsData'
 import { useOrganization } from '@/composables/useOrganization'
 
+const { t } = useI18n()
 const { filter } = useAnalyticsFilters()
 const { fetch, loading, error } = useAnalyticsData()
 const { organization } = useOrganization()
@@ -90,19 +91,17 @@ function onDrill(payload: { type: string; value: any; row: Record<string, any> }
 <template>
   <div class="flex flex-col gap-4">
     <!-- KPI Grid -->
-    <!-- TODO i18n: KPI labels hardcoded; add analytics.sales.kpi.* keys -->
     <AnalyticsKpiGrid
       v-if="data"
       :kpis="[
-        { label: 'Revenue',    value: totalRevenue, format: 'currency' },
-        { label: 'Units',      value: totalUnits,   format: 'number' },
-        { label: 'Avg basket', value: avgBasket,    format: 'currency' },
-        { label: 'Sales count', value: salesCount,   format: 'number' },
+        { label: t('analytics.kpi.revenue'),    value: totalRevenue, format: 'currency' },
+        { label: t('analytics.kpi.units'),      value: totalUnits,   format: 'number' },
+        { label: t('analytics.kpi.avgBasket'),  value: avgBasket,    format: 'currency' },
+        { label: t('analytics.kpi.salesCount'), value: salesCount,   format: 'number' },
       ]"
     />
 
     <!-- Dimension switcher -->
-    <!-- TODO i18n: dimension labels hardcoded; add analytics.sales.dimension.* keys -->
     <div class="flex flex-wrap gap-2" data-testid="analytics-sales-dimension-switcher">
       <button
         v-for="d in DIMENSIONS"
@@ -112,8 +111,7 @@ function onDrill(payload: { type: string; value: any; row: Record<string, any> }
         :class="dimension === d ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted'"
         @click="dimension = d"
       >
-        <!-- TODO i18n -->
-        {{ d }}
+        {{ t('analytics.dimension.' + d) }}
       </button>
     </div>
 
@@ -128,27 +126,26 @@ function onDrill(payload: { type: string; value: any; row: Record<string, any> }
       :data="data.rows"
       x-key="label"
       y-key="revenue"
+      :title="t('analytics.sales.byDimension', { dim: t('analytics.dimension.' + dimension) })"
     />
 
     <!-- Breakdown table -->
-    <!-- TODO i18n: column labels hardcoded; add analytics.sales.column.* keys -->
     <AnalyticsTable
       v-if="data"
       :rows="data.rows"
       :columns="[
-        { key: 'label',             label: 'Label',         type: 'string',   drillTo: labelDrillTo },
-        { key: 'revenue',           label: 'Revenue',       type: 'currency' },
-        { key: 'units',             label: 'Units',         type: 'number' },
-        { key: 'avg_basket',        label: 'Avg basket',    type: 'currency' },
-        { key: 'share_revenue_pct', label: 'Share revenue', type: 'percent' },
-        { key: 'share_units_pct',   label: 'Share units',   type: 'percent' },
+        { key: 'label',             label: t('analytics.label'),        type: 'string',   drillTo: labelDrillTo },
+        { key: 'revenue',           label: t('analytics.revenue'),      type: 'currency' },
+        { key: 'units',             label: t('analytics.units'),        type: 'number' },
+        { key: 'avg_basket',        label: t('analytics.avgBasket'),    type: 'currency' },
+        { key: 'share_revenue_pct', label: t('analytics.shareRevenue'), type: 'percent' },
+        { key: 'share_units_pct',   label: t('analytics.shareUnits'),   type: 'percent' },
       ]"
       @drill="onDrill"
     />
 
     <!-- Loading / error -->
-    <!-- TODO i18n: status strings hardcoded -->
-    <div v-if="loading" class="text-sm text-muted-foreground">Loading…</div>
+    <div v-if="loading" class="text-sm text-muted-foreground">{{ t('analytics.loading') }}</div>
     <div v-if="error" class="text-sm text-destructive">{{ error }}</div>
   </div>
 </template>

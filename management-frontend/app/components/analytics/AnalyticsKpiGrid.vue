@@ -15,8 +15,8 @@
   formatCurrency from @/lib/utils for `format: 'currency'` so the Analytics
   page renders EUR identically to the dashboard.
 
-  TODO i18n: no user-visible literals to translate beyond what the caller
-  passes via `label` (which the page should already i18n at its layer).
+  Note: no user-visible literals here — callers pass pre-translated `label`
+  values via the `kpis` prop.
 -->
 <script setup lang="ts">
 import { formatCurrency } from '@/lib/utils'

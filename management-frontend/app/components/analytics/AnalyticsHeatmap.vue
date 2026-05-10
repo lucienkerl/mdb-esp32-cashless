@@ -14,13 +14,12 @@
   hours wrap into 2 rows on every viewport (12+12 reads cleaner than 24
   thin columns on mobile). For `dow`, rows arrive as 1–7 (ISODOW) and we
   sort by key.
-
-  TODO i18n: title strings ("Revenue by hour of day" / "Revenue by day of
-  week") are hardcoded; add analytics.heatmap.* keys in a follow-up.
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
 import { formatCurrency } from '@/lib/utils'
+
+const { t } = useI18n()
 
 interface HeatmapRow {
   key: any
@@ -77,8 +76,7 @@ const gridStyle = computed(() => ({
 <template>
   <div class="rounded-xl border bg-card p-4" data-testid="analytics-heatmap">
     <h3 class="mb-3 text-sm font-medium">
-      <!-- TODO i18n -->
-      {{ dimension === 'hour' ? 'Revenue by hour of day' : 'Revenue by day of week' }}
+      {{ dimension === 'hour' ? t('analytics.heatmapHourTitle') : t('analytics.heatmapDowTitle') }}
     </h3>
     <div class="grid gap-1" :style="gridStyle">
       <div

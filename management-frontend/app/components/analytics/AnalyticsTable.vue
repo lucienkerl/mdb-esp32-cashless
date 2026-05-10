@@ -22,8 +22,8 @@
   neutral sort icon. Mirrors `useTableSort` semantics but inlined to keep the
   table self-contained.
 
-  TODO i18n: header labels, optional title — these come from props, so
-  callers handle translation.
+  Note: header `label` and the optional `title` come from props — callers
+  pass pre-translated strings.
 -->
 <script setup lang="ts">
 import { formatCurrency } from '@/lib/utils'

@@ -22,8 +22,6 @@
   Data source: analytics_operations RPC (see Chunk 2 migration). Returns
   { kpis, stockout_events[], refill_tours[], stock_cover[] }. We fetch once
   per filter-change and slice/sort locally.
-
-  TODO i18n: every visible string is hardcoded English/German (search "TODO i18n").
 -->
 <script setup lang="ts">
 import { ref, watch, computed, onMounted } from 'vue'
@@ -31,6 +29,8 @@ import { useAnalyticsFilters } from '@/composables/useAnalyticsFilters'
 import { useAnalyticsData } from '@/composables/useAnalyticsData'
 import { useOrganization } from '@/composables/useOrganization'
 import { formatCurrency } from '@/lib/utils'
+
+const { t } = useI18n()
 
 // Stockout-events foundation landed in 20260509000000; before that, the
 // analytics.stockout_events table has zero rows and the RPC silently
@@ -118,6 +118,13 @@ const showPreMigrationBanner = computed<boolean>(() => {
   return new Date(filter.value.from) < new Date(STOCKOUT_DATA_AVAILABLE_FROM)
 })
 
+// Human-readable date for the pre-migration banner. Uses the user's locale
+// formatter so the banner reads naturally in either de or en (e.g. de:
+// "09.05.2026", en: "5/9/2026"). Computed once since the date is fixed.
+const stockoutAvailableFromLabel = computed(() =>
+  new Date(STOCKOUT_DATA_AVAILABLE_FROM).toLocaleDateString(),
+)
+
 // Stockouts get sorted by EUR estimate desc — the operator cares about
 // "what cost me the most money", not chronological order. Top 50 cap
 // keeps the DOM bounded; a 14-day fleet window can produce hundreds.
@@ -202,19 +209,17 @@ function fmtDuration(seconds: number): string {
       class="rounded-xl border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-900 dark:border-yellow-900/40 dark:bg-yellow-900/20 dark:text-yellow-200"
       data-testid="analytics-operations-pre-migration-banner"
     >
-      <!-- TODO i18n -->
-      Stockout-Daten verfügbar ab 09.05.2026 — frühere Filter zeigen unvollständige Daten.
+      {{ t('analytics.operations.stockoutsBeforeBanner', { date: stockoutAvailableFromLabel }) }}
     </div>
 
     <!-- KPI grid -->
-    <!-- TODO i18n: KPI labels hardcoded; add analytics.operations.kpi.* keys -->
     <AnalyticsKpiGrid
       v-if="data"
       :kpis="[
-        { label: 'Stockout hours', value: Number(data.kpis.stockout_hours ?? 0), format: 'number' },
-        { label: 'Lost revenue', value: Number(data.kpis.lost_revenue ?? 0), format: 'currency' },
-        { label: 'Refill tours', value: Number(data.kpis.refill_tour_count ?? 0), format: 'number' },
-        { label: 'Avg cover days', value: Number(data.kpis.avg_stock_cover_days ?? 0), format: 'number' },
+        { label: t('analytics.kpi.stockoutHours'), value: Number(data.kpis.stockout_hours ?? 0),       format: 'number' },
+        { label: t('analytics.kpi.lostRevenue'),   value: Number(data.kpis.lost_revenue ?? 0),         format: 'currency' },
+        { label: t('analytics.kpi.refillTours'),   value: Number(data.kpis.refill_tour_count ?? 0),    format: 'number' },
+        { label: t('analytics.kpi.avgCoverDays'),  value: Number(data.kpis.avg_stock_cover_days ?? 0), format: 'number' },
       ]"
     />
 
@@ -226,17 +231,14 @@ function fmtDuration(seconds: number): string {
     >
       <div class="border-b px-4 py-3">
         <h3 class="text-sm font-medium">
-          <!-- TODO i18n -->
-          Stockout events
+          {{ t('analytics.stockoutsTitle') }}
         </h3>
         <p class="mt-1 text-xs text-muted-foreground">
-          <!-- TODO i18n -->
-          Sorted by estimated lost revenue
+          {{ t('analytics.stockoutsSorted') }}
         </p>
       </div>
       <div v-if="!sortedStockouts.length" class="p-4 text-sm text-muted-foreground">
-        <!-- TODO i18n -->
-        No stockouts in this window.
+        {{ t('analytics.stockoutsEmpty') }}
       </div>
       <div v-else class="divide-y">
         <div
@@ -247,8 +249,7 @@ function fmtDuration(seconds: number): string {
           <div class="flex flex-col">
             <span class="font-medium">{{ ev.product_name ?? ('#' + ev.item_number) }}</span>
             <span class="text-xs text-muted-foreground">
-              <!-- TODO i18n: 'ongoing' fallback -->
-              {{ ev.machine_name }} · {{ fmtDateTime(ev.started_at) }} → {{ ev.ended_at ? fmtDateTime(ev.ended_at) : 'ongoing' }}
+              {{ ev.machine_name }} · {{ fmtDateTime(ev.started_at) }} → {{ ev.ended_at ? fmtDateTime(ev.ended_at) : t('analytics.ongoing') }}
             </span>
           </div>
           <div class="flex items-center gap-3 tabular-nums text-xs">
@@ -260,8 +261,7 @@ function fmtDuration(seconds: number): string {
           v-if="sortedStockouts.length > 50"
           class="px-4 py-2 text-xs text-muted-foreground text-center"
         >
-          <!-- TODO i18n -->
-          Showing top 50 of {{ sortedStockouts.length }} events.
+          {{ t('analytics.showingTopOf', { shown: 50, total: sortedStockouts.length }) }}
         </div>
       </div>
     </div>
@@ -274,13 +274,11 @@ function fmtDuration(seconds: number): string {
     >
       <div class="border-b px-4 py-3">
         <h3 class="text-sm font-medium">
-          <!-- TODO i18n -->
-          Refill tours
+          {{ t('analytics.refillToursTitle') }}
         </h3>
       </div>
       <div v-if="!refillToursByDay.length" class="p-4 text-sm text-muted-foreground">
-        <!-- TODO i18n -->
-        No refill tours in this window.
+        {{ t('analytics.refillToursEmpty') }}
       </div>
       <div v-else class="divide-y">
         <div v-for="group in refillToursByDay" :key="group.day">
@@ -291,9 +289,8 @@ function fmtDuration(seconds: number): string {
           >
             <span class="font-medium">{{ fmtDate(group.day) }}</span>
             <span class="flex items-center gap-3 text-xs text-muted-foreground tabular-nums">
-              <!-- TODO i18n: 'tours' / 'units' suffixes -->
-              <span>{{ group.tours.length }} tours</span>
-              <span>{{ group.tours.reduce((s, t) => s + (t.units_added ?? 0), 0) }} units</span>
+              <span>{{ group.tours.length }} {{ t('analytics.tours') }}</span>
+              <span>{{ group.tours.reduce((s, tr) => s + (tr.units_added ?? 0), 0) }} {{ t('analytics.items') }}</span>
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 class="size-4 text-muted-foreground transition-transform"
@@ -314,19 +311,17 @@ function fmtDuration(seconds: number): string {
             class="border-t bg-muted/10 px-4 py-3 text-xs space-y-2"
           >
             <div
-              v-for="t in group.tours"
-              :key="t.tour_id"
+              v-for="tr in group.tours"
+              :key="tr.tour_id"
               class="flex flex-wrap items-center justify-between gap-2"
             >
               <div class="flex flex-col">
-                <span class="font-medium">{{ t.user_display ?? '—' }}</span>
+                <span class="font-medium">{{ tr.user_display ?? '—' }}</span>
                 <span class="text-muted-foreground">
-                  <!-- TODO i18n: 'min' / 'machines' suffixes -->
-                  {{ fmtDateTime(t.started_at) }} · {{ t.duration_minutes }}min · {{ t.machines_count }} machines
+                  {{ fmtDateTime(tr.started_at) }} · {{ tr.duration_minutes }}{{ t('analytics.minutes') }} · {{ tr.machines_count }} {{ t('analytics.machines') }}
                 </span>
               </div>
-              <!-- TODO i18n: 'units' suffix -->
-              <span class="tabular-nums text-foreground">{{ t.units_added ?? 0 }} units</span>
+              <span class="tabular-nums text-foreground">{{ tr.units_added ?? 0 }} {{ t('analytics.items') }}</span>
             </div>
           </div>
         </div>
@@ -341,17 +336,14 @@ function fmtDuration(seconds: number): string {
     >
       <div class="border-b px-4 py-3">
         <h3 class="text-sm font-medium">
-          <!-- TODO i18n -->
-          Stock cover days
+          {{ t('analytics.stockCoverTitle') }}
         </h3>
         <p class="mt-1 text-xs text-muted-foreground">
-          <!-- TODO i18n -->
-          Days of stock at current velocity. Red &lt; 3 days.
+          {{ t('analytics.stockCoverDescription') }}
         </p>
       </div>
       <div v-if="!sortedStockCover.length" class="p-4 text-sm text-muted-foreground">
-        <!-- TODO i18n -->
-        No tray data.
+        {{ t('analytics.stockCoverEmpty') }}
       </div>
       <div v-else class="divide-y text-sm">
         <div
@@ -364,30 +356,26 @@ function fmtDuration(seconds: number): string {
             <div class="text-xs text-muted-foreground truncate">{{ row.machine_name }}</div>
           </div>
           <div class="text-right text-xs tabular-nums text-muted-foreground">
-            <!-- TODO i18n: 'per day' suffix -->
-            {{ row.current_stock }} / {{ row.velocity }} per day
+            {{ row.current_stock }} / {{ row.velocity }} {{ t('analytics.perDay') }}
           </div>
           <div
             class="text-right tabular-nums text-sm"
             :class="coverColorClass(row.cover_days)"
           >
-            <!-- TODO i18n: 'd' suffix for days -->
-            {{ row.cover_days == null ? '—' : row.cover_days + ' d' }}
+            {{ row.cover_days == null ? '—' : row.cover_days + ' ' + t('analytics.daysSuffix') }}
           </div>
         </div>
         <div
           v-if="sortedStockCover.length > 50"
           class="px-4 py-2 text-xs text-muted-foreground text-center"
         >
-          <!-- TODO i18n -->
-          Showing top 50 of {{ sortedStockCover.length }} trays.
+          {{ t('analytics.showingTopOf', { shown: 50, total: sortedStockCover.length }) }}
         </div>
       </div>
     </div>
 
     <!-- Loading / error -->
-    <!-- TODO i18n: status strings hardcoded -->
-    <div v-if="loading" class="text-sm text-muted-foreground">Loading…</div>
+    <div v-if="loading" class="text-sm text-muted-foreground">{{ t('analytics.loading') }}</div>
     <div v-if="error" class="text-sm text-destructive">{{ error }}</div>
   </div>
 </template>

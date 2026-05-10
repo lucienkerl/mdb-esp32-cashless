@@ -8,9 +8,6 @@
   TODO: replace AnalyticsFilterBar's inline preset dropdown with this
   component — Task 3.4 shipped the same UI inline for speed; once this
   component is wired into the page header the duplication goes away.
-
-  TODO i18n: button label and helper strings are hardcoded English. Chunk 7
-  polish will translate them.
 -->
 <script setup lang="ts">
 import { Save, Trash2 } from 'lucide-vue-next'
@@ -24,6 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useAnalyticsFilters } from '@/composables/useAnalyticsFilters'
 
+const { t } = useI18n()
 const { savePreset, loadPreset, listPresets, deletePreset } =
   useAnalyticsFilters()
 
@@ -77,8 +75,7 @@ function onDelete(name: string, e: Event) {
         data-testid="analytics-preset-menu-trigger"
       >
         <Save class="size-4" />
-        <!-- TODO i18n -->
-        <span>Presets</span>
+        <span>{{ t('analytics.presets') }}</span>
       </Button>
     </DropdownMenuTrigger>
     <DropdownMenuContent
@@ -87,14 +84,13 @@ function onDelete(name: string, e: Event) {
       data-testid="analytics-preset-menu-content"
     >
       <div class="px-2 py-1.5 text-xs font-medium text-muted-foreground">
-        <!-- TODO i18n -->
-        Save current as…
+        {{ t('analytics.saveCurrentAs') }}
       </div>
       <div class="flex items-center gap-1 px-2 pb-2">
         <input
           v-model="newPresetName"
           type="text"
-          placeholder="Preset name"
+          :placeholder="t('analytics.presetName')"
           class="flex h-8 w-full rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           @keydown.enter.prevent="onSave"
         />
@@ -107,8 +103,7 @@ function onDelete(name: string, e: Event) {
         v-if="presetsList.length === 0"
         class="px-2 py-2 text-xs text-muted-foreground"
       >
-        <!-- TODO i18n -->
-        No saved presets
+        {{ t('analytics.noPresets') }}
       </div>
       <DropdownMenuItem
         v-for="name in presetsList"

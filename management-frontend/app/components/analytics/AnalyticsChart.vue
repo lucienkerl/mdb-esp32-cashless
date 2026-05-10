@@ -25,12 +25,11 @@
   TODO Phase 4b: scatter chart could grow tooltips, brushing, axis labels
   per data type (e.g. format y as % when conversion-keyed), and a true
   diagonal reference line for "ideal conversion" (y = avgConv * x).
-
-  TODO i18n: empty-state literal "No data" hardcoded. Title/description are
-  pass-through.
 -->
 <script setup lang="ts">
 import ChartAreaInteractive from '@/components/ChartAreaInteractive.vue'
+
+const { t } = useI18n()
 
 const props = withDefaults(
   defineProps<{
@@ -192,8 +191,7 @@ const refLineY = computed<number | null>(() => {
         v-else
         class="flex h-[300px] items-center justify-center text-sm text-muted-foreground"
       >
-        <!-- TODO i18n -->
-        No data
+        {{ t('analytics.noData') }}
       </div>
     </div>
 

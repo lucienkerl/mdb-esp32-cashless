@@ -16,9 +16,6 @@
   Returns the full product set for the company in the date window — all
   search / category / status / slow filtering happens client-side, since
   the result set is bounded by `products` table size.
-
-  TODO i18n: every visible string is hardcoded English. Chunk 7 will
-  replace them — search for "TODO i18n" to find every literal.
 -->
 <script setup lang="ts">
 import { ref, watch, computed, onMounted } from 'vue'
@@ -32,6 +29,7 @@ import MultiSelectPill from '@/components/analytics/MultiSelectPill.vue'
 type ProductStatus = 'active' | 'slow' | 'dead' | 'discontinued'
 const STATUSES: readonly ProductStatus[] = ['active', 'slow', 'dead', 'discontinued'] as const
 
+const { t } = useI18n()
 const { filter } = useAnalyticsFilters()
 const { fetch, loading, error } = useAnalyticsData()
 const { organization } = useOrganization()
@@ -158,14 +156,13 @@ function fmtPercent(v: number | null | undefined): string {
 <template>
   <div class="flex flex-col gap-4">
     <!-- KPI Grid -->
-    <!-- TODO i18n: KPI labels hardcoded; add analytics.products.kpi.* keys -->
     <AnalyticsKpiGrid
       v-if="data"
       :kpis="[
-        { label: 'Active',                 value: data.kpis.active_count,           format: 'number' },
-        { label: 'Slow movers',            value: data.kpis.slow_mover_count,       format: 'number' },
-        { label: 'Discontinued',           value: data.kpis.discontinued_count,     format: 'number' },
-        { label: 'Categories with sales',  value: data.kpis.categories_with_sales,  format: 'number' },
+        { label: t('analytics.kpi.active'),              value: data.kpis.active_count,           format: 'number' },
+        { label: t('analytics.kpi.slowMovers'),          value: data.kpis.slow_mover_count,       format: 'number' },
+        { label: t('analytics.kpi.discontinued'),        value: data.kpis.discontinued_count,     format: 'number' },
+        { label: t('analytics.kpi.categoriesWithSales'), value: data.kpis.categories_with_sales,  format: 'number' },
       ]"
     />
 
@@ -178,18 +175,17 @@ function fmtPercent(v: number | null | undefined): string {
       <input
         v-model="searchTerm"
         type="text"
-        placeholder="Search products…"
+        :placeholder="t('analytics.searchProducts')"
         class="flex h-9 w-full max-w-xs rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         data-testid="analytics-products-search"
       />
-      <!-- TODO i18n: input placeholder above + multi-select labels below -->
 
       <!-- Categories multi-select -->
       <MultiSelectPill
         v-model="filter.categories"
         :options="categoryOptions"
-        placeholder="Categories"
-        search-placeholder="Search categories..."
+        :placeholder="t('analytics.categories')"
+        :search-placeholder="t('analytics.searchCategories')"
         :max-visible-badges="2"
         testid="analytics-products-categories"
       />
@@ -200,14 +196,13 @@ function fmtPercent(v: number | null | undefined): string {
           v-for="s in STATUSES"
           :key="s"
           type="button"
-          class="rounded-full border px-3 py-1 text-xs font-medium capitalize transition-colors"
+          class="rounded-full border px-3 py-1 text-xs font-medium transition-colors"
           :class="isStatusActive(s)
             ? 'bg-primary text-primary-foreground border-primary'
             : 'hover:bg-muted'"
           @click="toggleStatus(s)"
         >
-          <!-- TODO i18n -->
-          {{ s }}
+          {{ t('analytics.' + s) }}
         </button>
       </div>
 
@@ -217,8 +212,7 @@ function fmtPercent(v: number | null | undefined): string {
         data-testid="analytics-products-slow-only"
       >
         <input v-model="slowOnly" type="checkbox" class="size-3.5" />
-        <!-- TODO i18n -->
-        <span class="text-muted-foreground">Slow only</span>
+        <span class="text-muted-foreground">{{ t('analytics.slowMoversOnly') }}</span>
       </label>
     </div>
 
@@ -229,9 +223,8 @@ function fmtPercent(v: number | null | undefined): string {
       :data="dailyRevenue"
       x-key="date"
       y-key="revenue"
-      title="Mix shift (daily revenue)"
+      :title="t('analytics.sales.mixShift')"
     />
-    <!-- TODO i18n: chart title -->
 
     <!-- Product card grid -->
     <div
@@ -258,8 +251,7 @@ function fmtPercent(v: number | null | undefined): string {
             v-else
             class="flex size-full items-center justify-center text-[10px] uppercase text-muted-foreground"
           >
-            <!-- TODO i18n -->
-            no img
+            {{ t('analytics.noImage') }}
           </div>
         </div>
 
@@ -271,19 +263,17 @@ function fmtPercent(v: number | null | undefined): string {
               class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
               :class="statusBadgeClass(p.status)"
             >
-              <!-- TODO i18n -->
-              {{ p.status }}
+              {{ t('analytics.' + p.status) }}
             </span>
           </div>
           <div class="grid grid-cols-2 gap-x-2 gap-y-0.5 text-xs text-muted-foreground tabular-nums">
-            <!-- TODO i18n: metric labels -->
-            <div>Revenue</div>
+            <div>{{ t('analytics.revenue') }}</div>
             <div class="text-right text-foreground">{{ fmtCurrency(p.revenue) }}</div>
-            <div>Velocity</div>
+            <div>{{ t('analytics.velocity') }}</div>
             <div class="text-right text-foreground">{{ fmtVelocity(p.velocity) }}</div>
-            <div>Units</div>
+            <div>{{ t('analytics.units') }}</div>
             <div class="text-right text-foreground">{{ fmtNumber(p.units) }}</div>
-            <div>Mix</div>
+            <div>{{ t('analytics.mix') }}</div>
             <div class="text-right text-foreground">{{ fmtPercent(p.mix_pct) }}</div>
           </div>
         </div>
@@ -295,13 +285,11 @@ function fmtPercent(v: number | null | undefined): string {
       v-else-if="data && !loading"
       class="rounded-xl border border-dashed bg-muted/30 p-12 text-center text-sm text-muted-foreground"
     >
-      <!-- TODO i18n -->
-      No products match the current filters.
+      {{ t('analytics.noProductsMatch') }}
     </div>
 
     <!-- Loading / error -->
-    <!-- TODO i18n: status strings hardcoded -->
-    <div v-if="loading" class="text-sm text-muted-foreground">Loading…</div>
+    <div v-if="loading" class="text-sm text-muted-foreground">{{ t('analytics.loading') }}</div>
     <div v-if="error" class="text-sm text-destructive">{{ error }}</div>
   </div>
 </template>

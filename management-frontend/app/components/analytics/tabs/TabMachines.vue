@@ -20,8 +20,6 @@
   { kpis, machines[], heatmaps: { <id>: { dow, hour } } }. We fetch once
   per filter-change and pass slices to AnalyticsGeoMap / AnalyticsHeatmap /
   AnalyticsCompareSheet — no extra round-trips.
-
-  TODO i18n: every visible string is hardcoded English (search "TODO i18n").
 -->
 <script setup lang="ts">
 import { ref, watch, computed, onMounted } from 'vue'
@@ -31,6 +29,8 @@ import { useOrganization } from '@/composables/useOrganization'
 import AnalyticsGeoMap from '@/components/analytics/AnalyticsGeoMap.vue'
 import AnalyticsCompareSheet from '@/components/analytics/AnalyticsCompareSheet.vue'
 import { formatCurrency } from '@/lib/utils'
+
+const { t } = useI18n()
 
 interface MachineRow {
   id: string
@@ -144,27 +144,25 @@ function fmtPercent(v: number | null | undefined): string {
   return `${Number(v).toFixed(1)}%`
 }
 function fmtLastSale(minutes: number | null): string {
-  // TODO i18n: relative-time strings hardcoded.
-  if (minutes == null) return 'No sales yet'
-  if (minutes < 60) return `${Math.round(minutes)}m ago`
+  if (minutes == null) return t('analytics.noSalesYet')
+  if (minutes < 60) return t('analytics.minutesAgo', { n: Math.round(minutes) })
   const hours = minutes / 60
-  if (hours < 24) return `${hours.toFixed(1)}h ago`
+  if (hours < 24) return t('analytics.hoursAgo', { n: hours.toFixed(1) })
   const days = hours / 24
-  return `${days.toFixed(1)}d ago`
+  return t('analytics.daysAgo', { n: days.toFixed(1) })
 }
 </script>
 
 <template>
   <div class="flex flex-col gap-4" data-testid="analytics-tab-machines">
     <!-- KPI Grid -->
-    <!-- TODO i18n: KPI labels hardcoded; add analytics.machines.kpi.* keys -->
     <AnalyticsKpiGrid
       v-if="data"
       :kpis="[
-        { label: 'Active machines',     value: data.kpis.active_count,                  format: 'number' },
-        { label: 'Best revenue',        value: data.kpis.best_revenue ?? 0,             format: 'currency' },
-        { label: 'Avg conversion',      value: data.kpis.avg_conversion_pct ?? 0,       format: 'percent' },
-        { label: 'Stockout hours',      value: data.kpis.total_stockout_hours,          format: 'number' },
+        { label: t('analytics.kpi.activeMachines'), value: data.kpis.active_count,                  format: 'number' },
+        { label: t('analytics.kpi.bestRevenue'),    value: data.kpis.best_revenue ?? 0,             format: 'currency' },
+        { label: t('analytics.kpi.avgConversion'),  value: data.kpis.avg_conversion_pct ?? 0,       format: 'percent' },
+        { label: t('analytics.kpi.stockoutHours'),  value: data.kpis.total_stockout_hours,          format: 'number' },
       ]"
     />
     <div
@@ -172,8 +170,7 @@ function fmtLastSale(minutes: number | null): string {
       class="text-xs text-muted-foreground"
       data-testid="analytics-machines-best-label"
     >
-      <!-- TODO i18n -->
-      Best machine: <span class="font-medium text-foreground">{{ data.kpis.best_machine_name }}</span>
+      {{ t('analytics.kpi.bestRevenue') }}: <span class="font-medium text-foreground">{{ data.kpis.best_machine_name }}</span>
     </div>
 
     <!-- Toggle / action row -->
@@ -183,13 +180,11 @@ function fmtLastSale(minutes: number | null): string {
     >
       <label class="inline-flex h-9 items-center gap-2 rounded-md border bg-background px-3 text-xs">
         <input v-model="showMap" type="checkbox" class="size-3.5" />
-        <!-- TODO i18n -->
-        <span class="text-muted-foreground">Show map</span>
+        <span class="text-muted-foreground">{{ t('analytics.showMap') }}</span>
       </label>
       <label class="inline-flex h-9 items-center gap-2 rounded-md border bg-background px-3 text-xs">
         <input v-model="showHeatmaps" type="checkbox" class="size-3.5" />
-        <!-- TODO i18n -->
-        <span class="text-muted-foreground">Show heatmaps</span>
+        <span class="text-muted-foreground">{{ t('analytics.showHeatmaps') }}</span>
       </label>
       <button
         type="button"
@@ -198,8 +193,7 @@ function fmtLastSale(minutes: number | null): string {
         data-testid="analytics-machines-compare-btn"
         @click="openCompare"
       >
-        <!-- TODO i18n -->
-        Compare ({{ selectedIds.length }})
+        {{ t('analytics.compareSelected', { count: selectedIds.length }) }}
       </button>
     </div>
 
@@ -227,19 +221,17 @@ function fmtLastSale(minutes: number | null): string {
             class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
             :class="statusBadgeClass(m.current_online)"
           >
-            <!-- TODO i18n -->
-            {{ m.current_online ? 'online' : 'offline' }}
+            {{ m.current_online ? t('analytics.online') : t('analytics.offline') }}
           </span>
         </div>
         <div class="grid grid-cols-2 gap-x-2 gap-y-0.5 text-xs text-muted-foreground tabular-nums">
-          <!-- TODO i18n: metric labels -->
-          <div>Revenue</div>
+          <div>{{ t('analytics.revenue') }}</div>
           <div class="text-right text-foreground">{{ fmtCurrency(m.revenue) }}</div>
-          <div>Units</div>
+          <div>{{ t('analytics.units') }}</div>
           <div class="text-right text-foreground">{{ fmtNumber(m.units) }}</div>
-          <div>Conversion</div>
+          <div>{{ t('analytics.conversion') }}</div>
           <div class="text-right text-foreground">{{ fmtPercent(m.conversion_pct) }}</div>
-          <div>Last sale</div>
+          <div>{{ t('analytics.lastSale') }}</div>
           <div class="text-right text-foreground">{{ fmtLastSale(m.last_sale_gap_minutes) }}</div>
         </div>
 
@@ -253,8 +245,7 @@ function fmtLastSale(minutes: number | null): string {
             data-testid="analytics-machines-compare-checkbox"
             @change="toggleSelected(m.id)"
           />
-          <!-- TODO i18n -->
-          <span class="text-muted-foreground">Compare</span>
+          <span class="text-muted-foreground">{{ t('analytics.compare') }}</span>
         </label>
 
         <!-- Inline hour heatmap (when toggle is on) -->
@@ -271,13 +262,11 @@ function fmtLastSale(minutes: number | null): string {
       v-else-if="data && !loading"
       class="rounded-xl border border-dashed bg-muted/30 p-12 text-center text-sm text-muted-foreground"
     >
-      <!-- TODO i18n -->
-      No machines match the current filters.
+      {{ t('analytics.noMachinesMatch') }}
     </div>
 
     <!-- Loading / error -->
-    <!-- TODO i18n: status strings hardcoded -->
-    <div v-if="loading" class="text-sm text-muted-foreground">Loading…</div>
+    <div v-if="loading" class="text-sm text-muted-foreground">{{ t('analytics.loading') }}</div>
     <div v-if="error" class="text-sm text-destructive">{{ error }}</div>
 
     <!-- Compare sheet -->

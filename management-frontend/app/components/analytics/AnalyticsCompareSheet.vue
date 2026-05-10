@@ -24,6 +24,8 @@ import { computed } from 'vue'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { formatCurrency } from '@/lib/utils'
 
+const { t } = useI18n()
+
 interface CompareMachine {
   id: string
   name: string
@@ -59,14 +61,12 @@ function fmtConversion(v: number | null): string {
 }
 
 function fmtLastSale(minutes: number | null): string {
-  // TODO i18n: relative-time strings hardcoded; reuse timeAgo from @/lib/utils
-  // once we map gap-minutes → Date and feed it.
-  if (minutes == null) return 'No sales yet'
-  if (minutes < 60) return `${Math.round(minutes)}m ago`
+  if (minutes == null) return t('analytics.noSalesYet')
+  if (minutes < 60) return t('analytics.minutesAgo', { n: Math.round(minutes) })
   const hours = minutes / 60
-  if (hours < 24) return `${hours.toFixed(1)}h ago`
+  if (hours < 24) return t('analytics.hoursAgo', { n: hours.toFixed(1) })
   const days = hours / 24
-  return `${days.toFixed(1)}d ago`
+  return t('analytics.daysAgo', { n: days.toFixed(1) })
 }
 
 function conversionBadgeClass(v: number | null): string {
@@ -90,12 +90,10 @@ function onUpdateOpen(v: boolean) {
     >
       <SheetHeader>
         <SheetTitle>
-          <!-- TODO i18n -->
-          Compare machines ({{ selected.length }})
+          {{ t('analytics.compare') }} ({{ selected.length }})
         </SheetTitle>
         <SheetDescription>
-          <!-- TODO i18n -->
-          Side-by-side KPIs for the selected machines.
+          {{ t('analytics.compareDescription') }}
         </SheetDescription>
       </SheetHeader>
 
@@ -121,12 +119,10 @@ function onUpdateOpen(v: boolean) {
           </div>
           <div class="text-2xl font-semibold tabular-nums">{{ formatCurrency(m.revenue) }}</div>
           <div class="text-xs text-muted-foreground tabular-nums">
-            <!-- TODO i18n -->
-            {{ m.units }} units
+            {{ m.units }} {{ t('analytics.items') }}
           </div>
           <div class="text-xs text-muted-foreground">
-            <!-- TODO i18n -->
-            Last sale: {{ fmtLastSale(m.last_sale_gap_minutes) }}
+            {{ t('analytics.lastSale') }}: {{ fmtLastSale(m.last_sale_gap_minutes) }}
           </div>
         </div>
       </div>
@@ -138,8 +134,7 @@ function onUpdateOpen(v: boolean) {
         v-else
         class="p-8 text-center text-sm text-muted-foreground"
       >
-        <!-- TODO i18n -->
-        Select 2-4 machines to compare.
+        {{ t('analytics.compareSelectHint') }}
       </div>
 
       <!-- TODO Phase 4b: per-machine analytics_overview fetch for trend mini-charts -->

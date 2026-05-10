@@ -19,8 +19,6 @@
   We watch the `machines` prop — when the parent re-fetches, we tear down the
   existing layer group and rebuild markers + bounds. Cheap because the marker
   count is bounded by the company's machine count.
-
-  TODO i18n: tooltip strings ("revenue", "conversion") are hardcoded.
 -->
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
@@ -136,7 +134,6 @@ function renderMarkers() {
       weight: 2,
     })
     const conv = p.conversion_pct == null ? '—' : `${p.conversion_pct.toFixed(1)}%`
-    // TODO i18n
     marker.bindTooltip(`${p.name}: ${p.revenue.toFixed(2)} EUR / ${conv}`)
     marker.addTo(markerGroup)
     coords.push([p.lat, p.lng])

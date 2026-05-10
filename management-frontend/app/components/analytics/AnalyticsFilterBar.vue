@@ -11,14 +11,10 @@
     'mqtt'        -> "Cashless"   (legacy alias, treated as cashless)
     'cash'        -> "Cash"
     'card'        -> "Card"
-
-  TODO i18n: all visible strings in this component are hardcoded English so
-  Task 3.4 isn't blocked on missing translation keys. Chunk 7 (polish) will
-  i18n-ify them — search for "TODO i18n" to find every literal.
 -->
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useSupabaseClient } from '#imports'
+import { useSupabaseClient, useI18n } from '#imports'
 import {
   Calendar as CalendarIcon,
   RotateCcw,
@@ -46,6 +42,7 @@ import { useOrganization } from '@/composables/useOrganization'
 
 type Preset = 'today' | '7d' | '30d' | '90d' | 'ytd' | '12m' | 'custom'
 
+const { t } = useI18n()
 const { filter, reset, savePreset, loadPreset, listPresets, deletePreset } =
   useAnalyticsFilters()
 const supabase = useSupabaseClient()
@@ -59,12 +56,11 @@ const vatLoaded = ref(false)
 
 // Channel options. db value -> label. Legacy 'mqtt' rows are folded into
 // the 'cashless' UI bucket but stored as the actual db value when toggled.
-// TODO i18n
-const CHANNEL_OPTIONS: { value: string; label: string }[] = [
-  { value: 'cashless', label: 'Cashless' },
-  { value: 'cash', label: 'Cash' },
-  { value: 'card', label: 'Card' },
-]
+const CHANNEL_OPTIONS = computed<{ value: string; labelKey: string }[]>(() => [
+  { value: 'cashless', labelKey: 'analytics.channelCashless' },
+  { value: 'cash', labelKey: 'analytics.channelCash' },
+  { value: 'card', labelKey: 'analytics.channelCard' },
+])
 
 onMounted(async () => {
   const companyId = organization.value?.id
@@ -182,14 +178,14 @@ function isoToDateInput(iso: string): string {
   return `${yyyy}-${mm}-${dd}`
 }
 
-// Short label for the date pill (TODO i18n: locale-aware formatting)
+// Short label for the date pill (TODO: locale-aware formatting)
 const dateLabel = computed(() => {
   const f = filter.value.from ? new Date(filter.value.from) : null
-  const t = filter.value.to ? new Date(filter.value.to) : null
-  if (!f || !t) return 'Date range'
+  const to = filter.value.to ? new Date(filter.value.to) : null
+  if (!f || !to) return t('analytics.dateRangePlaceholder')
   const fmt = (d: Date) =>
     `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`
-  return `${fmt(f)} – ${fmt(t)}`
+  return `${fmt(f)} – ${fmt(to)}`
 })
 
 // --- channel pill toggles -------------------------------------------------
@@ -284,21 +280,19 @@ function onDeletePreset(name: string, e: Event) {
       </PopoverTrigger>
       <PopoverContent class="w-72 p-3" align="start">
         <div class="flex flex-col gap-2">
-          <!-- TODO i18n -->
-          <div class="text-xs font-medium text-muted-foreground">Quick presets</div>
+          <div class="text-xs font-medium text-muted-foreground">{{ t('analytics.datePresetsLabel') }}</div>
           <div class="grid grid-cols-3 gap-1">
-            <Button variant="ghost" size="sm" @click="applyPreset('today')">Today</Button>
-            <Button variant="ghost" size="sm" @click="applyPreset('7d')">7d</Button>
-            <Button variant="ghost" size="sm" @click="applyPreset('30d')">30d</Button>
-            <Button variant="ghost" size="sm" @click="applyPreset('90d')">90d</Button>
-            <Button variant="ghost" size="sm" @click="applyPreset('ytd')">YTD</Button>
-            <Button variant="ghost" size="sm" @click="applyPreset('12m')">12M</Button>
+            <Button variant="ghost" size="sm" @click="applyPreset('today')">{{ t('analytics.filterBar.today') }}</Button>
+            <Button variant="ghost" size="sm" @click="applyPreset('7d')">{{ t('analytics.filterBar.last7d') }}</Button>
+            <Button variant="ghost" size="sm" @click="applyPreset('30d')">{{ t('analytics.filterBar.last30d') }}</Button>
+            <Button variant="ghost" size="sm" @click="applyPreset('90d')">{{ t('analytics.filterBar.last90d') }}</Button>
+            <Button variant="ghost" size="sm" @click="applyPreset('ytd')">{{ t('analytics.filterBar.ytd') }}</Button>
+            <Button variant="ghost" size="sm" @click="applyPreset('12m')">{{ t('analytics.filterBar.last12m') }}</Button>
           </div>
           <div class="my-1 h-px bg-border" />
-          <!-- TODO i18n -->
-          <div class="text-xs font-medium text-muted-foreground">Custom range</div>
+          <div class="text-xs font-medium text-muted-foreground">{{ t('analytics.customRangeLabel') }}</div>
           <label class="space-y-1 text-xs">
-            <span class="text-muted-foreground">From</span>
+            <span class="text-muted-foreground">{{ t('analytics.fromLabel') }}</span>
             <input
               v-model="customFrom"
               type="date"
@@ -306,7 +300,7 @@ function onDeletePreset(name: string, e: Event) {
             />
           </label>
           <label class="space-y-1 text-xs">
-            <span class="text-muted-foreground">To</span>
+            <span class="text-muted-foreground">{{ t('analytics.toLabel') }}</span>
             <input
               v-model="customTo"
               type="date"
@@ -323,17 +317,15 @@ function onDeletePreset(name: string, e: Event) {
       data-testid="filter-compare"
     >
       <Switch v-model="filter.compare" />
-      <!-- TODO i18n -->
-      <span class="text-muted-foreground">Compare period</span>
+      <span class="text-muted-foreground">{{ t('analytics.filterBar.comparePeriod') }}</span>
     </label>
 
     <!-- Machines multi-select ------------------------------------------ -->
-    <!-- TODO i18n: placeholder + searchPlaceholder strings -->
     <MultiSelectPill
       v-model="filter.machines"
       :options="machineOptions"
-      placeholder="Machines"
-      search-placeholder="Search machines..."
+      :placeholder="t('analytics.selectMachines')"
+      :search-placeholder="t('analytics.searchMachines')"
       :max-visible-badges="2"
       testid="filter-machines"
     />
@@ -347,18 +339,17 @@ function onDeletePreset(name: string, e: Event) {
         @click="toggleChannel(ch.value)"
       >
         <Badge :variant="isChannelActive(ch.value) ? 'default' : 'outline'" class="cursor-pointer">
-          {{ ch.label }}
+          {{ t(ch.labelKey) }}
         </Badge>
       </button>
     </div>
 
     <!-- Categories multi-select ---------------------------------------- -->
-    <!-- TODO i18n: placeholder + searchPlaceholder strings -->
     <MultiSelectPill
       v-model="filter.categories"
       :options="categoryOptions"
-      placeholder="Categories"
-      search-placeholder="Search categories..."
+      :placeholder="t('analytics.categories')"
+      :search-placeholder="t('analytics.searchCategories')"
       :max-visible-badges="2"
       testid="filter-categories"
     />
@@ -366,12 +357,11 @@ function onDeletePreset(name: string, e: Event) {
     <!-- VAT rates multi-select ----------------------------------------- -->
     <!-- No search input (small option set), all badges visible.
          vatRates load lazily on first popover open via @open. -->
-    <!-- TODO i18n: placeholder + emptyLabel strings -->
     <MultiSelectPill
       :model-value="filter.vatRates"
       :options="vatOptions"
-      placeholder="VAT rates"
-      empty-label="No VAT rates yet"
+      :placeholder="t('analytics.selectVat')"
+      :empty-label="t('analytics.noVatRates')"
       testid="filter-vat"
       @open="loadVatRates"
       @update:model-value="onVatRatesChange"
@@ -389,8 +379,7 @@ function onDeletePreset(name: string, e: Event) {
         @click="reset"
       >
         <RotateCcw class="size-4" />
-        <!-- TODO i18n -->
-        <span>Reset</span>
+        <span>{{ t('analytics.filterBar.reset') }}</span>
       </Button>
 
       <!-- Save-as-preset menu -->
@@ -404,20 +393,18 @@ function onDeletePreset(name: string, e: Event) {
             data-testid="filter-presets"
           >
             <Save class="size-4" />
-            <!-- TODO i18n -->
-            <span>Presets</span>
+            <span>{{ t('analytics.presets') }}</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" class="w-56">
           <div class="px-2 py-1.5 text-xs font-medium text-muted-foreground">
-            <!-- TODO i18n -->
-            Save current filter
+            {{ t('analytics.saveCurrentAs') }}
           </div>
           <div class="flex items-center gap-1 px-2 pb-2">
             <input
               v-model="presetNameInput"
               type="text"
-              placeholder="Preset name"
+              :placeholder="t('analytics.presetName')"
               class="flex h-8 w-full rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               @keydown.enter.prevent="onSavePreset"
             />
@@ -427,8 +414,7 @@ function onDeletePreset(name: string, e: Event) {
           </div>
           <DropdownMenuSeparator v-if="presetsList.length > 0" />
           <div v-if="presetsList.length === 0" class="px-2 py-2 text-xs text-muted-foreground">
-            <!-- TODO i18n -->
-            No saved presets
+            {{ t('analytics.noPresets') }}
           </div>
           <DropdownMenuItem
             v-for="name in presetsList"

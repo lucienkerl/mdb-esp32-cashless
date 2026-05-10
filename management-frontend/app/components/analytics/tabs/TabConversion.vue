@@ -19,14 +19,14 @@
   { kpis, machines[], hour_heatmap: { <machine_id>: number[24] },
     daily_conversion_series[] }. We fetch once per filter-change and slice
   locally.
-
-  TODO i18n: every visible string is hardcoded English (search "TODO i18n").
 -->
 <script setup lang="ts">
 import { ref, watch, computed, onMounted } from 'vue'
 import { useAnalyticsFilters } from '@/composables/useAnalyticsFilters'
 import { useAnalyticsData } from '@/composables/useAnalyticsData'
 import { useOrganization } from '@/composables/useOrganization'
+
+const { t } = useI18n()
 
 interface ConversionMachine {
   id: string
@@ -121,9 +121,8 @@ function heatmapCellStyle(conv: number | null): Record<string, string> {
 
 function heatmapCellTitle(machineName: string, hour: number, conv: number | null): string {
   const hh = String(hour).padStart(2, '0') + ':00'
-  // TODO i18n: hardcoded "no pax" / unit suffix
-  if (conv == null) return `${machineName} ${hh} — no pax`
-  return `${machineName} ${hh} — ${conv.toFixed(1)}%`
+  if (conv == null) return t('analytics.heatmapNoPax', { machine: machineName, hour: hh })
+  return t('analytics.heatmapWithConv', { machine: machineName, hour: hh, conv: conv.toFixed(1) + '%' })
 }
 
 function hourArrayFor(machineId: string): (number | null)[] {
@@ -151,14 +150,13 @@ function onDrill(payload: { type: string; value: any; row: Record<string, any> }
 <template>
   <div class="flex flex-col gap-4" data-testid="analytics-tab-conversion">
     <!-- KPI Grid -->
-    <!-- TODO i18n: KPI labels hardcoded; add analytics.conversion.kpi.* keys -->
     <AnalyticsKpiGrid
       v-if="data"
       :kpis="[
-        { label: 'Footfall',         value: data.kpis.footfall,                   format: 'number' },
-        { label: 'Conversion',       value: data.kpis.conversion_pct ?? 0,        format: 'percent' },
-        { label: 'Empty passes',     value: data.kpis.empty_passes,               format: 'number' },
-        { label: 'Avg revenue/visitor', value: avgRevenuePerVisitor,              format: 'currency' },
+        { label: t('analytics.kpi.footfall'),             value: data.kpis.footfall,                   format: 'number' },
+        { label: t('analytics.kpi.conversion'),           value: data.kpis.conversion_pct ?? 0,        format: 'percent' },
+        { label: t('analytics.kpi.emptyPasses'),          value: data.kpis.empty_passes,               format: 'number' },
+        { label: t('analytics.kpi.avgRevenuePerVisitor'), value: avgRevenuePerVisitor,                 format: 'currency' },
       ]"
     />
     <div
@@ -166,8 +164,7 @@ function onDrill(payload: { type: string; value: any; row: Record<string, any> }
       class="text-xs text-muted-foreground"
       data-testid="analytics-conversion-best-label"
     >
-      <!-- TODO i18n -->
-      Best machine: <span class="font-medium text-foreground">{{ bestMachineName }}</span>
+      {{ t('analytics.kpi.bestRevenue') }}: <span class="font-medium text-foreground">{{ bestMachineName }}</span>
     </div>
 
     <!-- Machines × hour heatmap (top 10 by sales) -->
@@ -177,8 +174,7 @@ function onDrill(payload: { type: string; value: any; row: Record<string, any> }
       data-testid="analytics-conversion-heatmap"
     >
       <h3 class="mb-3 text-sm font-medium">
-        <!-- TODO i18n -->
-        Conversion by hour, top machines
+        {{ t('analytics.heatmapByMachineHour') }}
       </h3>
       <div class="space-y-1">
         <div
@@ -212,31 +208,29 @@ function onDrill(payload: { type: string; value: any; row: Record<string, any> }
       :data="scatterData"
       x-key="pax"
       y-key="sales"
-      title="Traffic vs sales (per machine)"
-      description="Footfall on the x-axis, sales count on the y-axis. One dot per machine."
+      :title="t('analytics.scatterTitle')"
+      :description="t('analytics.scatterDescription')"
     />
 
     <!-- Daily conversion trend -->
-    <!-- TODO i18n: chart title hardcoded -->
     <AnalyticsChart
       v-if="data && data.daily_conversion_series?.length"
       :data="data.daily_conversion_series"
       x-key="date"
       y-key="conversion_pct"
-      title="Daily conversion %"
+      :title="t('analytics.dailyTrend')"
     />
 
     <!-- Per-machine table -->
-    <!-- TODO i18n: column labels hardcoded; add analytics.conversion.column.* keys -->
     <AnalyticsTable
       v-if="data?.machines?.length"
       :rows="data.machines"
       :columns="[
-        { key: 'name',                label: 'Machine',         type: 'string',   drillTo: 'machine' },
-        { key: 'pax',                 label: 'Footfall',        type: 'number' },
-        { key: 'sales',               label: 'Sales',           type: 'number' },
-        { key: 'conversion_pct',      label: 'Conversion',      type: 'percent' },
-        { key: 'revenue_per_visitor', label: 'Revenue/visitor', type: 'currency' },
+        { key: 'name',                label: t('analytics.machine'),            type: 'string',   drillTo: 'machine' },
+        { key: 'pax',                 label: t('analytics.kpi.footfall'),       type: 'number' },
+        { key: 'sales',               label: t('analytics.sales'),              type: 'number' },
+        { key: 'conversion_pct',      label: t('analytics.conversion'),         type: 'percent' },
+        { key: 'revenue_per_visitor', label: t('analytics.revenuePerVisitor'),  type: 'currency' },
       ]"
       @drill="onDrill"
     />
@@ -246,13 +240,11 @@ function onDrill(payload: { type: string; value: any; row: Record<string, any> }
       v-else-if="data && !loading"
       class="rounded-xl border border-dashed bg-muted/30 p-12 text-center text-sm text-muted-foreground"
     >
-      <!-- TODO i18n -->
-      No machines match the current filters.
+      {{ t('analytics.noMachinesMatch') }}
     </div>
 
     <!-- Loading / error -->
-    <!-- TODO i18n: status strings hardcoded -->
-    <div v-if="loading" class="text-sm text-muted-foreground">Loading…</div>
+    <div v-if="loading" class="text-sm text-muted-foreground">{{ t('analytics.loading') }}</div>
     <div v-if="error" class="text-sm text-destructive">{{ error }}</div>
   </div>
 </template>
