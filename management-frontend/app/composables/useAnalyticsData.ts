@@ -13,8 +13,8 @@ export const RPC_NAME_BY_TAB: Record<AnalyticsTab, string> = {
   operations: 'analytics_operations',
 }
 
-export function computeFilterHash(tab: AnalyticsTab, f: AnalyticsFilter): string {
-  return JSON.stringify([tab, f])
+export function computeFilterHash(tab: AnalyticsTab, f: AnalyticsFilter, extra: Record<string, unknown> = {}): string {
+  return JSON.stringify([tab, f, extra])
 }
 
 interface CacheEntry { at: number; data: any }
@@ -31,7 +31,7 @@ export function useAnalyticsData() {
     companyId: string,
     extra: Record<string, unknown> = {}
   ) {
-    const key = computeFilterHash(tab, filter)
+    const key = computeFilterHash(tab, filter, extra)
     const cached = cache.get(key)
     if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.data
 

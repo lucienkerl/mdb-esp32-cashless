@@ -17,6 +17,10 @@ describe('computeFilterHash', () => {
     const f2 = { ...DEFAULT_FILTER, machines: ['m2'] }
     expect(computeFilterHash('overview', f1)).not.toBe(computeFilterHash('overview', f2))
   })
+  it('produces different hash when extra differs', () => {
+    expect(computeFilterHash('sales', DEFAULT_FILTER, { p_dimension: 'machine' }))
+      .not.toBe(computeFilterHash('sales', DEFAULT_FILTER, { p_dimension: 'product' }))
+  })
 })
 
 describe('RPC_NAME_BY_TAB', () => {

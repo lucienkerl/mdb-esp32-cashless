@@ -10,9 +10,12 @@
     type      — drives default formatter + alignment (number/currency/percent
                 are right-aligned and tabular)
     format?   — optional custom formatter, overrides type-default
-    drillTo?  — emits 'drill' { type, value } when the cell is clicked.
+    drillTo?  — emits 'drill' { type, value, row } when the cell is clicked.
                 Cell renders as a button with primary-colored text + underline
-                on hover. The parent owns the navigation.
+                on hover. The parent owns the navigation. The full `row` is
+                included so callers can dispatch on a different field than
+                the one rendered (e.g. drill by `row.key` UUID while the cell
+                shows `row.label`).
 
   Sort state is internal — click a header to sort by it (toggle direction on
   re-click). Only the active column shows up/down arrows; others render the
@@ -50,7 +53,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  drill: [payload: { type: string; value: any }]
+  drill: [payload: { type: string; value: any; row: Record<string, any> }]
 }>()
 
 const sortKey = ref<string | null>(null)
@@ -140,7 +143,7 @@ function isNumeric(col: Col): boolean {
                 v-if="col.drillTo"
                 type="button"
                 class="text-primary underline-offset-2 hover:underline"
-                @click="emit('drill', { type: col.drillTo, value: row[col.key] })"
+                @click="emit('drill', { type: col.drillTo, value: row[col.key], row })"
               >
                 {{ formatCell(row[col.key], col) }}
               </button>
