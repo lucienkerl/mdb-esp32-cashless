@@ -3,7 +3,6 @@ definePageMeta({ middleware: 'auth' })
 
 import SectionCards from "@/components/SectionCards.vue"
 import ChartAreaInteractive from "@/components/ChartAreaInteractive.vue"
-import CompanyInsights from "@/components/CompanyInsights.vue"
 import DashboardTopProducts from "@/components/DashboardTopProducts.vue"
 import DashboardMachineList from "@/components/DashboardMachineList.vue"
 import DashboardRecentSales from "@/components/DashboardRecentSales.vue"
@@ -539,11 +538,6 @@ async function loadDashboard() {
             :description="t('dashboard.dailyRevenueOverview')"
           />
           <DashboardTopProducts :products="topProducts" />
-        </div>
-
-        <!-- Company Insights -->
-        <div class="px-4 lg:px-6">
-          <CompanyInsights />
         </div>
 
         <!-- Machines -->
