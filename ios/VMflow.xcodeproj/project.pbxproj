@@ -70,6 +70,7 @@
 		BB47F1A487862AA410FF9E58 /* ServerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81E4EBBB3677A660B6E57BD2 /* ServerStore.swift */; };
 		BE954A375ED01316E322C570 /* BarcodeScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 822CB83FD364F5DCF05D6213 /* BarcodeScannerView.swift */; };
 		BEE87BCF91FBF732036F5D34 /* ProductsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B17A2CD3A0F549B76FAFF29 /* ProductsView.swift */; };
+		BF46130EC5DF347899F9BFC5 /* AnalyticsSortableList.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CBB31559F4E22C346E40826 /* AnalyticsSortableList.swift */; };
 		C2A2406A5D534A262F1CB0BA /* Sale.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79D8F4403556EBD0620DEECF /* Sale.swift */; };
 		C6C3F5A9A4DD93B937E70446 /* FlowVisualisationCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F7A80FB302C6380E0788244 /* FlowVisualisationCard.swift */; };
 		C8CFA483AB0C273F0B8009B0 /* AppNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BEBD09944FEF671809C2788 /* AppNavigation.swift */; };
@@ -169,6 +170,7 @@
 		85E188D4F38B0B3DB63805E7 /* InboxViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxViewModel.swift; sourceTree = "<group>"; };
 		8AEDEC41AB195897D4F6BC89 /* VMflow.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = VMflow.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8B044726A1D09F334DDB0851 /* BatchAdjustSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchAdjustSheet.swift; sourceTree = "<group>"; };
+		8CBB31559F4E22C346E40826 /* AnalyticsSortableList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyticsSortableList.swift; sourceTree = "<group>"; };
 		8ED1159C55CAF705215AD130 /* VMflowApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMflowApp.swift; sourceTree = "<group>"; };
 		8F302EE40A7DDA1135B7A9D7 /* MachineDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineDetailView.swift; sourceTree = "<group>"; };
 		90BC01B0752A47A20DF699E7 /* PackingStepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PackingStepView.swift; sourceTree = "<group>"; };
@@ -304,6 +306,7 @@
 			children = (
 				AA025EB66EB06769C3EFC9EB /* AnalyticsChart.swift */,
 				A93353C2241F88AC5749AA08 /* AnalyticsKPIGroup.swift */,
+				8CBB31559F4E22C346E40826 /* AnalyticsSortableList.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -676,6 +679,7 @@
 				FD90F92A011D910E59544A84 /* AnalyticsFilterSheet.swift in Sources */,
 				AA13EF47D6617718D15E18EF /* AnalyticsKPIGroup.swift in Sources */,
 				FC4BDD80D3206D8371102740 /* AnalyticsRootView.swift in Sources */,
+				BF46130EC5DF347899F9BFC5 /* AnalyticsSortableList.swift in Sources */,
 				5C23B7000E2E6CB57DDFD0A2 /* AppDelegate.swift in Sources */,
 				C8CFA483AB0C273F0B8009B0 /* AppNavigation.swift in Sources */,
 				FDA63D4358CC508737E8C10F /* AuthService.swift in Sources */,
