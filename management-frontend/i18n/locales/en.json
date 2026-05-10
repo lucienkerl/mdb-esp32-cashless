@@ -107,6 +107,7 @@
     "error": "Error",
     "saveAsPreset": "Save as preset",
     "downloadCsv": "Download CSV",
+    "downloadPng": "Download PNG",
     "savePreset": "Save preset",
     "presets": "Presets",
     "noPresets": "No saved presets",

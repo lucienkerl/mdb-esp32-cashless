@@ -25,6 +25,7 @@
     "dnd-kit-vue": "^0.0.2",
     "dompurify": "^3.4.0",
     "esp-web-tools": "^10.2.1",
+    "html-to-image": "^1.11.13",
     "jspdf": "^2.5.2",
     "jspdf-autotable": "^3.8.4",
     "leaflet": "^1.9.4",

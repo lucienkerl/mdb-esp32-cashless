@@ -28,6 +28,8 @@
 -->
 <script setup lang="ts">
 import ChartAreaInteractive from '@/components/ChartAreaInteractive.vue'
+import { Download } from 'lucide-vue-next'
+import { toPng } from 'html-to-image'
 
 const { t } = useI18n()
 
@@ -58,6 +60,25 @@ const props = withDefaults(
     referenceY: null,
   },
 )
+
+const chartContainerRef = ref<HTMLElement | null>(null)
+
+async function exportPng() {
+  if (!chartContainerRef.value) return
+  try {
+    const dataUrl = await toPng(chartContainerRef.value, {
+      backgroundColor: '#ffffff',
+    })
+    const a = document.createElement('a')
+    a.href = dataUrl
+    const slug = props.title?.replace(/[^a-z0-9]/gi, '-').toLowerCase() ?? 'chart'
+    a.download = slug + '.png'
+    a.click()
+  }
+  catch (e) {
+    console.error('PNG export failed', e)
+  }
+}
 
 const transformed = computed(() =>
   props.data.map((d) => ({
@@ -101,7 +122,7 @@ const refLineY = computed<number | null>(() => {
 </script>
 
 <template>
-  <div data-testid="analytics-chart">
+  <div ref="chartContainerRef" data-testid="analytics-chart">
     <!-- Loading skeleton (shared across modes) -->
     <div
       v-if="loading"
@@ -115,7 +136,19 @@ const refLineY = computed<number | null>(() => {
       class="rounded-xl border bg-card p-4"
       data-testid="analytics-scatter-chart"
     >
-      <h3 v-if="title" class="mb-3 text-sm font-medium">{{ title }}</h3>
+      <div class="mb-3 flex items-center justify-between">
+        <h3 v-if="title" class="text-sm font-medium">{{ title }}</h3>
+        <span v-else />
+        <button
+          type="button"
+          class="inline-flex h-7 items-center gap-1 rounded-md border bg-card px-2 text-xs hover:bg-muted"
+          data-testid="analytics-chart-download-png"
+          @click="exportPng"
+        >
+          <Download class="size-3.5" />
+          {{ t('analytics.downloadPng') }}
+        </button>
+      </div>
       <p v-if="description" class="mb-3 text-xs text-muted-foreground">{{ description }}</p>
       <svg
         v-if="data.length"
@@ -195,12 +228,26 @@ const refLineY = computed<number | null>(() => {
       </div>
     </div>
 
-    <!-- Bar mode (default): delegate to ChartAreaInteractive -->
-    <ChartAreaInteractive
-      v-else
-      :data="transformed"
-      :title="title"
-      :description="description"
-    />
+    <!-- Bar mode (default): delegate to ChartAreaInteractive. We add the
+         PNG button above the card since ChartAreaInteractive renders its
+         own CardHeader and we shouldn't reach into it. -->
+    <div v-else>
+      <div class="mb-2 flex items-center justify-end">
+        <button
+          type="button"
+          class="inline-flex h-7 items-center gap-1 rounded-md border bg-card px-2 text-xs hover:bg-muted"
+          data-testid="analytics-chart-download-png"
+          @click="exportPng"
+        >
+          <Download class="size-3.5" />
+          {{ t('analytics.downloadPng') }}
+        </button>
+      </div>
+      <ChartAreaInteractive
+        :data="transformed"
+        :title="title"
+        :description="description"
+      />
+    </div>
   </div>
 </template>
