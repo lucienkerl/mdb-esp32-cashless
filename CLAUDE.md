@@ -335,6 +335,11 @@ Public routes (no auth check): `/auth/login`, `/auth/register`, `/onboarding/*`
 - `useInsights()` – manages AI-powered machine/company insights, history, loading states via `machine-insights` edge function
 - `useProductImageSearch()` – wraps `search-product-images` edge function with debounce and caching
 
+**Analytics dashboard (`/analytics`):**
+- `useAnalyticsFilters()` – global filter state (`useState`-keyed singleton): `{ v, from, to, compare, machines, channels, categories, vatRates }`. Exposes `filter`, `reset()`, `savePreset()` / `loadPreset()` / `listPresets()` / `deletePreset()` (localStorage `analytics.presets`). Serializes to/from URL `?f=base64url-json`, debounced 300ms, with forward-compat `v` clamp + unknown-key drop
+- `useAnalyticsData()` – dispatches all 6 analytics RPCs (`analytics_overview`, `analytics_sales_breakdown`, `analytics_products`, `analytics_machines`, `analytics_conversion`, `analytics_operations`). 30s in-memory cache keyed by `(tab, filter, extra)`. Returns `{ fetch, loading, error, invalidate }`
+- `useAnalyticsExport()` – German-locale CSV writer (`;` delimiter, `,` decimal, UTF-8 BOM) + `download()` helper. Exports `rowsToCsv()` and `download()`
+
 **UI utilities:**
 - `useTheme()` – wraps `useDark` from `@vueuse/core`; theme persisted to `localStorage` as `color-scheme`
 - `useAppResume()` – app lifecycle/resume event handling
@@ -367,6 +372,7 @@ Public routes (no auth check): `/auth/login`, `/auth/register`, `/onboarding/*`
 - `/warehouse` – Warehouse inventory management: stock intake with barcode scanning (`BarcodeScanner` component), FIFO batch tracking, transaction history, min-stock alerts, product position management
 - `/refill` – Multi-step guided refill wizard: select warehouse → pack items (combined/per-machine mode) → refill trays → summary with tour stats
 - `/tour-history` – Expandable list of completed refill tours with per-machine details, user names, timestamps
+- `/analytics` – Multi-tab analytics workbench with global filter bar (date/machines/channels/categories/VAT, URL-persisted via `?f=`, preset save/load in localStorage). Six hash-routed tabs: Overview (KPIs + daily chart + top products/machines + AI insights), Sales (7-dimension breakdown with heatmap for hour/dow), Products (velocity/status/mix-shift), Machines (cards + compare sheet + Leaflet geo map), Conversion (pax×sales scatter + machine×hour heatmap), Operations (stockouts + refill tours + stock-cover days with pre-migration banner). Per-tab CSV export, PNG chart snapshot via html-to-image
 - `/history` – Activity/audit log
 - `/devices` – Admin device management: registered embedded devices table, register new device with provisioning code + QR, pending tokens, delete device
 - `/firmware` – Firmware version management: upload .bin files + import from GitHub releases, deploy OTA to devices, delete versions
