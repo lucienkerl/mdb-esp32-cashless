@@ -80,7 +80,7 @@ struct AnalyticsCompareView: View {
     @ViewBuilder
     private func compareRow(label: String, value: String) -> some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(label).font(.caption).foregroundStyle(.secondary)
+            Text(LocalizedStringKey(label)).font(.caption).foregroundStyle(.secondary)
             Spacer()
             Text(value).font(.subheadline).monospacedDigit()
         }

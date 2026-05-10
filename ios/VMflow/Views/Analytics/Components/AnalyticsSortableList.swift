@@ -46,7 +46,7 @@ struct AnalyticsSortableList<Row: Identifiable>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let title {
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(.headline)
                     .padding(.horizontal)
                     .padding(.top, 8)
@@ -63,7 +63,7 @@ struct AnalyticsSortableList<Row: Identifiable>: View {
                         }
                     } label: {
                         HStack(spacing: 4) {
-                            Text(col.label)
+                            Text(LocalizedStringKey(col.label))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             if sortKey == col.key {

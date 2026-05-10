@@ -30,7 +30,7 @@ struct AnalyticsChart: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let title {
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(.headline)
                     .padding(.horizontal)
             }

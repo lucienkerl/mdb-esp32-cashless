@@ -23,12 +23,12 @@ struct AnalyticsOperationsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                // Pre-migration banner — TODO i18n (Chunk 7).
+                // Pre-migration banner.
                 if showPreMigrationBanner {
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(.yellow)
-                        Text("Stockout-Daten verfügbar ab 09.05.2026 — frühere Filter zeigen unvollständige Daten.")
+                        Text("Stockout data available from 09.05.2026 — earlier filters show incomplete data.")
                             .font(.caption)
                             .foregroundStyle(.primary)
                     }
@@ -120,12 +120,9 @@ struct AnalyticsOperationsView: View {
                                 Text(ev.machineName)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                                Text(
-                                    ev.startedAt.formatted(date: .abbreviated, time: .shortened)
-                                    + (ev.endedAt == nil ? " — ongoing" : "")
-                                )
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
+                                Text(stockoutTimestamp(startedAt: ev.startedAt, endedAt: ev.endedAt))
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
                             }
                             Spacer()
                             VStack(alignment: .trailing, spacing: 2) {
@@ -148,7 +145,7 @@ struct AnalyticsOperationsView: View {
                 .padding(.horizontal)
 
                 if events.count > 50 {
-                    Text("Showing top 50 of \(events.count) events.")
+                    Text("Showing top \(50) of \(events.count) events.")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                         .padding(.horizontal)
@@ -293,7 +290,7 @@ struct AnalyticsOperationsView: View {
                 .padding(.horizontal)
 
                 if rows.count > 50 {
-                    Text("Showing top 50 of \(rows.count) trays.")
+                    Text("Showing top \(50) of \(rows.count) trays.")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                         .padding(.horizontal)
@@ -310,6 +307,13 @@ struct AnalyticsOperationsView: View {
         let h = Int(seconds / 3600)
         let m = Int(seconds.truncatingRemainder(dividingBy: 3600) / 60)
         return "\(h)h \(m)m"
+    }
+
+    /// Localized timestamp + optional "ongoing" suffix for stockout events.
+    private func stockoutTimestamp(startedAt: Date, endedAt: Date?) -> String {
+        let formatted = startedAt.formatted(date: .abbreviated, time: .shortened)
+        guard endedAt == nil else { return formatted }
+        return "\(formatted) — \(String(localized: "ongoing"))"
     }
 
     private func coverDaysLabel(_ d: Double?) -> String {

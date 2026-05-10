@@ -13,9 +13,9 @@ struct AnalyticsOverviewView: View {
                 if viewModel.hasNewData {
                     HStack {
                         Image(systemName: "arrow.clockwise")
-                        Text("Neue Daten verfügbar")
+                        Text("New data available")
                         Spacer()
-                        Button("Aktualisieren") {
+                        Button("Refresh") {
                             Task { await viewModel.load() }
                         }
                         .buttonStyle(.bordered)

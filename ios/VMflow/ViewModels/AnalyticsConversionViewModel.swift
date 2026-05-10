@@ -96,7 +96,7 @@ final class AnalyticsConversionViewModel: ObservableObject {
             throw NSError(
                 domain: "AnalyticsConversionVM",
                 code: 0,
-                userInfo: [NSLocalizedDescriptionKey: "Could not determine company"]
+                userInfo: [NSLocalizedDescriptionKey: String(localized: "Could not determine company")]
             )
         }
         return companyId

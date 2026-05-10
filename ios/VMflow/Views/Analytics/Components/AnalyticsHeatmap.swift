@@ -33,7 +33,7 @@ struct AnalyticsHeatmap: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if let title {
-                Text(title).font(.headline)
+                Text(LocalizedStringKey(title)).font(.headline)
             }
             // Column header
             HStack(spacing: 1) {

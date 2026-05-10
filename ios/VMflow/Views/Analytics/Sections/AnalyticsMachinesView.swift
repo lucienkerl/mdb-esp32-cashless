@@ -173,8 +173,12 @@ struct AnalyticsMachinesView: View {
     }
 
     private func formatGap(_ minutes: Int) -> String {
-        if minutes < 60 { return "\(minutes)m ago" }
-        if minutes < 1440 { return "\(minutes / 60)h ago" }
-        return "\(minutes / 1440)d ago"
+        if minutes < 60 {
+            return String(localized: "\(minutes)m ago")
+        }
+        if minutes < 1440 {
+            return String(localized: "\(minutes / 60)h ago")
+        }
+        return String(localized: "\(minutes / 1440)d ago")
     }
 }

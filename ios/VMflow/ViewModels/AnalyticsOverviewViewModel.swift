@@ -120,7 +120,7 @@ final class AnalyticsOverviewViewModel: ObservableObject {
             throw NSError(
                 domain: "AnalyticsOverviewVM",
                 code: 0,
-                userInfo: [NSLocalizedDescriptionKey: "Could not determine company"]
+                userInfo: [NSLocalizedDescriptionKey: String(localized: "Could not determine company")]
             )
         }
         return companyId

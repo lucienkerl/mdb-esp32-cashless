@@ -7,6 +7,21 @@ struct AnalyticsSalesView: View {
 
     private let dimensions = ["machine", "product", "category", "channel", "vat", "hour", "dow"]
 
+    /// English source labels for each dimension. Localized via the
+    /// `LocalizedStringKey(dimensionLabel(dim))` lookup at the call site.
+    private func dimensionLabel(_ dim: String) -> String {
+        switch dim {
+        case "machine":  return "Machine"
+        case "product":  return "Product"
+        case "category": return "Category"
+        case "channel":  return "Channel"
+        case "vat":      return "VAT"
+        case "hour":     return "Hour"
+        case "dow":      return "Day of week"
+        default:         return dim.capitalized
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
@@ -17,7 +32,7 @@ struct AnalyticsSalesView: View {
                             Button {
                                 viewModel.dimension = dim
                             } label: {
-                                Text(dim.capitalized)
+                                Text(LocalizedStringKey(dimensionLabel(dim)))
                                     .font(.subheadline)
                                     .padding(.horizontal, 12).padding(.vertical, 6)
                                     .background(viewModel.dimension == dim ? Color.accentColor.opacity(0.2) : Color.clear)

@@ -4,6 +4,8 @@ import SwiftUI
 enum AnalyticsSection: String, CaseIterable, Identifiable {
   case overview, sales, products, machines, conversion, operations
   var id: String { rawValue }
+  /// English source string for the section name. Looked up in `Localizable.xcstrings`
+  /// at every call site via `LocalizedStringKey`/`String(localized:)`.
   var label: String {
     switch self {
     case .overview:   "Overview"
@@ -13,6 +15,11 @@ enum AnalyticsSection: String, CaseIterable, Identifiable {
     case .conversion: "Conversion"
     case .operations: "Operations"
     }
+  }
+  /// Localized variant of ``label`` for use in places that don't accept
+  /// `LocalizedStringKey` (e.g. `.navigationTitle(String)`).
+  var localizedLabel: String {
+    NSLocalizedString(label, comment: "Analytics section name")
   }
   var icon: String {
     switch self {
@@ -39,13 +46,19 @@ struct AnalyticsRootView: View {
         NavigationSplitView {
           List(selection: $selectedSection) {
             ForEach(AnalyticsSection.allCases) { section in
-              Label(section.label, systemImage: section.icon).tag(section)
+              Label {
+                Text(LocalizedStringKey(section.label))
+              } icon: {
+                Image(systemName: section.icon)
+              }
+              .tag(section)
             }
           }
           .navigationTitle("Analytics")
         } detail: {
           sectionView
-            .navigationTitle(selectedSection?.label ?? "Analytics")
+            .navigationTitle(selectedSection?.localizedLabel
+                             ?? String(localized: "Analytics"))
             .toolbar {
               ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -65,11 +78,15 @@ struct AnalyticsRootView: View {
                 Button {
                   selectedSection = section
                 } label: {
-                  Label(section.label, systemImage: section.icon)
-                    .font(.subheadline)
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(selectedSection == section ? Color.accentColor.opacity(0.2) : Color.clear)
-                    .clipShape(Capsule())
+                  Label {
+                    Text(LocalizedStringKey(section.label))
+                  } icon: {
+                    Image(systemName: section.icon)
+                  }
+                  .font(.subheadline)
+                  .padding(.horizontal, 12).padding(.vertical, 6)
+                  .background(selectedSection == section ? Color.accentColor.opacity(0.2) : Color.clear)
+                  .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(selectedSection == section ? Color.accentColor : .primary)

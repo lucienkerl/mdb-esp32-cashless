@@ -90,7 +90,7 @@ struct AnalyticsProductsView: View {
                                             selectedStatuses.insert(status)
                                         }
                                     } label: {
-                                        Text(status.capitalized)
+                                        Text(LocalizedStringKey(status.capitalized))
                                             .font(.subheadline)
                                             .padding(.horizontal, 12).padding(.vertical, 6)
                                             .background(selectedStatuses.contains(status) ? Color.accentColor.opacity(0.2) : Color.clear)
@@ -145,8 +145,9 @@ struct AnalyticsProductsView: View {
                                         selectedCategoryIds.insert(cat.id)
                                     }
                                 } label: {
+                                    // cat.name is user-generated content, do not localize.
                                     if selectedCategoryIds.contains(cat.id) {
-                                        Label(cat.name, systemImage: "checkmark")
+                                        Label { Text(cat.name) } icon: { Image(systemName: "checkmark") }
                                     } else {
                                         Text(cat.name)
                                     }
@@ -164,9 +165,13 @@ struct AnalyticsProductsView: View {
                                 }
                             } label: {
                                 if selectedStatuses.contains(status) {
-                                    Label(status.capitalized, systemImage: "checkmark")
+                                    Label {
+                                        Text(LocalizedStringKey(status.capitalized))
+                                    } icon: {
+                                        Image(systemName: "checkmark")
+                                    }
                                 } else {
-                                    Text(status.capitalized)
+                                    Text(LocalizedStringKey(status.capitalized))
                                 }
                             }
                         }
@@ -219,7 +224,7 @@ struct AnalyticsProductsView: View {
                     .lineLimit(1)
                     .foregroundStyle(.primary)
                 HStack(spacing: 6) {
-                    Text(row.status.capitalized)
+                    Text(LocalizedStringKey(row.status.capitalized))
                         .font(.caption2)
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(statusColor(row.status).opacity(0.15))
