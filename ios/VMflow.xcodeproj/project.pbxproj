@@ -50,6 +50,7 @@
 		77D2B846D83C3623DF76EF46 /* WithdrawalSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B0D3D4BFCEB1A362499B0C9 /* WithdrawalSheet.swift */; };
 		7B251D0111BECD9C18F5DD02 /* TrayViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E9A5023EED5804698A679E6 /* TrayViewModel.swift */; };
 		893772831F630561F5DBEF01 /* MachineDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F302EE40A7DDA1135B7A9D7 /* MachineDetailView.swift */; };
+		92568582278C4496D9941FF9 /* AnalyticsFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FDCE7F9F6A8794B7E407AE6 /* AnalyticsFilter.swift */; };
 		98DBB72485FA6701994E86A6 /* VMflowApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ED1159C55CAF705215AD130 /* VMflowApp.swift */; };
 		994DEA5B68106C882733FA3E /* AddServerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 357877F547C30B7565611780 /* AddServerView.swift */; };
 		9AC610D3D52ECEEAF701A011 /* VendingMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7EC46F36DD12575C056A1A /* VendingMachine.swift */; };
@@ -150,6 +151,7 @@
 		5BEBD09944FEF671809C2788 /* AppNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNavigation.swift; sourceTree = "<group>"; };
 		640C0F6F1E6E4CBDF96B7F39 /* NotificationService.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		64E2C159F72B60828783FDAE /* DealsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DealsView.swift; sourceTree = "<group>"; };
+		6FDCE7F9F6A8794B7E407AE6 /* AnalyticsFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyticsFilter.swift; sourceTree = "<group>"; };
 		70B6B1A9D2611C8B7EE53EDC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		70E364431AFD63E8DE1238E3 /* SupabaseService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseService.swift; sourceTree = "<group>"; };
 		79D0846AC36BBA1BBDC87E68 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
@@ -216,6 +218,7 @@
 		0027C46851E4D2A841666B4B /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				6FDCE7F9F6A8794B7E407AE6 /* AnalyticsFilter.swift */,
 				D372AA15A5282B4FB81859BB /* CashBook.swift */,
 				9C98118B90638CE2F176B419 /* Deal.swift */,
 				09910CF5FF28B2094BC5AEB1 /* Inbox.swift */,
@@ -651,6 +654,7 @@
 			files = (
 				A2A38FD8CE2FB51B55D2F755 /* AdaptiveRootView.swift in Sources */,
 				994DEA5B68106C882733FA3E /* AddServerView.swift in Sources */,
+				92568582278C4496D9941FF9 /* AnalyticsFilter.swift in Sources */,
 				FC4BDD80D3206D8371102740 /* AnalyticsRootView.swift in Sources */,
 				5C23B7000E2E6CB57DDFD0A2 /* AppDelegate.swift in Sources */,
 				C8CFA483AB0C273F0B8009B0 /* AppNavigation.swift in Sources */,
