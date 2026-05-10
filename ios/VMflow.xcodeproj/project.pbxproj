@@ -60,6 +60,7 @@
 		A36AE2752621D3854B40CCE2 /* RefillWizardViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D17D5562BFC75116621B04A /* RefillWizardViewModel.swift */; };
 		A522F0B50B637D736631E2FA /* ProductDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25C77EB4B16044F00FE97E2E /* ProductDetailSheet.swift */; };
 		A7761D7EC67B223B1E28E056 /* InboxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F42986C118001765E3A6920B /* InboxView.swift */; };
+		AA13EF47D6617718D15E18EF /* AnalyticsKPIGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = A93353C2241F88AC5749AA08 /* AnalyticsKPIGroup.swift */; };
 		AD28437ACBB0F0A443AA458E /* RegisterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 813681CDE6C321A49F84A20B /* RegisterView.swift */; };
 		AFD4D9E541002B8B1DFE6386 /* ProductBatchesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9467ACC9B6971BEDE1EEDED4 /* ProductBatchesView.swift */; };
 		B274325852BED5CF815DDA42 /* Organization.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7F443AA9AA51CCB3B6A7C75 /* Organization.swift */; };
@@ -177,6 +178,7 @@
 		9D17D5562BFC75116621B04A /* RefillWizardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RefillWizardViewModel.swift; sourceTree = "<group>"; };
 		A6908142D65605FE1D58C1AE /* Warehouse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Warehouse.swift; sourceTree = "<group>"; };
 		A8B6CB1492BFAA927C077A18 /* MachineListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineListView.swift; sourceTree = "<group>"; };
+		A93353C2241F88AC5749AA08 /* AnalyticsKPIGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyticsKPIGroup.swift; sourceTree = "<group>"; };
 		AC27FF5E0A1C34BCE4ACCDBE /* StatusBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBadge.swift; sourceTree = "<group>"; };
 		AC323B6816B89C5044F50027 /* AuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthService.swift; sourceTree = "<group>"; };
 		B84F596B8E26B3A5377BCAA0 /* RefillStepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RefillStepView.swift; sourceTree = "<group>"; };
@@ -293,6 +295,14 @@
 				994B0EDA9D03328A131F4664 /* SidebarNavigationView.swift */,
 			);
 			path = Navigation;
+			sourceTree = "<group>";
+		};
+		4176F60E9E99B4F0A5C20220 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				A93353C2241F88AC5749AA08 /* AnalyticsKPIGroup.swift */,
+			);
+			path = Components;
 			sourceTree = "<group>";
 		};
 		50FA058BB16C4A1997C4B32E /* Machines */ = {
@@ -429,6 +439,7 @@
 			children = (
 				81762E79969C584FDFE5233C /* AnalyticsFilterSheet.swift */,
 				E3136D8D239316230A8B0B4E /* AnalyticsRootView.swift */,
+				4176F60E9E99B4F0A5C20220 /* Components */,
 			);
 			path = Analytics;
 			sourceTree = "<group>";
@@ -659,6 +670,7 @@
 				994DEA5B68106C882733FA3E /* AddServerView.swift in Sources */,
 				92568582278C4496D9941FF9 /* AnalyticsFilter.swift in Sources */,
 				FD90F92A011D910E59544A84 /* AnalyticsFilterSheet.swift in Sources */,
+				AA13EF47D6617718D15E18EF /* AnalyticsKPIGroup.swift in Sources */,
 				FC4BDD80D3206D8371102740 /* AnalyticsRootView.swift in Sources */,
 				5C23B7000E2E6CB57DDFD0A2 /* AppDelegate.swift in Sources */,
 				C8CFA483AB0C273F0B8009B0 /* AppNavigation.swift in Sources */,
