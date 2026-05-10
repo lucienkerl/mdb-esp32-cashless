@@ -2,6 +2,7 @@
 import {
   IconBuildingWarehouse,
   IconCash,
+  IconChartLine,
   IconCpu,
   IconDashboard,
   IconDeviceMobile,
@@ -82,6 +83,11 @@ const navGroups = computed(() => {
           title: t('nav.reports'),
           url: "/reports",
           icon: IconFileSpreadsheet,
+        },
+        {
+          title: t('nav.analytics'),
+          url: "/analytics",
+          icon: IconChartLine,
         },
         {
           title: t('nav.cashBook'),
