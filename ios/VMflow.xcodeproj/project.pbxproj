@@ -28,6 +28,7 @@
 		301C227EBDC0E72136F542CD /* MachineCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = C78B6E7FAFE28A4523530D02 /* MachineCard.swift */; };
 		36D66E4568E0F334F7DF3CDF /* CashBookView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C560BD5344EA89391E6A3721 /* CashBookView.swift */; };
 		38D6B1CBC8EAA38E361D13CB /* Product.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA94DE3092E2B07986626697 /* Product.swift */; };
+		39EE7C14A9414A3C166368AA /* AnalyticsOverviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DBF31AD56C03B084A2C77CE /* AnalyticsOverviewView.swift */; };
 		401CB3D07548694B7E517E3B /* NotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 640C0F6F1E6E4CBDF96B7F39 /* NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		4317985673B05FA56A45069B /* StatusBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC27FF5E0A1C34BCE4ACCDBE /* StatusBadge.swift */; };
 		44BE3D1E439FE91E3A5D1932 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FAA61B154F7ABC2401C2CCA /* QRScannerView.swift */; };
@@ -43,6 +44,7 @@
 		5F1B8611AD429EF19A710A9A /* ServerSelectionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBE58555E475171EA231EDB4 /* ServerSelectionSheet.swift */; };
 		6051E236873980E4ABAF7E4B /* ProductEditSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DCE1D189B536C04A31EB746 /* ProductEditSheet.swift */; };
 		619ACB1BC411FF265BC16770 /* Deal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C98118B90638CE2F176B419 /* Deal.swift */; };
+		61E5DC6DF91611D1DB21131D /* AnalyticsOverviewViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5FD9CAB9076EB98510783F /* AnalyticsOverviewViewModel.swift */; };
 		6971FF55D8F8DCA5C2EA43AC /* BankDepositSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F19B9E91048E1CDAC7C689E9 /* BankDepositSheet.swift */; };
 		69E8033CA200BF33D690DD33 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55B32C8EEFABC9DADF2C73DD /* LoginView.swift */; };
 		720AF70B51AF06424B582271 /* ProductsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F1BF54F8FA6B86DA5380F6 /* ProductsViewModel.swift */; };
@@ -147,6 +149,7 @@
 		453803D692FAEE4E9DDA1040 /* CompactTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactTabView.swift; sourceTree = "<group>"; };
 		45AE89831021CC12416B0F89 /* VMflow.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = VMflow.entitlements; sourceTree = "<group>"; };
 		496AADA2A0C49A331A85311A /* TrayRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrayRow.swift; sourceTree = "<group>"; };
+		4B5FD9CAB9076EB98510783F /* AnalyticsOverviewViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyticsOverviewViewModel.swift; sourceTree = "<group>"; };
 		4E7EC46F36DD12575C056A1A /* VendingMachine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VendingMachine.swift; sourceTree = "<group>"; };
 		4F7A80FB302C6380E0788244 /* FlowVisualisationCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowVisualisationCard.swift; sourceTree = "<group>"; };
 		52A29D496BDB69F848C60674 /* RefillWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RefillWizardView.swift; sourceTree = "<group>"; };
@@ -182,6 +185,7 @@
 		994B0EDA9D03328A131F4664 /* SidebarNavigationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarNavigationView.swift; sourceTree = "<group>"; };
 		9C98118B90638CE2F176B419 /* Deal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Deal.swift; sourceTree = "<group>"; };
 		9D17D5562BFC75116621B04A /* RefillWizardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RefillWizardViewModel.swift; sourceTree = "<group>"; };
+		9DBF31AD56C03B084A2C77CE /* AnalyticsOverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyticsOverviewView.swift; sourceTree = "<group>"; };
 		A6908142D65605FE1D58C1AE /* Warehouse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Warehouse.swift; sourceTree = "<group>"; };
 		A8B6CB1492BFAA927C077A18 /* MachineListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineListView.swift; sourceTree = "<group>"; };
 		A93353C2241F88AC5749AA08 /* AnalyticsKPIGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyticsKPIGroup.swift; sourceTree = "<group>"; };
@@ -367,6 +371,14 @@
 			path = Deals;
 			sourceTree = "<group>";
 		};
+		9AA02469A4BB7396B248F571 /* Sections */ = {
+			isa = PBXGroup;
+			children = (
+				9DBF31AD56C03B084A2C77CE /* AnalyticsOverviewView.swift */,
+			);
+			path = Sections;
+			sourceTree = "<group>";
+		};
 		9FABBE1AE0EDE7E452EE5914 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
@@ -390,6 +402,7 @@
 		BA69BE2898BA7064DAC9A74C /* ViewModels */ = {
 			isa = PBXGroup;
 			children = (
+				4B5FD9CAB9076EB98510783F /* AnalyticsOverviewViewModel.swift */,
 				BBEC3C69228B5189BCD8B513 /* CashBookViewModel.swift */,
 				16E021E42CD9C7C92936F706 /* DashboardViewModel.swift */,
 				045C58B5757C2E8C18819C83 /* DealsViewModel.swift */,
@@ -452,6 +465,7 @@
 				81762E79969C584FDFE5233C /* AnalyticsFilterSheet.swift */,
 				E3136D8D239316230A8B0B4E /* AnalyticsRootView.swift */,
 				4176F60E9E99B4F0A5C20220 /* Components */,
+				9AA02469A4BB7396B248F571 /* Sections */,
 			);
 			path = Analytics;
 			sourceTree = "<group>";
@@ -685,6 +699,8 @@
 				FD90F92A011D910E59544A84 /* AnalyticsFilterSheet.swift in Sources */,
 				F05ADB26490C6AA51FFDF066 /* AnalyticsHeatmap.swift in Sources */,
 				AA13EF47D6617718D15E18EF /* AnalyticsKPIGroup.swift in Sources */,
+				39EE7C14A9414A3C166368AA /* AnalyticsOverviewView.swift in Sources */,
+				61E5DC6DF91611D1DB21131D /* AnalyticsOverviewViewModel.swift in Sources */,
 				FC4BDD80D3206D8371102740 /* AnalyticsRootView.swift in Sources */,
 				BF46130EC5DF347899F9BFC5 /* AnalyticsSortableList.swift in Sources */,
 				5C23B7000E2E6CB57DDFD0A2 /* AppDelegate.swift in Sources */,

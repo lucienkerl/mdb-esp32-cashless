@@ -105,7 +105,7 @@ struct AnalyticsRootView: View {
   @ViewBuilder
   private var sectionView: some View {
     switch selectedSection ?? .overview {
-    case .overview:   Text("Overview — coming soon").frame(maxWidth: .infinity, maxHeight: .infinity)
+    case .overview:   AnalyticsOverviewView()
     case .sales:      Text("Sales — coming soon").frame(maxWidth: .infinity, maxHeight: .infinity)
     case .products:   Text("Products — coming soon").frame(maxWidth: .infinity, maxHeight: .infinity)
     case .machines:   Text("Machines — coming soon").frame(maxWidth: .infinity, maxHeight: .infinity)
