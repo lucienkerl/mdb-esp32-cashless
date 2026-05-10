@@ -232,6 +232,7 @@ function onDrill(payload: { type: string; value: any; row: Record<string, any> }
         { key: 'conversion_pct',      label: t('analytics.conversion'),         type: 'percent' },
         { key: 'revenue_per_visitor', label: t('analytics.revenuePerVisitor'),  type: 'currency' },
       ]"
+      :csv-filename="`vmflow-analytics-conversion-${filter.from.slice(0,10)}-${filter.to.slice(0,10)}`"
       @drill="onDrill"
     />
 

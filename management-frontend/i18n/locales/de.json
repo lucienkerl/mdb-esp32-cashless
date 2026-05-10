@@ -106,6 +106,7 @@
     "loading": "Wird geladen…",
     "error": "Fehler",
     "saveAsPreset": "Als Preset speichern",
+    "downloadCsv": "CSV herunterladen",
     "savePreset": "Preset speichern",
     "presets": "Presets",
     "noPresets": "Keine gespeicherten Presets",

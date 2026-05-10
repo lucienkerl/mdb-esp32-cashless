@@ -70,6 +70,7 @@ watch(filter, load, { deep: true })
           { key: 'mix_pct', label: t('analytics.mix'),      type: 'percent' },
         ]"
         :title="t('analytics.overview.topProducts')"
+        :csv-filename="`vmflow-analytics-overview-top-products-${filter.from.slice(0,10)}-${filter.to.slice(0,10)}`"
       />
       <AnalyticsTable v-if="data"
         :rows="data.top_machines"
@@ -78,6 +79,7 @@ watch(filter, load, { deep: true })
           { key: 'revenue', label: t('analytics.revenue'), type: 'currency' },
         ]"
         :title="t('analytics.overview.topMachines')"
+        :csv-filename="`vmflow-analytics-overview-top-machines-${filter.from.slice(0,10)}-${filter.to.slice(0,10)}`"
       />
     </div>
 

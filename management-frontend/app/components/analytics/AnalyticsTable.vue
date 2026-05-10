@@ -28,6 +28,8 @@
 <script setup lang="ts">
 import { formatCurrency } from '@/lib/utils'
 import SortHeader from '@/components/SortHeader.vue'
+import { Download } from 'lucide-vue-next'
+import { useAnalyticsExport } from '@/composables/useAnalyticsExport'
 import {
   Table,
   TableBody,
@@ -50,11 +52,28 @@ const props = defineProps<{
   rows: Record<string, any>[]
   columns: Col[]
   title?: string
+  /**
+   * When set, renders a "Download CSV" button in the title row.
+   * The filename should NOT include the `.csv` extension — it's
+   * appended automatically. Includes the ISO date range, e.g.
+   *   `vmflow-analytics-overview-top-products-2026-04-09-2026-05-09`
+   */
+  csvFilename?: string
 }>()
 
 const emit = defineEmits<{
   drill: [payload: { type: string; value: any; row: Record<string, any> }]
 }>()
+
+const { t } = useI18n()
+const { rowsToCsv, download } = useAnalyticsExport()
+
+function exportCsv() {
+  if (!props.csvFilename) return
+  const columnKeys = props.columns.map((c) => c.key)
+  const csv = rowsToCsv(props.rows, columnKeys)
+  download(props.csvFilename + '.csv', csv)
+}
 
 const sortKey = ref<string | null>(null)
 const sortDir = ref<'asc' | 'desc'>('desc')
@@ -104,7 +123,23 @@ function isNumeric(col: Col): boolean {
 
 <template>
   <div data-testid="analytics-table">
-    <h3 v-if="title" class="mb-2 text-sm font-medium">{{ title }}</h3>
+    <div
+      v-if="title || csvFilename"
+      class="mb-2 flex items-center justify-between"
+    >
+      <h3 v-if="title" class="text-sm font-medium">{{ title }}</h3>
+      <span v-else />
+      <button
+        v-if="csvFilename"
+        type="button"
+        class="inline-flex h-7 items-center gap-1 rounded-md border bg-card px-2 text-xs hover:bg-muted"
+        data-testid="analytics-table-download-csv"
+        @click="exportCsv"
+      >
+        <Download class="size-3.5" />
+        {{ t('analytics.downloadCsv') }}
+      </button>
+    </div>
     <div class="rounded-md border">
       <Table>
         <TableHeader>

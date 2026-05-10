@@ -141,6 +141,7 @@ function onDrill(payload: { type: string; value: any; row: Record<string, any> }
         { key: 'share_revenue_pct', label: t('analytics.shareRevenue'), type: 'percent' },
         { key: 'share_units_pct',   label: t('analytics.shareUnits'),   type: 'percent' },
       ]"
+      :csv-filename="`vmflow-analytics-sales-${dimension}-${filter.from.slice(0,10)}-${filter.to.slice(0,10)}`"
       @drill="onDrill"
     />
 
