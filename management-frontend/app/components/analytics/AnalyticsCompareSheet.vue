@@ -21,7 +21,7 @@
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { formatCurrency } from '@/lib/utils'
 
 interface CompareMachine {
@@ -93,6 +93,10 @@ function onUpdateOpen(v: boolean) {
           <!-- TODO i18n -->
           Compare machines ({{ selected.length }})
         </SheetTitle>
+        <SheetDescription>
+          <!-- TODO i18n -->
+          Side-by-side KPIs for the selected machines.
+        </SheetDescription>
       </SheetHeader>
 
       <div
