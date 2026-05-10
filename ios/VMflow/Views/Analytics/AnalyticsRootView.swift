@@ -108,7 +108,7 @@ struct AnalyticsRootView: View {
     case .overview:   AnalyticsOverviewView()
     case .sales:      AnalyticsSalesView()
     case .products:   AnalyticsProductsView()
-    case .machines:   Text("Machines — coming soon").frame(maxWidth: .infinity, maxHeight: .infinity)
+    case .machines:   AnalyticsMachinesView()
     case .conversion: Text("Conversion — coming soon").frame(maxWidth: .infinity, maxHeight: .infinity)
     case .operations: Text("Operations — coming soon").frame(maxWidth: .infinity, maxHeight: .infinity)
     }
