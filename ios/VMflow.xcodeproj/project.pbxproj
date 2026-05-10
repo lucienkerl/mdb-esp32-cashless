@@ -85,6 +85,7 @@
 		E161A2145944F1B03E599290 /* SidebarNavigationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 994B0EDA9D03328A131F4664 /* SidebarNavigationView.swift */; };
 		E49EF3FACFF4F910A4F7AA1F /* ProductImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A1ABF4B45C7B0D2415238F6 /* ProductImage.swift */; };
 		F0501A7FD0A96B9377D2DCCF /* SupabaseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70E364431AFD63E8DE1238E3 /* SupabaseService.swift */; };
+		F05ADB26490C6AA51FFDF066 /* AnalyticsHeatmap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90B623903EDA994CE7DA5A7F /* AnalyticsHeatmap.swift */; };
 		F4C8EB2697C216371012CB06 /* DealCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6D19B501E340C90B0032C32 /* DealCard.swift */; };
 		F65C2BAC5F1F46AB4788DECF /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 1C6D6D60C1508A2B07975E1F /* Localizable.xcstrings */; };
 		F9ED3640AECA682247FEB81A /* DealsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64E2C159F72B60828783FDAE /* DealsView.swift */; };
@@ -174,6 +175,7 @@
 		8CBB31559F4E22C346E40826 /* AnalyticsSortableList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyticsSortableList.swift; sourceTree = "<group>"; };
 		8ED1159C55CAF705215AD130 /* VMflowApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMflowApp.swift; sourceTree = "<group>"; };
 		8F302EE40A7DDA1135B7A9D7 /* MachineDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineDetailView.swift; sourceTree = "<group>"; };
+		90B623903EDA994CE7DA5A7F /* AnalyticsHeatmap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyticsHeatmap.swift; sourceTree = "<group>"; };
 		90BC01B0752A47A20DF699E7 /* PackingStepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PackingStepView.swift; sourceTree = "<group>"; };
 		9467ACC9B6971BEDE1EEDED4 /* ProductBatchesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductBatchesView.swift; sourceTree = "<group>"; };
 		9690B8B0412F05E68303EA15 /* RefillSummaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RefillSummaryView.swift; sourceTree = "<group>"; };
@@ -307,6 +309,7 @@
 			isa = PBXGroup;
 			children = (
 				AA025EB66EB06769C3EFC9EB /* AnalyticsChart.swift */,
+				90B623903EDA994CE7DA5A7F /* AnalyticsHeatmap.swift */,
 				A93353C2241F88AC5749AA08 /* AnalyticsKPIGroup.swift */,
 				8CBB31559F4E22C346E40826 /* AnalyticsSortableList.swift */,
 				D804593DB549A7A2E7E661FE /* ComparePeriodBadge.swift */,
@@ -680,6 +683,7 @@
 				5F08126114BACC2BF3A31045 /* AnalyticsChart.swift in Sources */,
 				92568582278C4496D9941FF9 /* AnalyticsFilter.swift in Sources */,
 				FD90F92A011D910E59544A84 /* AnalyticsFilterSheet.swift in Sources */,
+				F05ADB26490C6AA51FFDF066 /* AnalyticsHeatmap.swift in Sources */,
 				AA13EF47D6617718D15E18EF /* AnalyticsKPIGroup.swift in Sources */,
 				FC4BDD80D3206D8371102740 /* AnalyticsRootView.swift in Sources */,
 				BF46130EC5DF347899F9BFC5 /* AnalyticsSortableList.swift in Sources */,
