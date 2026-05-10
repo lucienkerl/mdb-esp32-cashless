@@ -6,6 +6,7 @@ enum SidebarItem: String, Hashable, CaseIterable, Identifiable {
     case machines
     case refill
     case inbox
+    case analytics
     case cashBook
     case products
     case warehouse
@@ -20,6 +21,7 @@ enum SidebarItem: String, Hashable, CaseIterable, Identifiable {
         case .machines: "Machines"
         case .refill: "Refill"
         case .inbox: "Inbox"
+        case .analytics: "Analytics"
         case .cashBook: NSLocalizedString("cash_book_title", comment: "")
         case .products: "Products"
         case .warehouse: "Warehouse"
@@ -34,6 +36,7 @@ enum SidebarItem: String, Hashable, CaseIterable, Identifiable {
         case .machines: "storefront.fill"
         case .refill: "arrow.clockwise.circle.fill"
         case .inbox: "tray.fill"
+        case .analytics: "chart.xyaxis.line"
         case .cashBook: "banknote.fill"
         case .products: "cube.box.fill"
         case .warehouse: "shippingbox.fill"
@@ -49,6 +52,7 @@ enum SidebarItem: String, Hashable, CaseIterable, Identifiable {
         case .machines: .machines
         case .refill: .refill
         case .inbox: .inbox
+        case .analytics: nil
         default: nil  // cashBook, products, warehouse, deals, settings → More tab
         }
     }

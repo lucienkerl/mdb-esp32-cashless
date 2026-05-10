@@ -125,6 +125,12 @@ struct MoreView: View {
         List {
             Section {
                 NavigationLink {
+                    AnalyticsRootView()
+                } label: {
+                    Label("Analytics", systemImage: "chart.xyaxis.line")
+                }
+
+                NavigationLink {
                     CashBookView()
                 } label: {
                     Label {
