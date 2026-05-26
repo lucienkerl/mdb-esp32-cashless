@@ -1619,6 +1619,7 @@
       }
     },
     "Current target slot" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -2219,6 +2220,7 @@
       }
     },
     "Machine layout, %lld rows" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -3304,6 +3306,7 @@
 
     },
     "Slot %lld" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -3314,6 +3317,7 @@
       }
     },
     "Slot %lld, empty" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -3431,6 +3435,7 @@
       }
     },
     "Tap to find this product in the list" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
