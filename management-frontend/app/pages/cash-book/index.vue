@@ -226,8 +226,8 @@ async function onExpenseSubmit(payload: { amount: number; category: string; rece
   }
 }
 
-function openChangeFloat() {
-  if (allMachines.value.length === 0) fetchAllMachines()
+async function openChangeFloat() {
+  if (allMachines.value.length === 0) await fetchAllMachines()
   showChangeFloatModal.value = true
 }
 
@@ -488,6 +488,7 @@ async function exportPdf() {
         :last-entry-at="theoreticalCash?.last_entry_at ?? null"
         :last-bank-deposit="lastBankDeposit"
         :bank-deposit-threshold="selectedCashBook.bank_deposit_threshold ?? 500"
+        :change-float="changeFloat"
         @withdraw="openWithdrawal"
         @deposit="showPayoutModal = true"
       />
