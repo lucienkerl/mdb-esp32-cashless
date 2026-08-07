@@ -199,6 +199,11 @@ enum ChangeFloatDirection {
     /// ignoriert — die Richtung entscheidet.
     func signedAmount(_ input: Double) -> Double {
         let magnitude = abs(input)
-        return self == .intoMachine ? -magnitude : magnitude
+        let signed = self == .intoMachine ? -magnitude : magnitude
+        // -0.0 normalisieren: die Währungsformatierung machte daraus sonst
+        // "-0,00 €". Bewusst `== 0` und keine Falsy-Prüfung, damit NaN
+        // durchgereicht wird, statt zu einer gültig aussehenden Nullbuchung
+        // zu werden.
+        return signed == 0 ? 0 : signed
     }
 }

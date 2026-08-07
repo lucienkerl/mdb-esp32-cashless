@@ -11,6 +11,10 @@ final class CashBookViewModel: ObservableObject {
     @Published private(set) var entries: [CashBookEntry] = []
     @Published private(set) var theoreticalCash: TheoreticalCash?
     @Published private(set) var changeFloat: [MachineChangeFloat] = []
+    /// True, wenn der Wechselgeldbestand nicht geladen werden konnte. Ohne das
+    /// wäre "nicht Mitglied dieser Firma" (die RPC liefert dann NULL) von
+    /// "kein Wechselgeld vorgestreckt" ([]) nicht zu unterscheiden.
+    @Published private(set) var changeFloatUnavailable = false
     @Published private(set) var machines: [CashBookMachineRef] = []
     @Published private(set) var isLoading = false
     @Published private(set) var isLoadingEntries = false
@@ -383,17 +387,22 @@ final class CashBookViewModel: ObservableObject {
     func loadChangeFloat() async {
         guard let companyId = cashBooks.first?.companyId else {
             changeFloat = []
+            changeFloatUnavailable = false
             return
         }
         struct Params: Encodable { let p_company_id: UUID }
         do {
-            let rows: [MachineChangeFloat] = try await client
+            // Optional dekodieren: NULL heißt "nicht Mitglied dieser Firma"
+            // und ist etwas anderes als [] ("kein Wechselgeld vorgestreckt").
+            let rows: [MachineChangeFloat]? = try await client
                 .rpc("get_machine_change_float", params: Params(p_company_id: companyId))
                 .execute()
                 .value
-            changeFloat = rows
+            changeFloat = rows ?? []
+            changeFloatUnavailable = (rows == nil)
         } catch {
             changeFloat = []
+            changeFloatUnavailable = true
         }
     }
 
