@@ -53,8 +53,17 @@ struct WithdrawalSheet: View {
     }
 
     /// Rücklage in die Münztuben (nicht-negativ; die RPC negiert intern).
+    /// Whitespace wird getrimmt, bevor geparst wird: `Double.init?` lehnt
+    /// " 50 " ab, und ohne das Trimmen würde eine eingefügte Zahl mit
+    /// Leerzeichen stillschweigend als 0 gebucht — die Entnahme liefe dann
+    /// über den vollen Betrag durch, ohne dass die Rücklage im Kassenbuch
+    /// auftaucht. Gleiches Verhalten wie `evaluateExpression` beim
+    /// gezählten Betrag.
     private var floatBack: Double {
-        max(0, Double(floatBackText.replacingOccurrences(of: ",", with: ".")) ?? 0)
+        let cleaned = floatBackText
+            .trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: ",", with: ".")
+        return max(0, Double(cleaned) ?? 0)
     }
 
     /// Was nach der Rücklage tatsächlich in der Kasse landet.
