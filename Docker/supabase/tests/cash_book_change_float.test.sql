@@ -22,6 +22,7 @@ DECLARE
   v_product   uuid := gen_random_uuid();
   v_float_id  uuid;
   v_raised    boolean;
+  v_err       text;
   v_balance   float8;
   v_before    jsonb;
   v_after     jsonb;
@@ -58,27 +59,31 @@ BEGIN
     json_build_object('sub', v_user::text, 'role', 'authenticated')::text, true);
 
   -- ═══ Test 1: change_float ohne machine_id wird abgewiesen ════════════════
-  v_raised := false;
+  v_err := '';
   BEGIN
     INSERT INTO public.cash_book_entries
       (cash_book_id, company_id, type, amount, created_by)
       VALUES (v_book, v_company, 'change_float', -50, v_user);
   EXCEPTION WHEN others THEN
-    v_raised := true;
+    v_err := SQLERRM;
   END;
-  ASSERT v_raised, 'change_float ohne machine_id muss abgewiesen werden';
+  -- Auf die konkrete Meldung prüfen, nicht nur "irgendwas schlug fehl" —
+  -- sonst bliebe der Test grün, wenn ein anderer Constraint zuerst greift.
+  ASSERT v_err LIKE '%change_float requires machine_id%',
+    format('erwartet wurde der machine_id-Guard, kam aber: %s', v_err);
   RAISE NOTICE 'Test 1 bestanden: machine_id ist Pflicht';
 
   -- ═══ Test 2: change_float mit amount = 0 wird abgewiesen ═════════════════
-  v_raised := false;
+  v_err := '';
   BEGIN
     INSERT INTO public.cash_book_entries
       (cash_book_id, company_id, type, amount, machine_id, created_by)
       VALUES (v_book, v_company, 'change_float', 0, v_machine, v_user);
   EXCEPTION WHEN others THEN
-    v_raised := true;
+    v_err := SQLERRM;
   END;
-  ASSERT v_raised, 'change_float mit amount = 0 muss abgewiesen werden';
+  ASSERT v_err LIKE '%change_float_nonzero%',
+    format('erwartet wurde change_float_nonzero, kam aber: %s', v_err);
   RAISE NOTICE 'Test 2 bestanden: Nullbuchung gesperrt';
 
   -- ═══ Test 3: gültige Einlage senkt den Kassenstand ═══════════════════════
