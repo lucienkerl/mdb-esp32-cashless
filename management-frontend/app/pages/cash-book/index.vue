@@ -62,6 +62,8 @@ const showReversalConfirm = ref(false)
 const assignLoading = ref(false)
 const deleting = ref(false)
 const reversalLoading = ref(false)
+const withdrawalSubmitting = ref(false)
+const changeFloatSubmitting = ref(false)
 
 const reversalTarget = ref<CashBookEntry | null>(null)
 
@@ -166,6 +168,7 @@ async function onWithdrawalSubmit(payload: {
   description: string
 }) {
   if (!selectedCashBook.value) return
+  withdrawalSubmitting.value = true
   try {
     await recordWithdrawal({
       cash_book_id: selectedCashBook.value.id,
@@ -179,6 +182,8 @@ async function onWithdrawalSubmit(payload: {
     showWithdrawalModal.value = false
   } catch (err: any) {
     errorMessage.value = err.message
+  } finally {
+    withdrawalSubmitting.value = false
   }
 }
 
@@ -236,6 +241,7 @@ async function openChangeFloat() {
 
 async function onChangeFloatSubmit(payload: { amount: number; machineId: string; description: string }) {
   if (!selectedCashBook.value) return
+  changeFloatSubmitting.value = true
   try {
     await createEntry({
       cash_book_id: selectedCashBook.value.id,
@@ -248,6 +254,8 @@ async function onChangeFloatSubmit(payload: { amount: number; machineId: string;
     showChangeFloatModal.value = false
   } catch (err: any) {
     errorMessage.value = err.message
+  } finally {
+    changeFloatSubmitting.value = false
   }
 }
 
@@ -567,6 +575,7 @@ async function exportPdf() {
       :theoretical-cash="theoreticalCash"
       :assigned-machines="assignedMachines"
       :track-per-machine="selectedCashBook?.track_per_machine ?? false"
+      :submitting="withdrawalSubmitting"
       @submit="onWithdrawalSubmit"
     />
     <CashBookBankDepositModal
@@ -586,6 +595,7 @@ async function exportPdf() {
       v-model:open="showChangeFloatModal"
       :assigned-machines="assignedMachines"
       :change-float="changeFloat"
+      :submitting="changeFloatSubmitting"
       @submit="onChangeFloatSubmit"
     />
     <CashBookReversalModal

@@ -12,6 +12,7 @@ const props = defineProps<{
   open: boolean
   assignedMachines: VendingMachineBasic[]
   changeFloat: MachineChangeFloat[]
+  submitting: boolean
 }>()
 
 const emit = defineEmits<{
@@ -27,7 +28,6 @@ const form = ref({
   machine_id: '' as string,
   description: '',
 })
-const loading = ref(false)
 
 /** Vorgestrecktes Wechselgeld des gewählten Automaten. */
 const currentFloat = computed(() =>
@@ -57,22 +57,11 @@ watch(() => props.open, (now) => {
       machine_id: props.assignedMachines.length === 1 ? props.assignedMachines[0]!.id : '',
       description: '',
     }
-    // Ein wiedergeöffneter Dialog startet mit einem sauberen (nicht mehr
-    // gesperrten) Button — siehe Kommentar bei onSubmit für den Grund, warum
-    // loading hier statt in einem finally zurückgesetzt wird.
-    loading.value = false
   }
 })
 
-/** `loading` wird bewusst NICHT in einem finally zurückgesetzt: der Parent
- *  wartet nach dem emit noch auf Insert + zwei Refetches, bevor er den Dialog
- *  schließt. Bliebe der Button in der Zwischenzeit aktiv, könnte ein zweiter
- *  Klick eine zweite Buchung ins unveränderliche Kassenbuch schreiben. Der
- *  Button bleibt also gesperrt, bis der Dialog schließt und der watch oben
- *  ihn für die nächste Öffnung zurücksetzt. */
 function onSubmit() {
   if (!canSubmit.value) return
-  loading.value = true
   emit('submit', {
     amount: changeFloatAmount(form.value.direction, form.value.amount),
     machineId: form.value.machine_id,
@@ -145,9 +134,9 @@ function onSubmit() {
         <button type="button" class="h-9 rounded-md border border-input px-4 text-sm font-medium hover:bg-accent" @click="emit('update:open', false)">
           {{ t('common.cancel') }}
         </button>
-        <button type="submit" :disabled="loading || !canSubmit"
+        <button type="submit" :disabled="submitting || !canSubmit"
                 class="h-9 rounded-md bg-purple-600 px-4 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50">
-          {{ loading ? t('common.loading') : t('cashBook.bookEntry') }}
+          {{ submitting ? t('common.loading') : t('cashBook.bookEntry') }}
         </button>
       </div>
     </form>
