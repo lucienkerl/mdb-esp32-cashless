@@ -15,6 +15,7 @@ const {
   selectedCashBook,
   entries,
   theoreticalCash,
+  changeFloat,
   loading,
   entriesLoading,
   allMachines,
@@ -24,6 +25,7 @@ const {
   fetchEntries,
   createEntry,
   fetchTheoreticalCash,
+  fetchChangeFloat,
   fetchAllMachines,
   assignMachine,
   unassignMachine,
@@ -48,6 +50,7 @@ const showExpenseModal = ref(false)
 const showWithdrawalModal = ref(false)
 const showPayoutModal = ref(false)
 const showCorrectionModal = ref(false)
+const showChangeFloatModal = ref(false)
 const showAssignModal = ref(false)
 const showSettingsModal = ref(false)
 const showDeleteModal = ref(false)
@@ -93,6 +96,7 @@ async function loadCashBookData() {
   await Promise.all([
     fetchEntries(id, dateRange.value),
     fetchTheoreticalCash(id),
+    fetchChangeFloat(),
   ])
 
   const { data: allEntries } = await (useSupabaseClient() as any)
@@ -217,6 +221,28 @@ async function onExpenseSubmit(payload: { amount: number; category: string; rece
       receipt_reference: payload.receiptReference,
     })
     showExpenseModal.value = false
+  } catch (err: any) {
+    errorMessage.value = err.message
+  }
+}
+
+function openChangeFloat() {
+  if (allMachines.value.length === 0) fetchAllMachines()
+  showChangeFloatModal.value = true
+}
+
+async function onChangeFloatSubmit(payload: { amount: number; machineId: string; description: string }) {
+  if (!selectedCashBook.value) return
+  try {
+    await createEntry({
+      cash_book_id: selectedCashBook.value.id,
+      type: 'change_float',
+      amount: payload.amount,
+      description: payload.description || null,
+      machine_id: payload.machineId,
+    })
+    await fetchChangeFloat()
+    showChangeFloatModal.value = false
   } catch (err: any) {
     errorMessage.value = err.message
   }
@@ -479,6 +505,7 @@ async function exportPdf() {
       <CashBookSecondaryToolbar
         @expense="showExpenseModal = true"
         @correction="showCorrectionModal = true"
+        @change-float="openChangeFloat"
         @manage-machines="openAssignModal"
         @export-pdf="exportPdf"
         @open-settings="showSettingsModal = true"
@@ -545,6 +572,12 @@ async function exportPdf() {
     <CashBookExpenseModal
       v-model:open="showExpenseModal"
       @submit="onExpenseSubmit"
+    />
+    <CashBookChangeFloatModal
+      v-model:open="showChangeFloatModal"
+      :assigned-machines="assignedMachines"
+      :change-float="changeFloat"
+      @submit="onChangeFloatSubmit"
     />
     <CashBookReversalModal
       v-model:open="showReversalConfirm"

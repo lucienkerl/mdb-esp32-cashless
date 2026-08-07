@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { IconArrowsExchange, IconDevices, IconDownload, IconDots, IconReceipt, IconSettings, IconTrash } from '@tabler/icons-vue'
+import { IconArrowsExchange, IconCoins, IconDevices, IconDownload, IconDots, IconReceipt, IconSettings, IconTrash } from '@tabler/icons-vue'
 import { onClickOutside } from '@vueuse/core'
 
 const emit = defineEmits<{
   (e: 'expense'): void
   (e: 'correction'): void
+  (e: 'changeFloat'): void
   (e: 'manageMachines'): void
   (e: 'exportPdf'): void
   (e: 'openSettings'): void
@@ -26,6 +27,14 @@ onClickOutside(moreRef, () => { moreOpen.value = false })
     >
       <IconReceipt class="size-4" />
       {{ t('cashBook.recordExpense') }}
+    </button>
+
+    <button
+      class="inline-flex h-9 items-center gap-2 rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-accent"
+      @click="emit('changeFloat')"
+    >
+      <IconCoins class="size-4" />
+      {{ t('cashBook.recordChangeFloat') }}
     </button>
 
     <button
