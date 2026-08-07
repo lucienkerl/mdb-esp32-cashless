@@ -1656,7 +1656,7 @@
     "changeFloatIn": "Fonds vers le distributeur",
     "changeFloatOut": "Fonds repris du distributeur",
     "totalChangeFloat": "Fonds de monnaie avancé",
-    "changeFloatStation": "Dans les tubes",
+    "changeFloatStation": "Fonds de monnaie avancé",
     "recordChangeFloat": "Enregistrer le fonds de monnaie",
     "changeFloatDirection": "Sens",
     "changeFloatIntoMachine": "Vers le distributeur",
@@ -1667,7 +1667,8 @@
     "floatBack": "Dont remis dans les tubes",
     "floatBackHint": "Pièces remises directement dans les tubes. Le prélèvement reste enregistré pour le montant total compté.",
     "netToBox": "Net vers la caisse",
-    "changeFloatEmpty": "Aucun fonds de monnaie avancé"
+    "changeFloatEmpty": "Aucun fonds de monnaie avancé",
+    "changeFloatUnavailable": "Votre solde de fonds de monnaie n'a pas pu être chargé"
   },
   "publicStorefront": {
     "online": "En ligne",

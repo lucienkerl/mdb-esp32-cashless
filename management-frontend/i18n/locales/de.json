@@ -1853,7 +1853,7 @@
     "changeFloatIn": "Wechselgeld in Automat",
     "changeFloatOut": "Wechselgeld aus Automat",
     "totalChangeFloat": "Wechselgeld vorgestreckt",
-    "changeFloatStation": "In Münztuben",
+    "changeFloatStation": "Wechselgeld vorgestreckt",
     "recordChangeFloat": "Wechselgeld buchen",
     "changeFloatDirection": "Richtung",
     "changeFloatIntoMachine": "In den Automaten einlegen",
@@ -1864,7 +1864,8 @@
     "floatBack": "Davon zurück in die Münztuben",
     "floatBackHint": "Münzen, die du direkt wieder in die Tuben gefüllt hast. Die Entnahme wird trotzdem über den vollen gezählten Betrag gebucht.",
     "netToBox": "Netto in die Kasse",
-    "changeFloatEmpty": "Kein Wechselgeld vorgestreckt"
+    "changeFloatEmpty": "Kein Wechselgeld vorgestreckt",
+    "changeFloatUnavailable": "Dein Wechselgeldbestand konnte nicht geladen werden"
   },
   "publicStorefront": {
     "online": "Online",

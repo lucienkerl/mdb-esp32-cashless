@@ -55,23 +55,29 @@ watch(() => props.open, (now) => {
       description: 'Geldentnahme aus Automat',
       machine_id: props.assignedMachines.length === 1 ? props.assignedMachines[0]!.id : null,
     }
+    // Ein wiedergeöffneter Dialog startet mit einem sauberen (nicht mehr
+    // gesperrten) Button — siehe Kommentar bei onSubmit für den Grund, warum
+    // loading hier statt in einem finally zurückgesetzt wird.
+    loading.value = false
   }
 })
 
-async function onSubmit() {
+/** `loading` wird bewusst NICHT in einem finally zurückgesetzt: der Parent
+ *  wartet nach dem emit noch auf Insert + zwei Refetches, bevor er den Dialog
+ *  schließt. Bliebe der Button in der Zwischenzeit aktiv, könnte ein zweiter
+ *  Klick eine zweite Entnahme ins unveränderliche Kassenbuch schreiben. Der
+ *  Button bleibt also gesperrt, bis der Dialog schließt und der watch oben
+ *  ihn für die nächste Öffnung zurücksetzt. */
+function onSubmit() {
   if (!canSubmit.value) return
   loading.value = true
-  try {
-    emit('submit', {
-      counted: form.value.counted_amount,
-      expected: props.theoreticalCash?.cash_sales_since ?? 0,
-      machineId: form.value.machine_id,
-      floatBack: floatBack.value,
-      description: form.value.description,
-    })
-  } finally {
-    loading.value = false
-  }
+  emit('submit', {
+    counted: form.value.counted_amount,
+    expected: props.theoreticalCash?.cash_sales_since ?? 0,
+    machineId: form.value.machine_id,
+    floatBack: floatBack.value,
+    description: form.value.description,
+  })
 }
 </script>
 

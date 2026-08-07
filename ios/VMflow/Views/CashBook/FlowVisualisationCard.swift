@@ -8,6 +8,11 @@ struct FlowVisualisationCard: View {
     let currentBalance: Double
     let lastBankDeposit: CashBookEntry?
     let bankDepositThreshold: Double
+    /// `get_machine_change_float` returns rows for every cash book of the
+    /// company — the card must only reflect the Barkasse it is displayed on,
+    /// otherwise its total silently disagrees with the PWA PDF export (which
+    /// is scoped to the selected cash book).
+    let cashBookId: UUID
     /// When true, render the three station rows but suppress the action buttons.
     let compact: Bool
     let onWithdraw: (() -> Void)?
@@ -18,6 +23,7 @@ struct FlowVisualisationCard: View {
         currentBalance: Double,
         lastBankDeposit: CashBookEntry?,
         bankDepositThreshold: Double,
+        cashBookId: UUID,
         compact: Bool = false,
         onWithdraw: (() -> Void)? = nil,
         onDeposit: (() -> Void)? = nil
@@ -26,6 +32,7 @@ struct FlowVisualisationCard: View {
         self.currentBalance = currentBalance
         self.lastBankDeposit = lastBankDeposit
         self.bankDepositThreshold = bankDepositThreshold
+        self.cashBookId = cashBookId
         self.compact = compact
         self.onWithdraw = onWithdraw
         self.onDeposit = onDeposit
@@ -173,7 +180,7 @@ struct FlowVisualisationCard: View {
                 // there would read as "nothing advanced", which is a
                 // different, stronger claim than "we don't know".
                 if !cashBookVM.changeFloatUnavailable {
-                    Text(cashBookVM.changeFloat.reduce(0) { $0 + $1.floatBalance },
+                    Text(changeFloatForThisBook.reduce(0) { $0 + $1.floatBalance },
                          format: .currency(code: "EUR"))
                         .font(.headline.monospacedDigit())
                 }
@@ -183,7 +190,7 @@ struct FlowVisualisationCard: View {
                 Label("cash_book_change_float_unavailable", systemImage: "exclamationmark.triangle")
                     .font(.caption2)
                     .foregroundStyle(.orange)
-            } else if cashBookVM.changeFloat.isEmpty {
+            } else if changeFloatForThisBook.isEmpty {
                 Text("cash_book_change_float_empty")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
@@ -214,9 +221,16 @@ struct FlowVisualisationCard: View {
         let balance: Double
     }
 
+    /// `cashBookVM.changeFloat` holds rows for every cash book of the company —
+    /// scope to the Barkasse this card represents so the total matches the
+    /// PDF/entries the surrounding screen is showing.
+    private var changeFloatForThisBook: [MachineChangeFloat] {
+        cashBookVM.changeFloat.filter { $0.cashBookId == cashBookId }
+    }
+
     private var changeFloatByMachine: [MachineFloatRow] {
         var byId: [UUID: (name: String, balance: Double)] = [:]
-        for row in cashBookVM.changeFloat {
+        for row in changeFloatForThisBook {
             var existing = byId[row.machineId] ?? (name: row.machineName ?? "—", balance: 0)
             existing.balance += row.floatBalance
             byId[row.machineId] = existing

@@ -120,6 +120,11 @@ export function useCashBook() {
   const entries = ref<CashBookEntry[]>([])
   const theoreticalCash = ref<TheoreticalCash | null>(null)
   const changeFloat = ref<MachineChangeFloat[]>([])
+  /** True, wenn der Wechselgeldbestand nicht geladen werden konnte (kein Mitglied
+   *  dieser Firma, RPC-Fehler oder NULL). Ohne dieses Flag wäre der Fall von
+   *  "kein Wechselgeld vorgestreckt" ([]) nicht zu unterscheiden — siehe
+   *  fetchChangeFloat. */
+  const changeFloatUnavailable = ref(false)
   const loading = ref(false)
   const entriesLoading = ref(false)
   const allMachines = ref<VendingMachineBasic[]>([])
@@ -351,22 +356,36 @@ export function useCashBook() {
 
   // ── Wechselgeld-Bestand ──────────────────────────────────────────────────
 
+  /** Wirft nie — ein fehlgeschlagener Wechselgeld-Ladevorgang darf den Rest von
+   *  loadCashBookData() (insb. die Hash-Ketten-Prüfung) nicht per Promise.all-
+   *  Abbruch mit sich reißen. Stattdessen wird changeFloatUnavailable gesetzt,
+   *  damit die UI eine Warnung statt eines stillschweigend leeren Bestands zeigt. */
   async function fetchChangeFloat() {
     const companyId = organization.value?.id
-    if (!companyId) throw new Error('fetchChangeFloat: keine Organisation geladen')
+    if (!companyId) {
+      // Keine Organisation geladen — kann während des initialen Ladens kurz
+      // auftreten. Nicht Mitglied dieser Firma und "kein Wechselgeld
+      // vorgestreckt" ([]) müssen unterscheidbar bleiben.
+      changeFloat.value = []
+      changeFloatUnavailable.value = true
+      return
+    }
 
     const { data, error } = await (supabase as any)
       .rpc('get_machine_change_float', {
         p_company_id: companyId,
       })
 
-    if (error) throw error
     // NULL heißt "nicht Mitglied dieser Firma" und ist etwas anderes als
     // [] ("kein Wechselgeld vorgestreckt") — nicht stillschweigend einebnen.
-    if (data === null) {
-      throw new Error('get_machine_change_float lieferte NULL — kein Mitglied dieser Firma')
+    if (error || data === null) {
+      changeFloat.value = []
+      changeFloatUnavailable.value = true
+      return
     }
+
     changeFloat.value = data as MachineChangeFloat[]
+    changeFloatUnavailable.value = false
   }
 
   /** Bucht eine Entnahme, optional mit Wechselgeld-Rücklage in die Münztuben.
@@ -554,8 +573,6 @@ export function useCashBook() {
     }
   })
 
-  const changeFloatTotal = computed(() => totalChangeFloat(changeFloat.value))
-
   // Most recent non-reversed bank deposit. Invariant: `entries.value` is sorted
   // DESC by `entry_number` (set by fetchEntries' .order('entry_number', desc)),
   // so the first match is the most recent payout.
@@ -572,6 +589,7 @@ export function useCashBook() {
     entries,
     theoreticalCash,
     changeFloat,
+    changeFloatUnavailable,
     loading,
     entriesLoading,
     allMachines,
@@ -606,7 +624,6 @@ export function useCashBook() {
     totalWithdrawals,
     totalCorrections,
     totalExpenses,
-    changeFloatTotal,
     lastBankDeposit,
 
     // Settings

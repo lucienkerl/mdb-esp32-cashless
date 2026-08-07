@@ -174,7 +174,10 @@ struct MachineChangeFloat: Codable, Identifiable, Hashable {
     let machineName: String?
     let cashBookId: UUID
     let floatBalance: Double
-    let lastChangeAt: Date
+    /// Optional: neither client displays this field, and a decode failure on
+    /// a non-optional Date here would flip the whole card to the unavailable
+    /// state for an unrelated reason.
+    let lastChangeAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case machineId = "machine_id"

@@ -400,6 +400,11 @@ final class CashBookViewModel: ObservableObject {
                 .value
             changeFloat = rows ?? []
             changeFloatUnavailable = (rows == nil)
+        } catch is CancellationError {
+            // SwiftUI cancels tasks routinely (tab switches, refreshable) —
+            // silent, matching refresh()/loadEntries(). Must NOT flip
+            // changeFloatUnavailable, which would show a spurious warning
+            // for what is actually just an interrupted, retriable load.
         } catch {
             changeFloat = []
             changeFloatUnavailable = true

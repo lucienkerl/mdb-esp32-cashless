@@ -16,6 +16,7 @@ const {
   entries,
   theoreticalCash,
   changeFloat,
+  changeFloatUnavailable,
   loading,
   entriesLoading,
   allMachines,
@@ -494,6 +495,8 @@ async function exportPdf() {
         :last-bank-deposit="lastBankDeposit"
         :bank-deposit-threshold="selectedCashBook.bank_deposit_threshold ?? 500"
         :change-float="changeFloat"
+        :cash-book-id="selectedCashBook.id"
+        :change-float-unavailable="changeFloatUnavailable"
         @withdraw="openWithdrawal"
         @deposit="showPayoutModal = true"
       />

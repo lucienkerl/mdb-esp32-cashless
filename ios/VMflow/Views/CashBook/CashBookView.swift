@@ -68,6 +68,7 @@ struct CashBookView: View {
                     currentBalance: cashBookVM.currentBalance,
                     lastBankDeposit: cashBookVM.lastBankDeposit,
                     bankDepositThreshold: book.bankDepositThreshold,
+                    cashBookId: book.id,
                     onWithdraw: { showWithdrawal = true },
                     onDeposit: { showDeposit = true }
                 )

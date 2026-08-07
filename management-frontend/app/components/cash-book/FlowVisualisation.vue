@@ -9,6 +9,8 @@ const props = defineProps<{
   lastBankDeposit: CashBookEntry | null
   bankDepositThreshold: number
   changeFloat: MachineChangeFloat[]
+  cashBookId: string
+  changeFloatUnavailable: boolean
 }>()
 
 const emit = defineEmits<{
@@ -95,6 +97,10 @@ const ringClass = 'ring-2 ring-amber-400/60 dark:ring-amber-500/60 animate-pulse
 
     <!-- Wechselgeld ist eine Seitentasche der Kasse, kein Kettenglied —
          daher eine eigene Karte unter der Kette statt einer vierten Spalte. -->
-    <CashBookStationChangeFloat :change-float="changeFloat" />
+    <CashBookStationChangeFloat
+      :change-float="changeFloat"
+      :cash-book-id="cashBookId"
+      :unavailable="changeFloatUnavailable"
+    />
   </div>
 </template>

@@ -1656,7 +1656,7 @@
     "changeFloatIn": "Wisselgeld naar automaat",
     "changeFloatOut": "Wisselgeld terug uit automaat",
     "totalChangeFloat": "Wisselgeld voorgeschoten",
-    "changeFloatStation": "In muntbuizen",
+    "changeFloatStation": "Wisselgeld voorgeschoten",
     "recordChangeFloat": "Wisselgeld boeken",
     "changeFloatDirection": "Richting",
     "changeFloatIntoMachine": "In de automaat leggen",
@@ -1667,7 +1667,8 @@
     "floatBack": "Waarvan terug in de muntbuizen",
     "floatBackHint": "Munten die je direct terug in de buizen hebt gedaan. De opname wordt nog steeds voor het volledige getelde bedrag geboekt.",
     "netToBox": "Netto naar de kas",
-    "changeFloatEmpty": "Geen wisselgeld voorgeschoten"
+    "changeFloatEmpty": "Geen wisselgeld voorgeschoten",
+    "changeFloatUnavailable": "Je wisselgeldsaldo kon niet worden geladen"
   },
   "publicStorefront": {
     "online": "Online",

@@ -3307,6 +3307,24 @@
             "state": "translated",
             "value": "Aus dem Automaten zurück in die Kasse"
           }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back from the machine into the box"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du distributeur vers la caisse"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uit de automaat terug in de kas"
+          }
         }
       }
     },
@@ -3316,6 +3334,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Richtung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direction"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sens"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Richting"
           }
         }
       }
@@ -3327,6 +3363,24 @@
             "state": "translated",
             "value": "Geld, das du dem Automaten für Wechselgeld vorstreckst. Es zählt nicht als Ausgabe – es bleibt dein Geld."
           }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Money you advance to the machine so it can give change. It is not an expense — it stays your money."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Argent avancé au distributeur pour rendre la monnaie. Ce n'est pas une dépense — il reste votre argent."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geld dat je de automaat voorschiet om wisselgeld te kunnen geven. Het is geen uitgave — het blijft jouw geld."
+          }
         }
       }
     },
@@ -3336,6 +3390,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Wechselgeld in Automat"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Float into machine"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonds vers le distributeur"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wisselgeld naar automaat"
           }
         }
       }
@@ -3347,6 +3419,24 @@
             "state": "translated",
             "value": "In den Automaten einlegen"
           }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Into the machine"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vers le distributeur"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In de automaat leggen"
+          }
         }
       }
     },
@@ -3357,6 +3447,24 @@
             "state": "translated",
             "value": "Du nimmst mehr zurück, als diesem Automaten vorgestreckt wurde. Wenn das kassiertes Geld ist, buche es als Entnahme."
           }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You are taking back more than was advanced to this machine. If this is collected cash, record it as a withdrawal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous reprenez plus que ce qui a été avancé à ce distributeur. S'il s'agit d'espèces encaissées, enregistrez un prélèvement."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Je neemt meer terug dan aan deze automaat is voorgeschoten. Als dit geïnd geld is, boek het dan als opname."
+          }
         }
       }
     },
@@ -3365,7 +3473,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "In Münztuben"
+            "value": "Wechselgeld vorgestreckt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change float advanced"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonds de monnaie avancé"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wisselgeld voorgeschoten"
           }
         }
       }
@@ -3377,6 +3503,24 @@
             "state": "translated",
             "value": "Kein Wechselgeld vorgestreckt"
           }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No change float advanced"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun fonds de monnaie avancé"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geen wisselgeld voorgeschoten"
+          }
         }
       }
     },
@@ -3386,6 +3530,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dein Wechselgeldbestand konnte nicht geladen werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your change float balance could not be loaded"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre solde de fonds de monnaie n'a pas pu être chargé"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Je wisselgeldsaldo kon niet worden geladen"
           }
         }
       }
@@ -3716,6 +3878,24 @@
             "state": "translated",
             "value": "Davon zurück in die Münztuben"
           }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Of which returned to the coin tubes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dont remis dans les tubes"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waarvan terug in de muntbuizen"
+          }
         }
       }
     },
@@ -3726,6 +3906,24 @@
             "state": "translated",
             "value": "Münzen, die du direkt wieder in die Tuben gefüllt hast. Die Entnahme wird trotzdem über den vollen gezählten Betrag gebucht."
           }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coins you put straight back into the tubes. The withdrawal is still recorded for the full counted amount."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pièces remises directement dans les tubes. Le prélèvement reste enregistré pour le montant total compté."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Munten die je direct terug in de buizen hebt gedaan. De opname wordt nog steeds voor het volledige getelde bedrag geboekt."
+          }
         }
       }
     },
@@ -3735,6 +3933,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Automat"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distributeur"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automaat"
           }
         }
       }
@@ -3891,6 +4107,24 @@
             "state": "translated",
             "value": "Netto in die Kasse"
           }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Net into the box"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Net vers la caisse"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Netto naar de kas"
+          }
         }
       }
     },
@@ -4017,6 +4251,24 @@
             "state": "translated",
             "value": "Weitere Aktionen im Kassenbuch"
           }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More cash book actions"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autres actions de la caisse"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meer kasboekacties"
+          }
         }
       }
     },
@@ -4026,6 +4278,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Wechselgeld buchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record change float"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer le fonds de monnaie"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wisselgeld boeken"
           }
         }
       }
@@ -4239,6 +4509,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Wechselgeld vorgestreckt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change float advanced"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonds de monnaie avancé"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wisselgeld voorgeschoten"
           }
         }
       }
