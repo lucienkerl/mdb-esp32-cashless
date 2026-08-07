@@ -1622,7 +1622,6 @@
     "createCorrectionYes": "Correctie aanmaken",
     "reversalConfirmTitle": "Boeking terugboeken",
     "reversalConfirmMessage": "Boeking #{number} terugboeken? Dit maakt een tegenboeking aan en kan niet ongedaan gemaakt worden.",
-    "reversalOf": "Terugboeking van boeking",
     "reversalIncludesPaired": "De bijbehorende wisselgeldboeking wordt mee teruggeboekt.",
     "deleteCashBook": "Kassa verwijderen",
     "deleteWarning": "Waarschuwing: deze actie kan niet ongedaan gemaakt worden!",

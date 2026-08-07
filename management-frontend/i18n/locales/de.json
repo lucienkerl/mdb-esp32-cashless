@@ -1819,7 +1819,6 @@
     "createCorrectionYes": "Korrektur erstellen",
     "reversalConfirmTitle": "Eintrag stornieren",
     "reversalConfirmMessage": "Eintrag #{number} stornieren? Dies erstellt eine Gegenbuchung und kann nicht rückgängig gemacht werden.",
-    "reversalOf": "Storno von Eintrag",
     "reversalIncludesPaired": "Die zugehörige Wechselgeldbuchung wird mitstorniert.",
     "deleteCashBook": "Barkasse löschen",
     "deleteWarning": "Achtung: Diese Aktion kann nicht rückgängig gemacht werden!",

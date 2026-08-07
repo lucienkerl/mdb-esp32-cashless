@@ -1622,7 +1622,6 @@
     "createCorrectionYes": "Créer une correction",
     "reversalConfirmTitle": "Extourner l'écriture",
     "reversalConfirmMessage": "Extourner l'écriture n°{number} ? Cela crée une contre-écriture et est irréversible.",
-    "reversalOf": "Extourne de l'écriture",
     "reversalIncludesPaired": "L'écriture de fonds de caisse associée sera également extournée.",
     "deleteCashBook": "Supprimer la caisse",
     "deleteWarning": "Attention : cette action est irréversible !",

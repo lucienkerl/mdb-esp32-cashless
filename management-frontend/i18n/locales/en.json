@@ -1819,7 +1819,6 @@
     "createCorrectionYes": "Create Correction",
     "reversalConfirmTitle": "Reverse Entry",
     "reversalConfirmMessage": "Reverse entry #{number}? This creates a counter-entry and cannot be undone.",
-    "reversalOf": "Reversal of entry",
     "reversalIncludesPaired": "The linked change float booking will be reversed as well.",
     "deleteCashBook": "Delete Cash Register",
     "deleteWarning": "Warning: This action cannot be undone!",

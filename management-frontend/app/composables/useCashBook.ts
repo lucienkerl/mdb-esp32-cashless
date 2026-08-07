@@ -452,27 +452,29 @@ export function useCashBook() {
 
     const result = data as { reversal_entry_id: string; paired_reversal_entry_id: string | null }
 
-    await logActivity('cash_book_entry_created', result.reversal_entry_id, {
-      cash_book_id: selectedCashBook.value?.id,
-      type: 'reversal',
-      amount: 0,
-      description: null,
-      category: null,
-    })
-    if (result.paired_reversal_entry_id) {
-      await logActivity('cash_book_entry_created', result.paired_reversal_entry_id, {
-        cash_book_id: selectedCashBook.value?.id,
-        type: 'reversal',
-        amount: 0,
-        description: null,
-        category: null,
-      })
-    }
-
+    // Erst aktualisieren, dann loggen: der BEFORE-INSERT-Trigger überschreibt
+    // amount/description serverseitig (negierter Originalbetrag bzw.
+    // "Storno von Eintrag #N") — der hier angeforderte Wert wäre bedeutungslos.
+    // Die echten Werte kommen erst nach fetchEntries() in entries.value an.
     if (selectedCashBook.value) {
       await fetchEntries(selectedCashBook.value.id)
       await fetchTheoreticalCash(selectedCashBook.value.id)
       await fetchChangeFloat()
+    }
+
+    const reversalIds = [result.reversal_entry_id, result.paired_reversal_entry_id].filter(
+      (id): id is string => id !== null && id !== undefined,
+    )
+
+    for (const id of reversalIds) {
+      const stored = entries.value.find(e => e.id === id)
+      await logActivity('cash_book_entry_created', id, {
+        cash_book_id: selectedCashBook.value?.id,
+        type: 'reversal',
+        amount: stored?.amount ?? 0,
+        description: stored?.description ?? null,
+        category: null,
+      })
     }
 
     return result
