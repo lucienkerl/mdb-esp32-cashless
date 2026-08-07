@@ -24,6 +24,7 @@ const {
   deleteCashBook,
   fetchEntries,
   createEntry,
+  recordWithdrawal,
   fetchTheoreticalCash,
   fetchChangeFloat,
   fetchAllMachines,
@@ -160,18 +161,19 @@ async function onWithdrawalSubmit(payload: {
   counted: number
   expected: number
   machineId: string | null
+  floatBack: number
   description: string
 }) {
   if (!selectedCashBook.value) return
   try {
-    await createEntry({
+    await recordWithdrawal({
       cash_book_id: selectedCashBook.value.id,
-      type: 'withdrawal',
-      amount: payload.counted,
+      machine_id: payload.machineId,
+      counted: payload.counted,
+      expected: payload.expected,
+      float_back: payload.floatBack,
       description: payload.description,
-      machine_id: payload.machineId || null,
-      counted_amount: payload.counted,
-      expected_amount: payload.expected,
+      float_description: t('cashBook.changeFloatIn'),
     })
     showWithdrawalModal.value = false
   } catch (err: any) {
@@ -332,7 +334,10 @@ async function confirmDelete() {
 
 // ── Type label helper used by PDF export ────────────────────────────────────
 
-function typeLabel(type: string): string {
+function typeLabel(type: string, amount?: number): string {
+  if (type === 'change_float' && amount !== undefined) {
+    return amount < 0 ? t('cashBook.changeFloatIn') : t('cashBook.changeFloatOut')
+  }
   const map: Record<string, string> = {
     initial: t('cashBook.typeInitial'),
     withdrawal: t('cashBook.typeWithdrawal'),
@@ -404,7 +409,7 @@ async function exportPdf() {
     body: allEntries.map((e: any) => [
       e.entry_number,
       formatDateTime(e.created_at),
-      typeLabel(e.type) + (e.is_reversed ? ` (${t('cashBook.reversed')})` : ''),
+      typeLabel(e.type, e.amount) + (e.is_reversed ? ` (${t('cashBook.reversed')})` : ''),
       formatAmount(e.amount),
       formatCurrency(e.balance_after),
       e.type === 'expense'

@@ -11,13 +11,14 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:open', value: boolean): void
-  (e: 'submit', payload: { counted: number; expected: number; machineId: string | null; description: string }): void
+  (e: 'submit', payload: { counted: number; expected: number; machineId: string | null; floatBack: number; description: string }): void
 }>()
 
 const { t } = useI18n()
 
 const form = ref({
   counted_amount: 0,
+  float_back: 0,
   description: 'Geldentnahme aus Automat',
   machine_id: null as string | null,
 })
@@ -28,19 +29,38 @@ const difference = computed(() => {
   return form.value.counted_amount - props.theoreticalCash.cash_sales_since
 })
 
+/** Was nach der Tubenrücklage tatsächlich in der Kasse landet. */
+const netToBox = computed(() => form.value.counted_amount - form.value.float_back)
+
+/** Sobald eine Rücklage erfasst wird, ist der Automatenbezug zwingend —
+ *  unabhängig von `trackPerMachine`, das nur den Erwartungswert verankert. */
+const machineRequired = computed(() => form.value.float_back > 0)
+
+const canSubmit = computed(() =>
+  form.value.counted_amount > 0
+  && (!machineRequired.value || form.value.machine_id !== null),
+)
+
 watch(() => props.open, (now) => {
   if (now) {
-    form.value = { counted_amount: 0, description: 'Geldentnahme aus Automat', machine_id: null }
+    form.value = {
+      counted_amount: 0,
+      float_back: 0,
+      description: 'Geldentnahme aus Automat',
+      machine_id: props.assignedMachines.length === 1 ? props.assignedMachines[0]!.id : null,
+    }
   }
 })
 
 async function onSubmit() {
+  if (!canSubmit.value) return
   loading.value = true
   try {
     emit('submit', {
       counted: form.value.counted_amount,
       expected: props.theoreticalCash?.cash_sales_since ?? 0,
       machineId: form.value.machine_id,
+      floatBack: form.value.float_back,
       description: form.value.description,
     })
   } finally {
@@ -88,8 +108,25 @@ async function onSubmit() {
         {{ t('cashBook.differenceLabel') }}: {{ formatCurrency(difference) }}
       </div>
 
-      <div v-if="trackPerMachine && assignedMachines.length > 0">
-        <label class="text-sm font-medium">{{ t('cashBook.fromMachine') }}</label>
+      <div>
+        <label class="text-sm font-medium">{{ t('cashBook.floatBack') }} (EUR)</label>
+        <input
+          v-model.number="form.float_back"
+          type="number" step="0.01" min="0"
+          class="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        />
+        <p class="mt-1 text-xs text-muted-foreground">{{ t('cashBook.floatBackHint') }}</p>
+      </div>
+
+      <div v-if="form.float_back > 0" class="text-sm text-muted-foreground">
+        {{ t('cashBook.netToBox') }}: {{ formatCurrency(netToBox) }}
+      </div>
+
+      <div v-if="(trackPerMachine || machineRequired) && assignedMachines.length > 0">
+        <label class="text-sm font-medium">
+          {{ t('cashBook.fromMachine') }}
+          <span v-if="machineRequired" class="text-red-600">*</span>
+        </label>
         <select
           v-model="form.machine_id"
           class="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -114,7 +151,7 @@ async function onSubmit() {
         <button type="button" class="h-9 rounded-md border border-input px-4 text-sm font-medium hover:bg-accent" @click="emit('update:open', false)">
           {{ t('common.cancel') }}
         </button>
-        <button type="submit" :disabled="loading || form.counted_amount <= 0"
+        <button type="submit" :disabled="loading || !canSubmit"
                 class="h-9 rounded-md bg-green-600 px-4 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50">
           {{ loading ? t('common.loading') : t('cashBook.bookEntry') }}
         </button>
