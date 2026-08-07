@@ -20,6 +20,7 @@ struct WithdrawalSheet: View {
     /// Raw text for the counted-amount field — supports expressions like
     /// "10+15.50", "20*3", "100/2". Mirrors the WarehouseView pattern.
     @State private var countedText: String = ""
+    @State private var floatBackText: String = ""
     @FocusState private var countedFieldFocused: Bool
     @State private var description: String = NSLocalizedString("cash_book_default_withdrawal_desc", comment: "")
     @State private var selectedMachineId: UUID?
@@ -51,6 +52,26 @@ struct WithdrawalSheet: View {
         counted - expected
     }
 
+    /// Rücklage in die Münztuben (nicht-negativ; die RPC negiert intern).
+    private var floatBack: Double {
+        max(0, Double(floatBackText.replacingOccurrences(of: ",", with: ".")) ?? 0)
+    }
+
+    /// Was nach der Rücklage tatsächlich in der Kasse landet.
+    private var netToBox: Double {
+        counted - floatBack
+    }
+
+    /// Sobald eine Rücklage erfasst wird, ist der Automatenbezug zwingend —
+    /// unabhängig von `trackPerMachine`, das nur den Erwartungswert verankert.
+    private var machineRequired: Bool {
+        floatBack > 0
+    }
+
+    private var canSubmit: Bool {
+        counted > 0 && (!machineRequired || selectedMachineId != nil)
+    }
+
     /// Whether the input contains an operator — drives the "= 25,50 €" preview.
     private var isExpression: Bool {
         countedText.contains(where: { "+-*/×".contains($0) })
@@ -66,6 +87,7 @@ struct WithdrawalSheet: View {
             Form {
                 expectedSection
                 countedSection
+                floatBackSection
 
                 Section("cash_book_description") {
                     TextField(text: $description) {
@@ -73,7 +95,7 @@ struct WithdrawalSheet: View {
                     }
                 }
 
-                if cashBook.trackPerMachine && !assignedMachines.isEmpty {
+                if (cashBook.trackPerMachine || machineRequired) && !assignedMachines.isEmpty {
                     Section("cash_book_from_machine") {
                         Picker("cash_book_from_machine", selection: $selectedMachineId) {
                             Text("—").tag(UUID?.none)
@@ -106,7 +128,7 @@ struct WithdrawalSheet: View {
                             Text("cash_book_book_entry")
                         }
                     }
-                    .disabled(isSubmitting || counted <= 0)
+                    .disabled(isSubmitting || !canSubmit)
                 }
             }
             .task {
@@ -177,6 +199,31 @@ struct WithdrawalSheet: View {
                 Text(differenceLabel)
                     .font(.caption).foregroundStyle(.secondary)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var floatBackSection: some View {
+        Section {
+            TextField("0,00", text: $floatBackText)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .font(.body.monospacedDigit())
+
+            if floatBack > 0 {
+                LabeledContent {
+                    Text(netToBox, format: .currency(code: "EUR"))
+                        .monospacedDigit()
+                } label: {
+                    Text("cash_book_net_to_box")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("cash_book_float_back")
+        } footer: {
+            Text("cash_book_float_back_hint")
         }
     }
 
@@ -285,10 +332,11 @@ struct WithdrawalSheet: View {
 
         // When this sheet was opened from a tour that visited exactly one
         // machine of this Barkasse, pre-select it so the entry is attributed
-        // correctly and the operator saves a tap. Gated on `trackPerMachine`
-        // (the picker is hidden otherwise) and only for tour-opened sheets, so
-        // the manual withdrawal flow keeps its "—" default.
-        if let tourMachineIds, cashBook.trackPerMachine, selectedMachineId == nil {
+        // correctly and the operator saves a tap. Only for tour-opened sheets
+        // (tourMachineIds == nil for the manual withdrawal flow, which keeps
+        // its "—" default); independent of `trackPerMachine`, which only
+        // anchors the expected-cash figure, not whether the picker shows.
+        if let tourMachineIds, selectedMachineId == nil {
             let visited = theoretical?.machineBreakdown(forMachines: tourMachineIds) ?? []
             if visited.count == 1 {
                 selectedMachineId = visited.first?.machineId
@@ -311,7 +359,11 @@ struct WithdrawalSheet: View {
                 counted: evaluated,
                 expected: expected,
                 machineId: selectedMachineId,
-                description: description
+                floatBack: floatBack,
+                description: description,
+                floatDescription: floatBack > 0
+                    ? NSLocalizedString("cash_book_change_float_in", comment: "")
+                    : nil
             )
             dismiss()
         } catch {

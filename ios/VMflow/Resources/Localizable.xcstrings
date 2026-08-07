@@ -3330,6 +3330,16 @@
         }
       }
     },
+    "cash_book_change_float_in": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wechselgeld in Automat"
+          }
+        }
+      }
+    },
     "cash_book_change_float_into_machine": {
       "localizations": {
         "de": {
@@ -3669,6 +3679,26 @@
         }
       }
     },
+    "cash_book_float_back": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Davon zurück in die Münztuben"
+          }
+        }
+      }
+    },
+    "cash_book_float_back_hint": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Münzen, die du direkt wieder in die Tuben gefüllt hast. Die Entnahme wird trotzdem über den vollen gezählten Betrag gebucht."
+          }
+        }
+      }
+    },
     "cash_book_for_machine": {
       "localizations": {
         "de": {
@@ -3820,6 +3850,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Laatste bankstorting"
+          }
+        }
+      }
+    },
+    "cash_book_net_to_box": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Netto in die Kasse"
           }
         }
       }
