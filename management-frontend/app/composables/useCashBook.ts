@@ -82,9 +82,11 @@ export interface MachineChangeFloat {
  *  der Eingabe wird bewusst ignoriert — die Richtung entscheidet. */
 export function changeFloatAmount(direction: ChangeFloatDirection, input: number): number {
   const abs = Math.abs(input)
-  // `|| 0` normalises `-0` (from `-abs` when `input` is `0`) back to `+0` —
-  // `Object.is(-0, 0)` is false, which `toBe(0)` relies on.
-  return (direction === 'into_machine' ? -abs : abs) || 0
+  const signed = direction === 'into_machine' ? -abs : abs
+  // -0 normalisieren: Intl.NumberFormat würde daraus "-0,00 €" machen.
+  // Bewusst `=== 0` statt `|| 0` — das lässt NaN durch, statt einen
+  // ungültigen Betrag in eine gültig aussehende Nullbuchung zu verwandeln.
+  return signed === 0 ? 0 : signed
 }
 
 /** Vorgestrecktes Wechselgeld eines Automaten, summiert über Barkassen.
@@ -350,13 +352,21 @@ export function useCashBook() {
   // ── Wechselgeld-Bestand ──────────────────────────────────────────────────
 
   async function fetchChangeFloat() {
+    const companyId = organization.value?.id
+    if (!companyId) throw new Error('fetchChangeFloat: keine Organisation geladen')
+
     const { data, error } = await (supabase as any)
       .rpc('get_machine_change_float', {
-        p_company_id: organization.value?.id,
+        p_company_id: companyId,
       })
 
     if (error) throw error
-    changeFloat.value = (data ?? []) as MachineChangeFloat[]
+    // NULL heißt "nicht Mitglied dieser Firma" und ist etwas anderes als
+    // [] ("kein Wechselgeld vorgestreckt") — nicht stillschweigend einebnen.
+    if (data === null) {
+      throw new Error('get_machine_change_float lieferte NULL — kein Mitglied dieser Firma')
+    }
+    changeFloat.value = data as MachineChangeFloat[]
   }
 
   /** Bucht eine Entnahme, optional mit Wechselgeld-Rücklage in die Münztuben.

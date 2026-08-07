@@ -30,6 +30,16 @@ describe('changeFloatAmount', () => {
     expect(changeFloatAmount('into_machine', 0)).toBe(0)
     expect(changeFloatAmount('back_to_box', 0)).toBe(0)
   })
+
+  it('passes NaN through instead of turning it into a valid zero', () => {
+    expect(changeFloatAmount('into_machine', NaN)).toBeNaN()
+    expect(changeFloatAmount('back_to_box', NaN)).toBeNaN()
+  })
+
+  it('never returns negative zero, which would render as "-0,00 €"', () => {
+    expect(Object.is(changeFloatAmount('into_machine', 0), -0)).toBe(false)
+    expect(Object.is(changeFloatAmount('back_to_box', 0), -0)).toBe(false)
+  })
 })
 
 describe('floatBalanceForMachine', () => {
