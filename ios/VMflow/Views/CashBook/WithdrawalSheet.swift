@@ -21,6 +21,10 @@ struct WithdrawalSheet: View {
     /// "10+15.50", "20*3", "100/2". Mirrors the WarehouseView pattern.
     @State private var countedText: String = ""
     @State private var floatBackText: String = ""
+    /// Per-machine Rücklage-Beträge im Mehrfach-Modus (`isMultiMachine`),
+    /// als Rohtext keyed by machine id — ein Eintrag pro Zeile in
+    /// `multiFloatSection`. Ungenutzt im Einzel- und manuellen Fall.
+    @State private var multiFloatTexts: [UUID: String] = [:]
     @FocusState private var countedFieldFocused: Bool
     @State private var description: String = NSLocalizedString("cash_book_default_withdrawal_desc", comment: "")
     @State private var selectedMachineId: UUID?
@@ -52,6 +56,16 @@ struct WithdrawalSheet: View {
         counted - expected
     }
 
+    /// Mehrfach-Erfassung greift, wenn die Tour mehr als einen Automaten
+    /// besucht hat — dann zwingt ein einzelnes Rücklage-Feld den gesamten
+    /// Betrag auf einen Automaten, obwohl er tatsächlich auf mehrere verteilt
+    /// wurde. Bei genau einem besuchten Automaten (`tourMachineIds` mit
+    /// einem Element oder `nil`, d.h. eine manuelle Entnahme) bleibt das
+    /// Sheet unverändert beim bisherigen Einzel-Feld.
+    private var isMultiMachine: Bool {
+        (tourMachineIds?.count ?? 0) > 1
+    }
+
     /// Rücklage in die Münztuben (nicht-negativ; die RPC negiert intern).
     /// Whitespace wird getrimmt, bevor geparst wird: `Double.init?` lehnt
     /// " 50 " ab, und ohne das Trimmen würde eine eingefügte Zahl mit
@@ -60,21 +74,39 @@ struct WithdrawalSheet: View {
     /// auftaucht. Gleiches Verhalten wie `evaluateExpression` beim
     /// gezählten Betrag.
     private var floatBack: Double {
-        let cleaned = floatBackText
-            .trimmingCharacters(in: .whitespaces)
-            .replacingOccurrences(of: ",", with: ".")
-        return max(0, Double(cleaned) ?? 0)
+        parseAmount(floatBackText)
+    }
+
+    /// Geparste Rücklage-Beträge je Automat im Mehrfach-Modus, keyed by
+    /// machine id — eine Zeile pro `breakdownMachines`-Eintrag. Nutzt
+    /// denselben `parseAmount`-Helper wie `floatBack`, damit beide Felder
+    /// garantiert identisch parsen. Nullbeträge bleiben harmlos enthalten;
+    /// ViewModel und RPC überspringen sie ohnehin beim Buchen.
+    private var multiFloats: [UUID: Double] {
+        Dictionary(uniqueKeysWithValues: breakdownMachines.map {
+            ($0.machineId, parseAmount(multiFloatTexts[$0.machineId] ?? ""))
+        })
+    }
+
+    /// Summe der Rücklage über alle Eingabewege — im Mehrfach-Modus alle
+    /// Zeilen, sonst das einzelne Feld. Basis für `netToBox`.
+    private var totalFloatBack: Double {
+        isMultiMachine ? multiFloats.values.reduce(0, +) : floatBack
     }
 
     /// Was nach der Rücklage tatsächlich in der Kasse landet.
     private var netToBox: Double {
-        counted - floatBack
+        counted - totalFloatBack
     }
 
     /// Sobald eine Rücklage erfasst wird, ist der Automatenbezug zwingend —
     /// unabhängig von `trackPerMachine`, das nur den Erwartungswert verankert.
+    /// Im Mehrfach-Modus entfällt diese Pflicht: jede Zeile trägt ihren
+    /// eigenen Automaten bereits in `multiFloats`, ein zusätzlicher
+    /// Top-Level-Automat wäre überflüssig und darf die Buchung nicht
+    /// blockieren.
     private var machineRequired: Bool {
-        floatBack > 0
+        !isMultiMachine && floatBack > 0
     }
 
     private var canSubmit: Bool {
@@ -104,7 +136,11 @@ struct WithdrawalSheet: View {
                     }
                 }
 
-                if (cashBook.trackPerMachine || machineRequired) && !assignedMachines.isEmpty {
+                // Im Mehrfach-Modus trägt jede Zeile in multiFloatSection
+                // bereits ihren eigenen Automaten — ein zusätzlicher
+                // Top-Level-Picker wäre redundant und wird deshalb
+                // unabhängig von trackPerMachine ausgeblendet.
+                if !isMultiMachine && (cashBook.trackPerMachine || machineRequired) && !assignedMachines.isEmpty {
                     Section("cash_book_from_machine") {
                         Picker("cash_book_from_machine", selection: $selectedMachineId) {
                             Text("—").tag(UUID?.none)
@@ -211,8 +247,22 @@ struct WithdrawalSheet: View {
         }
     }
 
+    /// Verzweigt zwischen dem bisherigen Einzel-Feld (ein Automat oder
+    /// manuelle Entnahme — unverändertes Verhalten) und der Mehrfach-Zeilen-
+    /// Ansicht (`isMultiMachine`). Header/Footer bleiben in beiden Fällen
+    /// dieselben Strings, da sich der Zweck nicht ändert — nur, ob der
+    /// Betrag in ein Feld oder auf mehrere Automaten aufgeteilt wird.
     @ViewBuilder
     private var floatBackSection: some View {
+        if isMultiMachine {
+            multiFloatSection
+        } else {
+            singleFloatSection
+        }
+    }
+
+    @ViewBuilder
+    private var singleFloatSection: some View {
         Section {
             TextField("0,00", text: $floatBackText)
                 .keyboardType(.decimalPad)
@@ -234,6 +284,50 @@ struct WithdrawalSheet: View {
         } footer: {
             Text("cash_book_float_back_hint")
         }
+    }
+
+    /// Eine Zeile je besuchtem Automaten dieser Barkasse (`breakdownMachines`
+    /// — bereits auf `tourMachineIds` gescoped). Jede Zeile parst identisch
+    /// zum Einzel-Feld (`parseAmount`); die Summe treibt `netToBox`.
+    @ViewBuilder
+    private var multiFloatSection: some View {
+        Section {
+            ForEach(breakdownMachines) { m in
+                HStack {
+                    Text(m.machineName ?? String(m.machineId.uuidString.prefix(8)))
+                    Spacer()
+                    TextField("0,00", text: multiFloatTextBinding(for: m.machineId))
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .font(.body.monospacedDigit())
+                        .frame(maxWidth: 100)
+                }
+            }
+
+            if totalFloatBack > 0 {
+                LabeledContent {
+                    Text(netToBox, format: .currency(code: "EUR"))
+                        .monospacedDigit()
+                } label: {
+                    Text("cash_book_net_to_box")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("cash_book_float_back")
+        } footer: {
+            Text("cash_book_float_back_hint")
+        }
+    }
+
+    /// Zwei-Wege-Binding auf `multiFloatTexts[machineId]`, mit "" als
+    /// Default für einen noch nicht editierten Automaten.
+    private func multiFloatTextBinding(for machineId: UUID) -> Binding<String> {
+        Binding(
+            get: { multiFloatTexts[machineId] ?? "" },
+            set: { multiFloatTexts[machineId] = $0 }
+        )
     }
 
     // MARK: - Calculator Toolbar (matches WarehouseView pattern)
@@ -303,6 +397,20 @@ struct WithdrawalSheet: View {
         return value.isFinite && value > 0 ? value : nil
     }
 
+    /// Gemeinsamer Parser für Rücklage-Beträge — genutzt vom Einzel-Feld
+    /// (`floatBack`) und jeder Zeile im Mehrfach-Modus (`multiFloats`), damit
+    /// beide garantiert identisch parsen und nicht auseinanderlaufen können.
+    /// Trimmt Whitespace vor dem Parsen (`Double.init?` lehnt " 50 " sonst
+    /// ab und würde die Eingabe still als 0 buchen), akzeptiert `,` als
+    /// Dezimaltrennzeichen, und klemmt negative Ergebnisse auf 0 — die RPC
+    /// negiert den Betrag intern selbst.
+    private func parseAmount(_ text: String) -> Double {
+        let cleaned = text
+            .trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: ",", with: ".")
+        return max(0, Double(cleaned) ?? 0)
+    }
+
     private func amountFormatted(_ value: Double) -> String {
         NumberFormatter.localizedString(from: value as NSNumber, number: .currency)
     }
@@ -368,11 +476,17 @@ struct WithdrawalSheet: View {
                 counted: evaluated,
                 expected: expected,
                 machineId: selectedMachineId,
-                floatBack: floatBack,
+                // Im Mehrfach-Modus geht die Rücklage ausschließlich über
+                // `floats` — `floatBack` bleibt 0, damit die RPC-seitige
+                // "p_float_back und p_floats schließen sich aus"-Prüfung nie
+                // anschlägt (floatBackText wird im Mehrfach-Modus ohnehin nie
+                // editiert, dieser Ternary macht es zusätzlich explizit).
+                floatBack: isMultiMachine ? 0 : floatBack,
                 description: description,
-                floatDescription: floatBack > 0
+                floatDescription: totalFloatBack > 0
                     ? NSLocalizedString("cash_book_change_float_in", comment: "")
-                    : nil
+                    : nil,
+                floats: isMultiMachine ? multiFloats : [:]
             )
             dismiss()
         } catch {

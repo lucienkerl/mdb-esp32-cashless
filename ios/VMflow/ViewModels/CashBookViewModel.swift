@@ -199,6 +199,15 @@ final class CashBookViewModel: ObservableObject {
     ///
     /// `floatBack` wird als nicht-negativer Betrag übergeben; die RPC negiert
     /// intern. Ist `floatBack` ungleich null, ist `machineId` zwingend.
+    ///
+    /// `floats` deckt den Mehrfach-Automaten-Fall ab (Tour über mehrere
+    /// Automaten derselben Barkasse): ein Betrag je Automat statt eines
+    /// einzelnen `floatBack`, der den gesamten Betrag auf einen Automaten
+    /// zwingen würde. `floatBack` und `floats` schließen sich serverseitig
+    /// gegenseitig aus — ein Aufrufer darf nur eines von beiden setzen.
+    /// Leer (`[:]`, der Default) heißt: `p_floats` wird ganz weggelassen statt
+    /// als leeres Array gesendet, sodass bestehende Aufrufe unverändert das
+    /// alte `p_float_back`-Verhalten treffen.
     func recordWithdrawal(
         cashBookId: UUID,
         counted: Double,
@@ -206,12 +215,40 @@ final class CashBookViewModel: ObservableObject {
         machineId: UUID?,
         floatBack: Double = 0,
         description: String,
-        floatDescription: String? = nil
+        floatDescription: String? = nil,
+        floats: [UUID: Double] = [:]
     ) async throws {
         guard let companyId = cashBooks.first(where: { $0.id == cashBookId })?.companyId,
               client.auth.currentUser?.id != nil else {
             throw CashBookError.notAuthenticated
         }
+
+        // `p_floats` erwartet serverseitig ein JSON-*Array* aus
+        // {"machine_id", "amount"}-Objekten — ein Swift-`[UUID: Double]`
+        // würde als JSON-*Objekt* kodiert werden. `FloatEntry` plus die
+        // sortierte Array-Abbildung unten überbrücken das.
+        //
+        // Nullbeträge werden serverseitig ohnehin übersprungen; sie werden
+        // schon hier herausgefiltert, um kein Rauschen zu senden. Sortierung
+        // nach UUID-String liefert eine reproduzierbare Buchungsreihenfolge
+        // — dieselbe Reihenfolge wird unten wiederverwendet, um jede
+        // zurückgegebene `change_float_entry_ids`-ID ihrem Betrag zuzuordnen.
+        struct FloatEntry: Encodable {
+            let machine_id: UUID
+            let amount: Double
+        }
+
+        let sortedFloats: [(machineId: UUID, amount: Double)] = floats
+            .filter { $0.value != 0 }
+            .sorted { $0.key.uuidString < $1.key.uuidString }
+            .map { (machineId: $0.key, amount: $0.value) }
+
+        // Leer → nil, damit der Parameter beim Encoding ganz wegfällt statt
+        // als `[]` gesendet zu werden (deckt sowohl ein leeres `floats` als
+        // auch eines ab, das nach dem Nullbetrag-Filter leer wurde).
+        let floatEntries: [FloatEntry]? = sortedFloats.isEmpty
+            ? nil
+            : sortedFloats.map { FloatEntry(machine_id: $0.machineId, amount: $0.amount) }
 
         struct Params: Encodable {
             let p_cash_book_id: UUID
@@ -221,11 +258,13 @@ final class CashBookViewModel: ObservableObject {
             let p_float_back: Double
             let p_description: String?
             let p_float_description: String?
+            let p_floats: [FloatEntry]?
         }
 
         struct Result: Decodable {
             let withdrawal_entry_id: UUID
             let change_float_entry_id: UUID?
+            let change_float_entry_ids: [UUID]?
         }
 
         let result: Result = try await client
@@ -236,7 +275,8 @@ final class CashBookViewModel: ObservableObject {
                 p_expected: expected,
                 p_float_back: floatBack,
                 p_description: description.isEmpty ? nil : description,
-                p_float_description: floatDescription
+                p_float_description: floatDescription,
+                p_floats: floatEntries
             ))
             .execute()
             .value
@@ -261,6 +301,27 @@ final class CashBookViewModel: ObservableObject {
                 category: nil,
                 description: floatDescription
             )
+        }
+
+        // Mehrfach-Automaten-Fall: die RPC legt die IDs in derselben
+        // Reihenfolge an, in der `p_floats` durchlaufen wurde — also derselben
+        // Sortierung wie `sortedFloats` oben. Ein Eintrag pro erzeugter Zeile,
+        // mit dem jeweiligen Automaten-Betrag (matcht die Logging-Form des
+        // Einzel-Falls oben exakt, nur einmal pro Automat statt einmal pro
+        // Entnahme).
+        if let floatEntryIds = result.change_float_entry_ids, !floatEntryIds.isEmpty {
+            for (index, entryId) in floatEntryIds.enumerated() {
+                guard index < sortedFloats.count else { break }
+                await logCashBookEntryActivity(
+                    entryId: entryId,
+                    cashBookId: cashBookId,
+                    companyId: companyId,
+                    type: "change_float",
+                    amount: -abs(sortedFloats[index].amount),
+                    category: nil,
+                    description: floatDescription
+                )
+            }
         }
 
         await loadEntries(for: cashBookId)
