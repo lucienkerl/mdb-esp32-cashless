@@ -621,8 +621,8 @@ git commit -m "feat(db): add get_machine_change_float balance RPC" -- Docker/sup
 - Create: `Docker/supabase/migrations/20260807000200_cash_book_withdrawal_rpc.sql`
 
 **Interfaces:**
-- Consumes: Buchungstyp `change_float` (Task 1)
-- Produces: `public.record_cash_book_withdrawal(p_cash_book_id uuid, p_machine_id uuid, p_counted float8, p_expected float8, p_float_back float8 DEFAULT 0, p_description text DEFAULT NULL, p_float_description text DEFAULT NULL) RETURNS jsonb` mit den Schlüsseln `withdrawal_entry_id` (uuid) und `change_float_entry_id` (uuid|null)
+- Consumes: Buchungstyp `change_float` (Task 1); Firmenprüfmuster aus `get_machine_change_float` (Task 2)
+- Produces: `public.record_cash_book_withdrawal(p_cash_book_id uuid, p_machine_id uuid, p_counted float8, p_expected float8, p_float_back float8 DEFAULT 0, p_description text DEFAULT NULL, p_float_description text DEFAULT NULL) RETURNS jsonb` mit den Schlüsseln `withdrawal_entry_id` (uuid) und `change_float_entry_id` (uuid|null). Wirft `machine does not belong to this company`, wenn `p_machine_id` einer fremden Firma gehört, und `change float requires a machine`, wenn eine Rücklage ohne Automatenbezug gebucht werden soll.
 
 - [ ] **Step 1: Test anhängen**
 
@@ -639,6 +639,8 @@ DECLARE
   v_user    uuid := gen_random_uuid();
   v_book    uuid := gen_random_uuid();
   v_machine uuid := gen_random_uuid();
+  v_other_company uuid := gen_random_uuid();
+  v_other_machine uuid := gen_random_uuid();
   r jsonb; v_raised boolean; v_err text; v_balance float8; n int; n_after int;
 BEGIN
   INSERT INTO public.companies (id, name) VALUES (v_company, 'WithdrawRpcCo');
@@ -717,6 +719,29 @@ BEGIN
   ASSERT n_after = n,
     format('abgewiesener Aufruf darf keine Zeile hinterlassen: vorher %s, nachher %s', n, n_after);
   RAISE NOTICE 'Test 9 bestanden: keine halbe Buchung';
+
+  -- ═══ Test 10: fremder Automat wird abgewiesen ════════════════════════════
+  -- cash_book_entries bindet machine_id nicht an company_id. Ohne die
+  -- Prüfung in der RPC ließe sich auf einen fremden Automaten buchen.
+  INSERT INTO public.companies (id, name) VALUES (v_other_company, 'FremdeFirma');
+  INSERT INTO public."vendingMachine" (id, name, company)
+    VALUES (v_other_machine, 'Fremd', v_other_company);
+
+  SELECT count(*) INTO n FROM public.cash_book_entries WHERE cash_book_id = v_book;
+  v_err := '';
+  BEGIN
+    PERFORM public.record_cash_book_withdrawal(v_book, v_other_machine, 10.00, 10.00, 0,
+                                               'Geldentnahme', NULL);
+  EXCEPTION WHEN others THEN
+    v_err := SQLERRM;
+  END;
+  ASSERT v_err LIKE '%machine does not belong to this company%',
+    format('erwartet wurde die Firmenprüfung, kam aber: %s', v_err);
+
+  SELECT count(*) INTO n_after FROM public.cash_book_entries WHERE cash_book_id = v_book;
+  ASSERT n_after = n,
+    format('abgewiesener Aufruf darf keine Zeile hinterlassen: vorher %s, nachher %s', n, n_after);
+  RAISE NOTICE 'Test 10 bestanden: fremder Automat abgewiesen';
 
 END $$;
 ```
@@ -797,6 +822,20 @@ BEGIN
   -- die Fehlermeldung wäre für die Oberfläche unbrauchbar.
   IF v_float_back <> 0 AND p_machine_id IS NULL THEN
     RAISE EXCEPTION 'change float requires a machine';
+  END IF;
+
+  -- Automat muss der eigenen Firma gehören. cash_book_entries hat keinen
+  -- Constraint, der machine_id an company_id bindet — ohne diese Prüfung
+  -- ließe sich eine Buchung auf einen fremden Automaten schreiben, die dann
+  -- in der Bestandsabfrage stillschweigend verschwindet (die filtert seit
+  -- 20260807000100 auf vm.company). Hier scheitert sie stattdessen laut.
+  -- SECURITY INVOKER: RLS auf vendingMachine greift zusätzlich.
+  IF p_machine_id IS NOT NULL THEN
+    PERFORM 1 FROM public."vendingMachine"
+     WHERE id = p_machine_id AND company = v_company;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'machine does not belong to this company';
+    END IF;
   END IF;
 
   INSERT INTO public.cash_book_entries
