@@ -53,8 +53,14 @@ BEGIN
              'float_balance',  ROUND((-SUM(e.amount))::numeric, 2),
              'last_change_at', MAX(e.created_at)
            ) AS row_json
+      -- vm.company muss zusätzlich geprüft werden: e.company_id kommt aus der
+      -- eigenen Buchung und ist nicht durch eine FK an vm.company gebunden.
+      -- Ohne diese Bedingung könnte ein Firmenmitglied eine Buchung mit einer
+      -- machine_id einer fremden Firma anlegen und über diese Funktion (die
+      -- als SECURITY DEFINER RLS umgeht) deren Automatennamen auslesen.
       FROM public.cash_book_entries e
       JOIN public."vendingMachine" vm ON vm.id = e.machine_id
+                                     AND vm.company = p_company_id
      WHERE e.company_id  = p_company_id
        AND e.type        = 'change_float'
        AND e.is_reversed = false
