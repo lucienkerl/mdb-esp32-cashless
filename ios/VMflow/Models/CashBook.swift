@@ -32,6 +32,7 @@ enum CashBookEntryType: String, Codable {
     case correction
     case payout
     case expense
+    case changeFloat = "change_float"
     case reversal
     /// Forward-compat: unknown raw values (e.g. a future server type) decode
     /// here instead of throwing and failing the whole entries list.
@@ -159,5 +160,45 @@ struct CashBookMachineRef: Codable, Identifiable, Hashable {
         case id
         case name
         case cashBookId = "cash_book_id"
+    }
+}
+
+// MARK: - MachineChangeFloat (RPC payload)
+
+/// Vorgestrecktes Wechselgeld je (Automat, Barkasse) aus
+/// `get_machine_change_float`. Kein Tubenfüllstand — der ist von außen nicht
+/// ermittelbar. Diese Zahl ändert sich ausschließlich durch eigene Buchungen.
+struct MachineChangeFloat: Codable, Identifiable, Hashable {
+    var id: String { "\(machineId.uuidString)-\(cashBookId.uuidString)" }
+    let machineId: UUID
+    let machineName: String?
+    let cashBookId: UUID
+    let floatBalance: Double
+    let lastChangeAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case machineId = "machine_id"
+        case machineName = "machine_name"
+        case cashBookId = "cash_book_id"
+        case floatBalance = "float_balance"
+        case lastChangeAt = "last_change_at"
+    }
+}
+
+// MARK: - ChangeFloatDirection
+
+/// Richtung einer Wechselgeldbuchung aus Sicht der Barkasse. Die Oberfläche
+/// fragt nie ein rohes Vorzeichen ab — Richtung plus nicht-negativer Betrag,
+/// die Umrechnung passiert hier.
+enum ChangeFloatDirection {
+    case intoMachine
+    case backToBox
+
+    /// `amount` ist die Wirkung auf die Barkasse: eine Einlage senkt sie,
+    /// eine Rücknahme hebt sie. Das Vorzeichen der Eingabe wird bewusst
+    /// ignoriert — die Richtung entscheidet.
+    func signedAmount(_ input: Double) -> Double {
+        let magnitude = abs(input)
+        return self == .intoMachine ? -magnitude : magnitude
     }
 }

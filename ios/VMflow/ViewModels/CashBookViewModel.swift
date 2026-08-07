@@ -10,6 +10,7 @@ final class CashBookViewModel: ObservableObject {
     @Published var selectedCashBookId: UUID?
     @Published private(set) var entries: [CashBookEntry] = []
     @Published private(set) var theoreticalCash: TheoreticalCash?
+    @Published private(set) var changeFloat: [MachineChangeFloat] = []
     @Published private(set) var machines: [CashBookMachineRef] = []
     @Published private(set) var isLoading = false
     @Published private(set) var isLoadingEntries = false
@@ -94,6 +95,7 @@ final class CashBookViewModel: ObservableObject {
             self.cashBooks = books
             self.machines = fetchedMachines
             reconcileSelection()
+            await loadChangeFloat()
 
             // If we now have a selection, load its entries + theoretical cash
             if let id = selectedCashBookId {
@@ -186,66 +188,80 @@ final class CashBookViewModel: ObservableObject {
 
     // MARK: - Mutations
 
-    /// Records a withdrawal (cash flowing INTO the box from machines).
-    /// `counted` is the gezählter Betrag (positive). Sign convention spec'd:
-    /// withdrawals are stored as positive `amount`.
+    /// Bucht eine Entnahme, optional mit Wechselgeld-Rücklage in die Münztuben.
+    /// Beide Zeilen entstehen serverseitig in einer Transaktion — eine gebuchte
+    /// Entnahme ohne die zugehörige Rücklage würde den Kassenstand still
+    /// überhöhen.
+    ///
+    /// `floatBack` wird als nicht-negativer Betrag übergeben; die RPC negiert
+    /// intern. Ist `floatBack` ungleich null, ist `machineId` zwingend.
     func recordWithdrawal(
         cashBookId: UUID,
         counted: Double,
         expected: Double,
         machineId: UUID?,
-        description: String
+        floatBack: Double = 0,
+        description: String,
+        floatDescription: String? = nil
     ) async throws {
         guard let companyId = cashBooks.first(where: { $0.id == cashBookId })?.companyId,
-              let userId = client.auth.currentUser?.id else {
+              client.auth.currentUser?.id != nil else {
             throw CashBookError.notAuthenticated
         }
 
-        struct Insert: Encodable {
-            let cash_book_id: UUID
-            let company_id: UUID
-            let type: String
-            let amount: Double
-            let description: String?
-            let machine_id: UUID?
-            let counted_amount: Double?
-            let expected_amount: Double?
-            let created_by: UUID
+        struct Params: Encodable {
+            let p_cash_book_id: UUID
+            let p_machine_id: UUID?
+            let p_counted: Double
+            let p_expected: Double
+            let p_float_back: Double
+            let p_description: String?
+            let p_float_description: String?
         }
 
-        let row = Insert(
-            cash_book_id: cashBookId,
-            company_id: companyId,
-            type: "withdrawal",
-            amount: counted,                     // POSITIVE — money INTO the box
-            description: description,
-            machine_id: machineId,
-            counted_amount: counted,
-            expected_amount: expected,
-            created_by: userId
-        )
+        struct Result: Decodable {
+            let withdrawal_entry_id: UUID
+            let change_float_entry_id: UUID?
+        }
 
-        let inserted: InsertedEntryId = try await client
-            .from("cash_book_entries")
-            .insert(row)
-            .select("id")
-            .single()
+        let result: Result = try await client
+            .rpc("record_cash_book_withdrawal", params: Params(
+                p_cash_book_id: cashBookId,
+                p_machine_id: machineId,
+                p_counted: counted,
+                p_expected: expected,
+                p_float_back: floatBack,
+                p_description: description.isEmpty ? nil : description,
+                p_float_description: floatDescription
+            ))
             .execute()
             .value
 
         await logCashBookEntryActivity(
-            entryId: inserted.id,
+            entryId: result.withdrawal_entry_id,
             cashBookId: cashBookId,
             companyId: companyId,
             type: "withdrawal",
-            amount: row.amount,
+            amount: counted,
             category: nil,
             description: description.isEmpty ? nil : description
         )
 
-        // Refresh local state
+        if let floatEntryId = result.change_float_entry_id {
+            await logCashBookEntryActivity(
+                entryId: floatEntryId,
+                cashBookId: cashBookId,
+                companyId: companyId,
+                type: "change_float",
+                amount: -abs(floatBack),
+                category: nil,
+                description: floatDescription
+            )
+        }
+
         await loadEntries(for: cashBookId)
         await loadTheoreticalCash(for: cashBookId)
+        await loadChangeFloat()
     }
 
     /// Records a bank deposit (cash flowing OUT of the box to the bank).
@@ -359,6 +375,90 @@ final class CashBookViewModel: ObservableObject {
 
         await loadEntries(for: cashBookId)
         await loadTheoreticalCash(for: cashBookId)
+    }
+
+    // MARK: - Wechselgeld (change_float)
+
+    /// Lädt den vorgestreckten Wechselgeldbestand je Automat für die Firma.
+    func loadChangeFloat() async {
+        guard let companyId = cashBooks.first?.companyId else {
+            changeFloat = []
+            return
+        }
+        struct Params: Encodable { let p_company_id: UUID }
+        do {
+            let rows: [MachineChangeFloat] = try await client
+                .rpc("get_machine_change_float", params: Params(p_company_id: companyId))
+                .execute()
+                .value
+            changeFloat = rows
+        } catch {
+            changeFloat = []
+        }
+    }
+
+    /// Vorgestrecktes Wechselgeld eines Automaten, summiert über Barkassen —
+    /// ein Automat kann die Barkasse gewechselt haben.
+    func floatBalance(for machineId: UUID) -> Double {
+        changeFloat
+            .filter { $0.machineId == machineId }
+            .reduce(0) { $0 + $1.floatBalance }
+    }
+
+    /// Bucht eine eigenständige Wechselgeldbewegung. `amount` ist bereits
+    /// signiert (siehe `ChangeFloatDirection.signedAmount`).
+    func recordChangeFloat(
+        cashBookId: UUID,
+        amount: Double,
+        machineId: UUID,
+        description: String
+    ) async throws {
+        guard let companyId = cashBooks.first(where: { $0.id == cashBookId })?.companyId,
+              let userId = client.auth.currentUser?.id else {
+            throw CashBookError.notAuthenticated
+        }
+
+        struct Insert: Encodable {
+            let cash_book_id: UUID
+            let company_id: UUID
+            let type: String
+            let amount: Double
+            let description: String?
+            let machine_id: UUID
+            let created_by: UUID
+        }
+
+        let row = Insert(
+            cash_book_id: cashBookId,
+            company_id: companyId,
+            type: "change_float",
+            amount: amount,
+            description: description.isEmpty ? nil : description,
+            machine_id: machineId,
+            created_by: userId
+        )
+
+        let inserted: InsertedEntryId = try await client
+            .from("cash_book_entries")
+            .insert(row)
+            .select("id")
+            .single()
+            .execute()
+            .value
+
+        await logCashBookEntryActivity(
+            entryId: inserted.id,
+            cashBookId: cashBookId,
+            companyId: companyId,
+            type: "change_float",
+            amount: amount,
+            category: nil,
+            description: description.isEmpty ? nil : description
+        )
+
+        await loadEntries(for: cashBookId)
+        await loadTheoreticalCash(for: cashBookId)
+        await loadChangeFloat()
     }
 
     // MARK: - Activity Log
