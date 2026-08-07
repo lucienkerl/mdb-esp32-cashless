@@ -313,6 +313,7 @@ function typeLabel(type: string): string {
     correction: t('cashBook.typeCorrection'),
     payout: t('cashBook.typePayout'),
     expense: t('cashBook.typeExpense'),
+    change_float: t('cashBook.typeChangeFloat'),
     reversal: t('cashBook.typeReversal'),
   }
   return map[type] ?? type
@@ -352,14 +353,17 @@ async function exportPdf() {
   const withdrawals = allEntries.filter((e: any) => e.type === 'withdrawal' && !e.is_reversed)
   const corrections = allEntries.filter((e: any) => e.type === 'correction' && !e.is_reversed)
   const totalW = withdrawals.reduce((s: number, e: any) => s + Math.abs(e.amount), 0)
+  const changeFloats = allEntries.filter((e: any) => e.type === 'change_float' && !e.is_reversed)
+  const totalCF = -changeFloats.reduce((s: number, e: any) => s + e.amount, 0)
   const totalC = corrections.reduce((s: number, e: any) => s + e.amount, 0)
 
   doc.setFontSize(10)
   let y = orgName ? 44 : 38
   doc.text(`${t('cashBook.currentBalance')}: ${formatCurrency(lastEntry.balance_after)}`, 14, y)
   doc.text(`${t('cashBook.totalWithdrawals')}: ${formatCurrency(totalW)} (${withdrawals.length})`, 14, y + 5)
-  doc.text(`${t('cashBook.totalCorrections')}: ${formatCurrency(totalC)} (${corrections.length})`, 14, y + 10)
-  y += 18
+  doc.text(`${t('cashBook.totalChangeFloat')}: ${formatCurrency(totalCF)} (${changeFloats.length})`, 14, y + 10)
+  doc.text(`${t('cashBook.totalCorrections')}: ${formatCurrency(totalC)} (${corrections.length})`, 14, y + 15)
+  y += 23
 
   autoTable(doc, {
     startY: y,
