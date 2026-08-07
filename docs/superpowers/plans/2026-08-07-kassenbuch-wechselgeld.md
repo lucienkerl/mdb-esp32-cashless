@@ -639,7 +639,7 @@ DECLARE
   v_user    uuid := gen_random_uuid();
   v_book    uuid := gen_random_uuid();
   v_machine uuid := gen_random_uuid();
-  r jsonb; v_raised boolean; v_balance float8; n int; n_after int;
+  r jsonb; v_raised boolean; v_err text; v_balance float8; n int; n_after int;
 BEGIN
   INSERT INTO public.companies (id, name) VALUES (v_company, 'WithdrawRpcCo');
 
@@ -700,14 +700,18 @@ BEGIN
 
   -- ═══ Test 9: Rücklage ohne Automat wird abgewiesen, ohne Teilbuchung ═════
   SELECT count(*) INTO n FROM public.cash_book_entries WHERE cash_book_id = v_book;
-  v_raised := false;
+  v_err := '';
   BEGIN
     PERFORM public.record_cash_book_withdrawal(v_book, NULL, 10.00, 10.00, 5.00,
                                                'Geldentnahme', NULL);
   EXCEPTION WHEN others THEN
-    v_raised := true;
+    v_err := SQLERRM;
   END;
-  ASSERT v_raised, 'Rücklage ohne Automat muss abgewiesen werden';
+  -- Auf die konkrete Meldung prüfen, nicht nur "irgendwas schlug fehl" — sonst
+  -- bliebe der Test grün, wenn ein anderer Fehler zuerst greift. Gleiches
+  -- Muster wie in den übrigen Testdateien dieses Verzeichnisses.
+  ASSERT v_err LIKE '%change float requires a machine%',
+    format('erwartet wurde die Automaten-Vorabprüfung, kam aber: %s', v_err);
 
   SELECT count(*) INTO n_after FROM public.cash_book_entries WHERE cash_book_id = v_book;
   ASSERT n_after = n,
