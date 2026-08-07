@@ -83,7 +83,7 @@ DECLARE
   v_float_back    float8 := COALESCE(p_float_back, 0);
   v_withdrawal_id uuid;
   v_float_id      uuid;
-  v_has_floats    boolean := p_floats IS NOT NULL AND jsonb_array_length(p_floats) > 0;
+  v_has_floats    boolean := false;
   v_elem          jsonb;
   v_elem_amount   float8;
   v_elem_machine  uuid;
@@ -94,6 +94,16 @@ BEGIN
   IF v_company IS NULL OR v_user IS NULL THEN
     RAISE EXCEPTION 'not authenticated';
   END IF;
+
+  -- p_floats muss ein JSON-Array sein. jsonb_array_length wirft für einen
+  -- Skalar oder ein Objekt einen rohen Low-Level-Fehler; die Prüfung gehört
+  -- deshalb hierher und nicht in den DECLARE-Block, wo sie noch vor der
+  -- Authentifizierung feuern würde.
+  IF p_floats IS NOT NULL AND jsonb_typeof(p_floats) <> 'array' THEN
+    RAISE EXCEPTION 'p_floats must be a JSON array';
+  END IF;
+
+  v_has_floats := p_floats IS NOT NULL AND jsonb_array_length(p_floats) > 0;
 
   PERFORM 1 FROM public.cash_books
    WHERE id = p_cash_book_id AND company_id = v_company;
@@ -181,7 +191,7 @@ BEGIN
       v_elem_amount := (v_elem->>'amount')::float8;
       CONTINUE WHEN v_elem_amount = 0;
 
-      v_elem_machine := (v_elem->>'machine_id')::uuid;
+      v_elem_machine := NULLIF(v_elem->>'machine_id', '')::uuid;
       v_elem_desc := COALESCE(v_elem->>'description', p_float_description);
 
       INSERT INTO public.cash_book_entries

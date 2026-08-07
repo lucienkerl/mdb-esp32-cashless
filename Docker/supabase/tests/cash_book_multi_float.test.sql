@@ -316,6 +316,41 @@ BEGIN
   ASSERT n = 0, 'leeres Array darf keine Rücklagenzeile erzeugen';
   RAISE NOTICE 'Test 9 bestanden: leeres Array wie kein p_floats';
 
+  -- ═══ Test 10: nicht-Array p_floats → Ablehnung, keine Zeile ═════════════
+  -- jsonb_array_length wirft für einen Skalar oder ein Objekt sonst einen
+  -- rohen Low-Level-Fehler statt einer klaren Meldung — und das noch vor
+  -- der Authentifizierungsprüfung, weil v_has_floats sonst im DECLARE-Block
+  -- berechnet würde.
+  SELECT count(*) INTO n FROM public.cash_book_entries WHERE cash_book_id = v_book8;
+  v_err := '';
+  BEGIN
+    PERFORM public.record_cash_book_withdrawal(
+      v_book8, NULL, 40.00, 40.00, 0, 'Entnahme', 'Rücklage',
+      '{"a":1}'::jsonb
+    );
+  EXCEPTION WHEN others THEN
+    v_err := SQLERRM;
+  END;
+  ASSERT v_err LIKE '%p_floats must be a JSON array%',
+    format('erwartet die Array-Typprüfung für ein Objekt, kam aber: %s', v_err);
+  SELECT count(*) INTO n_after FROM public.cash_book_entries WHERE cash_book_id = v_book8;
+  ASSERT n_after = n, format('ein nicht-Array p_floats darf keine Zeile hinterlassen: vorher %s, nachher %s', n, n_after);
+
+  v_err := '';
+  BEGIN
+    PERFORM public.record_cash_book_withdrawal(
+      v_book8, NULL, 40.00, 40.00, 0, 'Entnahme', 'Rücklage',
+      'null'::jsonb
+    );
+  EXCEPTION WHEN others THEN
+    v_err := SQLERRM;
+  END;
+  ASSERT v_err LIKE '%p_floats must be a JSON array%',
+    format('erwartet die Array-Typprüfung für einen JSON-Skalar null, kam aber: %s', v_err);
+  SELECT count(*) INTO n_after FROM public.cash_book_entries WHERE cash_book_id = v_book8;
+  ASSERT n_after = n, format('ein nicht-Array p_floats darf keine Zeile hinterlassen: vorher %s, nachher %s', n, n_after);
+  RAISE NOTICE 'Test 10 bestanden: nicht-Array p_floats abgewiesen';
+
 END $$;
 
 ROLLBACK;
