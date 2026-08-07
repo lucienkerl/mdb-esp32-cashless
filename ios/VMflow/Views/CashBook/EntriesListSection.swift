@@ -106,6 +106,7 @@ struct EntriesListSection: View {
         case .correction: return ("cash_book_type_correction", .yellow)
         case .payout:     return ("cash_book_type_payout",     .blue)
         case .expense:    return ("cash_book_type_expense",    .orange)
+        case .changeFloat: return ("cash_book_type_change_float", .purple)
         case .reversal:   return ("cash_book_type_reversal",   .orange)
         case .unknown:    return ("cash_book_type_unknown",    .gray)
         }

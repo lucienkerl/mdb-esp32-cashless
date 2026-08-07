@@ -739,6 +739,7 @@ extension DashboardView {
         case .correction: return String(localized: "cash_book_type_correction")
         case .payout:     return String(localized: "cash_book_type_payout")
         case .expense:    return String(localized: "cash_book_type_expense")
+        case .changeFloat: return String(localized: "cash_book_type_change_float")
         case .reversal:   return String(localized: "cash_book_type_reversal")
         case .unknown:    return String(localized: "cash_book_type_unknown")
         }
@@ -751,6 +752,7 @@ extension DashboardView {
         case .correction: return .yellow
         case .payout:     return .blue
         case .expense:    return .orange
+        case .changeFloat: return .purple
         case .reversal:   return .orange
         case .unknown:    return .gray
         }
@@ -763,6 +765,7 @@ extension DashboardView {
         case .correction: return "slider.horizontal.3"
         case .payout:     return "arrow.up.circle.fill"
         case .expense:    return "cart.fill"
+        case .changeFloat: return "arrow.left.arrow.right.circle.fill"
         case .reversal:   return "arrow.uturn.backward.circle.fill"
         case .unknown:    return "eurosign.circle.fill"
         }

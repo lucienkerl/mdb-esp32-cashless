@@ -4083,6 +4083,35 @@
         }
       }
     },
+    "cash_book_type_change_float": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wechselgeld"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change float"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appoint"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wisselgeld"
+          }
+        }
+      }
+    },
     "cash_book_type_correction": {
       "extractionState": "manual",
       "localizations": {
