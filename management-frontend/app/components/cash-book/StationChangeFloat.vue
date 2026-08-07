@@ -9,15 +9,18 @@ const { t } = useI18n()
 
 const total = computed(() => totalChangeFloat(props.changeFloat))
 
-/** Je Automat summiert — ein Automat kann in mehreren Barkassen Zeilen haben. */
+/** Je Automat summiert — ein Automat kann in mehreren Barkassen Zeilen haben.
+ *  Die machine_id wandert bewusst mit ins Anzeigeobjekt: Automatennamen sind
+ *  nicht eindeutig, taugen also nicht als v-for-key. */
 const perMachine = computed(() => {
-  const byId = new Map<string, { name: string; balance: number }>()
+  const byId = new Map<string, { id: string; name: string; balance: number }>()
   for (const row of props.changeFloat) {
     const existing = byId.get(row.machine_id)
     if (existing) {
       existing.balance += row.float_balance
     } else {
       byId.set(row.machine_id, {
+        id: row.machine_id,
         name: row.machine_name || row.machine_id.slice(0, 8),
         balance: row.float_balance,
       })
@@ -45,7 +48,7 @@ const perMachine = computed(() => {
       <div v-else class="space-y-0.5">
         <div
           v-for="m in perMachine"
-          :key="m.name"
+          :key="m.id"
           class="flex items-center justify-between text-xs text-muted-foreground"
         >
           <span>{{ m.name }}</span>
