@@ -1,0 +1,145 @@
+import SwiftUI
+
+/// Bucht Wechselgeld, das der Barkasse entnommen und in die Münztuben eines
+/// Automaten gelegt wird — oder von dort zurückgeholt wird.
+///
+/// Der Automatenbezug ist immer Pflicht, unabhängig von `trackPerMachine`:
+/// diese Einstellung verankert den Erwartungswert, sagt aber nichts darüber
+/// aus, wo das vorgestreckte Geld liegt.
+struct ChangeFloatSheet: View {
+    let cashBook: CashBook
+
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var cashBookVM: CashBookViewModel
+
+    @State private var direction: ChangeFloatDirection = .intoMachine
+    @State private var amountText: String = ""
+    @State private var selectedMachineId: UUID?
+    @State private var description: String = ""
+    @State private var isSubmitting = false
+    @State private var errorMessage: String?
+
+    private var amount: Double {
+        Double(amountText.replacingOccurrences(of: ",", with: ".")) ?? 0
+    }
+
+    private var assignedMachines: [CashBookMachineRef] {
+        cashBookVM.assignedMachines(for: cashBook.id)
+    }
+
+    private var currentFloat: Double {
+        guard let id = selectedMachineId else { return 0 }
+        return cashBookVM.floatBalance(for: id)
+    }
+
+    /// Warnt, wenn mehr zurückgenommen wird als vorgestreckt wurde. Blockiert
+    /// nicht — eine Buchung, die die Realität abbildet, wird nie verweigert.
+    private var showsNegativeWarning: Bool {
+        direction == .backToBox && amount > 0 && amount > currentFloat + 0.001
+    }
+
+    private var canSubmit: Bool {
+        amount > 0 && selectedMachineId != nil
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Picker("cash_book_change_float_direction", selection: $direction) {
+                        Text("cash_book_change_float_into_machine").tag(ChangeFloatDirection.intoMachine)
+                        Text("cash_book_change_float_back_to_box").tag(ChangeFloatDirection.backToBox)
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                } footer: {
+                    Text("cash_book_change_float_hint")
+                }
+
+                Section("cash_book_for_machine") {
+                    Picker("cash_book_for_machine", selection: $selectedMachineId) {
+                        Text("—").tag(UUID?.none)
+                        ForEach(assignedMachines) { m in
+                            Text(m.name ?? String(m.id.uuidString.prefix(8)))
+                                .tag(UUID?.some(m.id))
+                        }
+                    }
+                    .labelsHidden()
+
+                    if selectedMachineId != nil {
+                        LabeledContent {
+                            Text(currentFloat, format: .currency(code: "EUR"))
+                                .monospacedDigit()
+                        } label: {
+                            Text("cash_book_total_change_float")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("cash_book_amount") {
+                    TextField("0,00", text: $amountText)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .font(.body.monospacedDigit())
+                }
+
+                if showsNegativeWarning {
+                    Section {
+                        Text("cash_book_change_float_negative_warning")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                }
+
+                Section("cash_book_description") {
+                    TextField(text: $description) { Text(verbatim: "") }
+                }
+
+                if let errorMessage {
+                    Section { Text(errorMessage).foregroundStyle(.red) }
+                }
+            }
+            .navigationTitle("cash_book_record_change_float")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("cash_book_cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        Task { await submit() }
+                    } label: {
+                        if isSubmitting { ProgressView() } else { Text("cash_book_book_entry") }
+                    }
+                    .disabled(isSubmitting || !canSubmit)
+                }
+            }
+            .task {
+                // Bei genau einem zugeordneten Automaten vorauswählen.
+                if selectedMachineId == nil, assignedMachines.count == 1 {
+                    selectedMachineId = assignedMachines.first?.id
+                }
+            }
+        }
+    }
+
+    private func submit() async {
+        guard canSubmit, let machineId = selectedMachineId else { return }
+        isSubmitting = true
+        errorMessage = nil
+        defer { isSubmitting = false }
+        do {
+            try await cashBookVM.recordChangeFloat(
+                cashBookId: cashBook.id,
+                amount: direction.signedAmount(amount),
+                machineId: machineId,
+                description: description.trimmingCharacters(in: .whitespaces)
+            )
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}

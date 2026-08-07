@@ -63,6 +63,7 @@
 		7796889F9147FF3D55C754A6 /* Fixtures in Resources */ = {isa = PBXBuildFile; fileRef = 9A552F665C89F83D12EECC44 /* Fixtures */; };
 		77D2B846D83C3623DF76EF46 /* WithdrawalSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B0D3D4BFCEB1A362499B0C9 /* WithdrawalSheet.swift */; };
 		77D2B846D83C3623DF76EF47 /* ExpenseSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B0D3D4BFCEB1A362499B0CA /* ExpenseSheet.swift */; };
+		A1CF0001000000000000CF01 /* ChangeFloatSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1CF0002000000000000CF02 /* ChangeFloatSheet.swift */; };
 		7B251D0111BECD9C18F5DD02 /* TrayViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E9A5023EED5804698A679E6 /* TrayViewModel.swift */; };
 		7DD2B71154768AA698F1D5BB /* PurchasePricesViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82F533E0A6E11E3C77E48D43 /* PurchasePricesViewModel.swift */; };
 		836A2197542D4BCCB8D8C2A3 /* PurchasePricesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 254111FB4644A0C29A6E97ED /* PurchasePricesSheet.swift */; };
@@ -178,6 +179,7 @@
 		3A1ABF4B45C7B0D2415238F6 /* ProductImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductImage.swift; sourceTree = "<group>"; };
 		3B0D3D4BFCEB1A362499B0C9 /* WithdrawalSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WithdrawalSheet.swift; sourceTree = "<group>"; };
 		3B0D3D4BFCEB1A362499B0CA /* ExpenseSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpenseSheet.swift; sourceTree = "<group>"; };
+		A1CF0002000000000000CF02 /* ChangeFloatSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeFloatSheet.swift; sourceTree = "<group>"; };
 		3B84189DCC212B6DBBF84DEB /* MachineDetailViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineDetailViewModel.swift; sourceTree = "<group>"; };
 		453803D692FAEE4E9DDA1040 /* CompactTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactTabView.swift; sourceTree = "<group>"; };
 		45AE89831021CC12416B0F89 /* VMflow.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = VMflow.entitlements; sourceTree = "<group>"; };
@@ -512,6 +514,7 @@
 				7D17C7D7E21DDD2FDA3F7F48 /* MultiBarkasseCashBlock.swift */,
 				3B0D3D4BFCEB1A362499B0C9 /* WithdrawalSheet.swift */,
 				3B0D3D4BFCEB1A362499B0CA /* ExpenseSheet.swift */,
+				A1CF0002000000000000CF02 /* ChangeFloatSheet.swift */,
 			);
 			path = CashBook;
 			sourceTree = "<group>";
@@ -889,6 +892,7 @@
 				227347A89BC32144B6544F1C /* WarehouseViewModel.swift in Sources */,
 				77D2B846D83C3623DF76EF46 /* WithdrawalSheet.swift in Sources */,
 				77D2B846D83C3623DF76EF47 /* ExpenseSheet.swift in Sources */,
+				A1CF0001000000000000CF01 /* ChangeFloatSheet.swift in Sources */,
 				3794F7E585206AA73A530507 /* Supplier.swift in Sources */,
 				9408C221F48381AE80D82845 /* PurchasePrice.swift in Sources */,
 				D2B267D590682A057D092DCE /* ProductPurchaseSummary.swift in Sources */,

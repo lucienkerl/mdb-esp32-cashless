@@ -190,7 +190,7 @@ struct MachineChangeFloat: Codable, Identifiable, Hashable {
 /// Richtung einer Wechselgeldbuchung aus Sicht der Barkasse. Die Oberfläche
 /// fragt nie ein rohes Vorzeichen ab — Richtung plus nicht-negativer Betrag,
 /// die Umrechnung passiert hier.
-enum ChangeFloatDirection {
+enum ChangeFloatDirection: Hashable {
     case intoMachine
     case backToBox
 

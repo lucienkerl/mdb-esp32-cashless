@@ -3300,6 +3300,56 @@
         }
       }
     },
+    "cash_book_change_float_back_to_box": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus dem Automaten zurück in die Kasse"
+          }
+        }
+      }
+    },
+    "cash_book_change_float_direction": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Richtung"
+          }
+        }
+      }
+    },
+    "cash_book_change_float_hint": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geld, das du dem Automaten für Wechselgeld vorstreckst. Es zählt nicht als Ausgabe – es bleibt dein Geld."
+          }
+        }
+      }
+    },
+    "cash_book_change_float_into_machine": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In den Automaten einlegen"
+          }
+        }
+      }
+    },
+    "cash_book_change_float_negative_warning": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du nimmst mehr zurück, als diesem Automaten vorgestreckt wurde. Wenn das kassiertes Geld ist, buche es als Entnahme."
+          }
+        }
+      }
+    },
     "cash_book_changer_hint": {
       "extractionState": "manual",
       "localizations": {
@@ -3619,6 +3669,16 @@
         }
       }
     },
+    "cash_book_for_machine": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automat"
+          }
+        }
+      }
+    },
     "cash_book_from_machine": {
       "extractionState": "manual",
       "localizations": {
@@ -3880,6 +3940,16 @@
         }
       }
     },
+    "cash_book_record_change_float": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wechselgeld buchen"
+          }
+        }
+      }
+    },
     "cash_book_record_expense": {
       "extractionState": "manual",
       "localizations": {
@@ -4079,6 +4149,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Vandaag"
+          }
+        }
+      }
+    },
+    "cash_book_total_change_float": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wechselgeld vorgestreckt"
           }
         }
       }

@@ -5,6 +5,7 @@ struct CashBookView: View {
     @State private var showWithdrawal = false
     @State private var showDeposit = false
     @State private var showExpense = false
+    @State private var showChangeFloat = false
 
     var body: some View {
         Group {
@@ -27,8 +28,17 @@ struct CashBookView: View {
             }
             if cashBookVM.selectedCashBook != nil {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showExpense = true
+                    Menu {
+                        Button {
+                            showExpense = true
+                        } label: {
+                            Label("cash_book_record_expense", systemImage: "tray.and.arrow.down")
+                        }
+                        Button {
+                            showChangeFloat = true
+                        } label: {
+                            Label("cash_book_record_change_float", systemImage: "circle.grid.2x2")
+                        }
                     } label: {
                         Image(systemName: "tray.and.arrow.down")
                     }
@@ -82,6 +92,10 @@ struct CashBookView: View {
         }
         .sheet(isPresented: $showExpense) {
             ExpenseSheet(cashBook: book)
+                .environmentObject(cashBookVM)
+        }
+        .sheet(isPresented: $showChangeFloat) {
+            ChangeFloatSheet(cashBook: book)
                 .environmentObject(cashBookVM)
         }
     }
