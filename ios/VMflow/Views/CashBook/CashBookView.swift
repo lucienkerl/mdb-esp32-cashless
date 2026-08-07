@@ -42,7 +42,7 @@ struct CashBookView: View {
                     } label: {
                         Image(systemName: "tray.and.arrow.down")
                     }
-                    .accessibilityLabel("cash_book_record_expense")
+                    .accessibilityLabel("cash_book_more_actions")
                 }
             }
         }

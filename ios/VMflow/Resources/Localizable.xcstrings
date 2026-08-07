@@ -3360,6 +3360,36 @@
         }
       }
     },
+    "cash_book_change_float_station": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Münztuben"
+          }
+        }
+      }
+    },
+    "cash_book_change_float_empty": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Wechselgeld vorgestreckt"
+          }
+        }
+      }
+    },
+    "cash_book_change_float_unavailable": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Wechselgeldbestand konnte nicht geladen werden"
+          }
+        }
+      }
+    },
     "cash_book_changer_hint": {
       "extractionState": "manual",
       "localizations": {
@@ -3976,6 +4006,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "bijv. FACT-2026-001"
+          }
+        }
+      }
+    },
+    "cash_book_more_actions": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weitere Aktionen im Kassenbuch"
           }
         }
       }

@@ -3,6 +3,7 @@ import SwiftUI
 /// Three-station vertical flow: In Automaten → In der Kasse → Letzte Bankeinzahlung.
 /// Used on both the full Cash Book screen and the dashboard tile (with `compact = true`).
 struct FlowVisualisationCard: View {
+    @EnvironmentObject var cashBookVM: CashBookViewModel
     let theoreticalCash: TheoreticalCash?
     let currentBalance: Double
     let lastBankDeposit: CashBookEntry?
@@ -82,6 +83,9 @@ struct FlowVisualisationCard: View {
                 amount: lastBankDeposit.map { abs($0.amount) },
                 subtitle: lastDepositSubtitle
             )
+
+            // Wechselgeld ist eine Seitentasche der Kasse, kein Kettenglied.
+            changeFloatSection
         }
     }
 
@@ -155,6 +159,71 @@ struct FlowVisualisationCard: View {
             arrow()
         }
         .disabled(action == nil)
+    }
+
+    @ViewBuilder
+    private var changeFloatSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Label("cash_book_change_float_station", systemImage: "circle.grid.2x2")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                // No total while the balance couldn't be loaded — showing 0
+                // there would read as "nothing advanced", which is a
+                // different, stronger claim than "we don't know".
+                if !cashBookVM.changeFloatUnavailable {
+                    Text(cashBookVM.changeFloat.reduce(0) { $0 + $1.floatBalance },
+                         format: .currency(code: "EUR"))
+                        .font(.headline.monospacedDigit())
+                }
+            }
+
+            if cashBookVM.changeFloatUnavailable {
+                Label("cash_book_change_float_unavailable", systemImage: "exclamationmark.triangle")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            } else if cashBookVM.changeFloat.isEmpty {
+                Text("cash_book_change_float_empty")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            } else {
+                ForEach(changeFloatByMachine) { row in
+                    HStack {
+                        Text(row.name)
+                        Spacer()
+                        Text(row.balance, format: .currency(code: "EUR"))
+                            .monospacedDigit()
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.top, 8)
+    }
+
+    /// One row per machine, summed across cash books — `MachineChangeFloat.id`
+    /// is per (machine, cash book) row, so a machine that moved between cash
+    /// books would otherwise show up twice and can't key a `ForEach` safely.
+    /// Keyed on `machineId` rather than `machineName`, which has no
+    /// uniqueness constraint and could misattribute a balance on re-sort.
+    private struct MachineFloatRow: Identifiable {
+        let id: UUID
+        let name: String
+        let balance: Double
+    }
+
+    private var changeFloatByMachine: [MachineFloatRow] {
+        var byId: [UUID: (name: String, balance: Double)] = [:]
+        for row in cashBookVM.changeFloat {
+            var existing = byId[row.machineId] ?? (name: row.machineName ?? "—", balance: 0)
+            existing.balance += row.floatBalance
+            byId[row.machineId] = existing
+        }
+        return byId
+            .map { MachineFloatRow(id: $0.key, name: $0.value.name, balance: $0.value.balance) }
+            .sorted { $0.balance > $1.balance }
     }
 
     // MARK: - Subtitle composition
