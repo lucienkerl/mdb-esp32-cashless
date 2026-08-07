@@ -24,7 +24,7 @@ export interface CashBookEntry {
   cash_book_id: string
   company_id: string
   entry_number: number
-  type: 'initial' | 'withdrawal' | 'correction' | 'payout' | 'expense' | 'reversal'
+  type: 'initial' | 'withdrawal' | 'correction' | 'payout' | 'expense' | 'change_float' | 'reversal'
   amount: number
   balance_after: number
   description: string | null
@@ -61,6 +61,46 @@ export interface VendingMachineBasic {
 export const EXPENSE_CATEGORIES = ['rent', 'goods', 'cleaning', 'fees', 'other'] as const
 export type ExpenseCategory = typeof EXPENSE_CATEGORIES[number]
 
+// ── Wechselgeld in Automaten (change_float) ─────────────────────────────────
+
+/** Richtung einer Wechselgeldbuchung aus Sicht der Barkasse. */
+export type ChangeFloatDirection = 'into_machine' | 'back_to_box'
+
+/** Eine Zeile aus `get_machine_change_float` — vorgestrecktes Wechselgeld
+ *  je (Automat, Barkasse). */
+export interface MachineChangeFloat {
+  machine_id: string
+  machine_name: string | null
+  cash_book_id: string
+  float_balance: number
+  last_change_at: string
+}
+
+/** Rechnet Richtung + nicht-negative Eingabe in den signierten `amount` um,
+ *  der auf dem Eintrag landet. `amount` ist die Wirkung auf die Barkasse:
+ *  Einlage in den Automaten senkt sie, Rücknahme hebt sie. Das Vorzeichen
+ *  der Eingabe wird bewusst ignoriert — die Richtung entscheidet. */
+export function changeFloatAmount(direction: ChangeFloatDirection, input: number): number {
+  const abs = Math.abs(input)
+  // `|| 0` normalises `-0` (from `-abs` when `input` is `0`) back to `+0` —
+  // `Object.is(-0, 0)` is false, which `toBe(0)` relies on.
+  return (direction === 'into_machine' ? -abs : abs) || 0
+}
+
+/** Vorgestrecktes Wechselgeld eines Automaten, summiert über Barkassen.
+ *  Ein Automat kann die Barkasse gewechselt haben und dann mehrere Zeilen
+ *  tragen. */
+export function floatBalanceForMachine(rows: MachineChangeFloat[], machineId: string): number {
+  return rows
+    .filter(r => r.machine_id === machineId)
+    .reduce((sum, r) => sum + r.float_balance, 0)
+}
+
+/** Gesamtes vorgestrecktes Wechselgeld über alle Zeilen. */
+export function totalChangeFloat(rows: MachineChangeFloat[]): number {
+  return rows.reduce((sum, r) => sum + r.float_balance, 0)
+}
+
 // ── User name cache (shared across instances) ──────────────────────────────
 
 const userCache = new Map<string, string>()
@@ -77,6 +117,7 @@ export function useCashBook() {
   const selectedCashBook = ref<CashBook | null>(null)
   const entries = ref<CashBookEntry[]>([])
   const theoreticalCash = ref<TheoreticalCash | null>(null)
+  const changeFloat = ref<MachineChangeFloat[]>([])
   const loading = ref(false)
   const entriesLoading = ref(false)
   const allMachines = ref<VendingMachineBasic[]>([])
@@ -253,7 +294,7 @@ export function useCashBook() {
 
   async function createEntry(entry: {
     cash_book_id: string
-    type: 'withdrawal' | 'correction' | 'payout' | 'expense' | 'reversal'
+    type: 'withdrawal' | 'correction' | 'payout' | 'expense' | 'change_float' | 'reversal'
     amount: number
     description?: string | null
     machine_id?: string | null
@@ -304,6 +345,69 @@ export function useCashBook() {
 
     if (error) throw error
     theoreticalCash.value = data as TheoreticalCash | null
+  }
+
+  // ── Wechselgeld-Bestand ──────────────────────────────────────────────────
+
+  async function fetchChangeFloat() {
+    const { data, error } = await (supabase as any)
+      .rpc('get_machine_change_float', {
+        p_company_id: organization.value?.id,
+      })
+
+    if (error) throw error
+    changeFloat.value = (data ?? []) as MachineChangeFloat[]
+  }
+
+  /** Bucht eine Entnahme, optional mit Wechselgeld-Rücklage in die Münztuben.
+   *  Beide Zeilen entstehen serverseitig in einer Transaktion. */
+  async function recordWithdrawal(payload: {
+    cash_book_id: string
+    machine_id: string | null
+    counted: number
+    expected: number
+    float_back: number
+    description: string
+    float_description: string
+  }) {
+    const { data, error } = await (supabase as any)
+      .rpc('record_cash_book_withdrawal', {
+        p_cash_book_id: payload.cash_book_id,
+        p_machine_id: payload.machine_id,
+        p_counted: payload.counted,
+        p_expected: payload.expected,
+        p_float_back: payload.float_back,
+        p_description: payload.description,
+        p_float_description: payload.float_description,
+      })
+
+    if (error) throw error
+
+    const result = data as { withdrawal_entry_id: string; change_float_entry_id: string | null }
+
+    await logActivity('cash_book_entry_created', result.withdrawal_entry_id, {
+      cash_book_id: payload.cash_book_id,
+      type: 'withdrawal',
+      amount: payload.counted,
+      description: payload.description,
+      category: null,
+    })
+
+    if (result.change_float_entry_id) {
+      await logActivity('cash_book_entry_created', result.change_float_entry_id, {
+        cash_book_id: payload.cash_book_id,
+        type: 'change_float',
+        amount: -Math.abs(payload.float_back),
+        description: payload.float_description,
+        category: null,
+      })
+    }
+
+    await fetchEntries(payload.cash_book_id)
+    await fetchTheoreticalCash(payload.cash_book_id)
+    await fetchChangeFloat()
+
+    return result
   }
 
   // ── Machine assignment ──────────────────────────────────────────────────
@@ -440,6 +544,8 @@ export function useCashBook() {
     }
   })
 
+  const changeFloatTotal = computed(() => totalChangeFloat(changeFloat.value))
+
   // Most recent non-reversed bank deposit. Invariant: `entries.value` is sorted
   // DESC by `entry_number` (set by fetchEntries' .order('entry_number', desc)),
   // so the first match is the most recent payout.
@@ -455,6 +561,7 @@ export function useCashBook() {
     selectedCashBook,
     entries,
     theoreticalCash,
+    changeFloat,
     loading,
     entriesLoading,
     allMachines,
@@ -467,9 +574,11 @@ export function useCashBook() {
     // Entries
     fetchEntries,
     createEntry,
+    recordWithdrawal,
 
     // Theoretical cash
     fetchTheoreticalCash,
+    fetchChangeFloat,
 
     // Machine assignment
     fetchAllMachines,
@@ -487,6 +596,7 @@ export function useCashBook() {
     totalWithdrawals,
     totalCorrections,
     totalExpenses,
+    changeFloatTotal,
     lastBankDeposit,
 
     // Settings
