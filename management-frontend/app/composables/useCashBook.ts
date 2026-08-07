@@ -34,6 +34,7 @@ export interface CashBookEntry {
   category: string | null
   receipt_reference: string | null
   corrects_entry_id: string | null
+  paired_entry_id: string | null
   is_reversed: boolean
   created_by: string
   hash: string
@@ -439,6 +440,44 @@ export function useCashBook() {
     return result
   }
 
+  /** Storniert einen Eintrag. Hat er eine verkettete Gegenzeile — eine
+   *  Wechselgeld-Rücklage zu einer Entnahme —, wird sie in derselben
+   *  Transaktion mitstorniert. Ohne das bliebe sie verwaist zurück und der
+   *  Automat führte dauerhaft Wechselgeld, das längst zurück ist. */
+  async function reverseEntry(entryId: string) {
+    const { data, error } = await (supabase as any)
+      .rpc('reverse_cash_book_entry', { p_entry_id: entryId })
+
+    if (error) throw error
+
+    const result = data as { reversal_entry_id: string; paired_reversal_entry_id: string | null }
+
+    await logActivity('cash_book_entry_created', result.reversal_entry_id, {
+      cash_book_id: selectedCashBook.value?.id,
+      type: 'reversal',
+      amount: 0,
+      description: null,
+      category: null,
+    })
+    if (result.paired_reversal_entry_id) {
+      await logActivity('cash_book_entry_created', result.paired_reversal_entry_id, {
+        cash_book_id: selectedCashBook.value?.id,
+        type: 'reversal',
+        amount: 0,
+        description: null,
+        category: null,
+      })
+    }
+
+    if (selectedCashBook.value) {
+      await fetchEntries(selectedCashBook.value.id)
+      await fetchTheoreticalCash(selectedCashBook.value.id)
+      await fetchChangeFloat()
+    }
+
+    return result
+  }
+
   // ── Machine assignment ──────────────────────────────────────────────────
 
   async function fetchAllMachines() {
@@ -603,6 +642,7 @@ export function useCashBook() {
     fetchEntries,
     createEntry,
     recordWithdrawal,
+    reverseEntry,
 
     // Theoretical cash
     fetchTheoreticalCash,

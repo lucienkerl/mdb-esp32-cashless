@@ -2,9 +2,10 @@
 import { formatCurrency } from '@/lib/utils'
 import type { CashBookEntry } from '@/composables/useCashBook'
 
-defineProps<{
+const props = defineProps<{
   open: boolean
   entry: CashBookEntry | null
+  entries: CashBookEntry[]
   loading?: boolean
 }>()
 
@@ -14,6 +15,16 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+// Eine Entnahme kann eine Wechselgeld-Rücklage-Zeile mit sich führen
+// (paired_entry_id auf der change_float-Zeile zeigt auf die Entnahme).
+// Stornieren storniert dann beide — der Nutzer soll das vorher wissen.
+const pairedEntry = computed(() => {
+  if (!props.entry) return null
+  return props.entries.find(
+    e => e.paired_entry_id === props.entry!.id && !e.is_reversed,
+  ) ?? null
+})
 
 function typeLabel(type: string): string {
   const map: Record<string, string> = {
@@ -49,6 +60,9 @@ function formatAmount(amount: number): string {
         <div>{{ t('cashBook.amount') }}: {{ formatAmount(entry.amount) }}</div>
         <div>{{ t('cashBook.description') }}: {{ entry.description || '—' }}</div>
       </div>
+      <p v-if="pairedEntry" class="text-sm text-muted-foreground">
+        {{ t('cashBook.reversalIncludesPaired') }}
+      </p>
       <div class="flex justify-end gap-2">
         <button class="h-9 rounded-md border border-input px-4 text-sm font-medium hover:bg-accent" @click="emit('update:open', false)">
           {{ t('common.cancel') }}

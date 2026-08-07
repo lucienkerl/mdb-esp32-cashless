@@ -26,6 +26,7 @@ const {
   fetchEntries,
   createEntry,
   recordWithdrawal,
+  reverseEntry,
   fetchTheoreticalCash,
   fetchChangeFloat,
   fetchAllMachines,
@@ -268,13 +269,7 @@ async function submitReversal() {
   if (!selectedCashBook.value || !reversalTarget.value) return
   reversalLoading.value = true
   try {
-    await createEntry({
-      cash_book_id: selectedCashBook.value.id,
-      type: 'reversal',
-      amount: 0,
-      description: `${t('cashBook.reversalOf')} #${reversalTarget.value.entry_number}`,
-      corrects_entry_id: reversalTarget.value.id,
-    })
+    await reverseEntry(reversalTarget.value.id)
     showReversalConfirm.value = false
     reversalTarget.value = null
   } catch (err: any) {
@@ -601,6 +596,7 @@ async function exportPdf() {
     <CashBookReversalModal
       v-model:open="showReversalConfirm"
       :entry="reversalTarget"
+      :entries="entries"
       :loading="reversalLoading"
       @confirm="submitReversal"
     />
