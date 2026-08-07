@@ -29,15 +29,21 @@ const difference = computed(() => {
   return form.value.counted_amount - props.theoreticalCash.cash_sales_since
 })
 
+/** `v-model.number` lässt ein geleertes Zahlenfeld als '' stehen, nicht als 0.
+ *  Einmal hier normalisieren — sonst ginge '' an die RPC und Postgres lehnte
+ *  den ganzen Vorgang ab, inklusive der eigentlich gültigen Entnahme. */
+const floatBack = computed(() => Number(form.value.float_back) || 0)
+
 /** Was nach der Tubenrücklage tatsächlich in der Kasse landet. */
-const netToBox = computed(() => form.value.counted_amount - form.value.float_back)
+const netToBox = computed(() => form.value.counted_amount - floatBack.value)
 
 /** Sobald eine Rücklage erfasst wird, ist der Automatenbezug zwingend —
  *  unabhängig von `trackPerMachine`, das nur den Erwartungswert verankert. */
-const machineRequired = computed(() => form.value.float_back > 0)
+const machineRequired = computed(() => floatBack.value > 0)
 
 const canSubmit = computed(() =>
   form.value.counted_amount > 0
+  && floatBack.value >= 0
   && (!machineRequired.value || form.value.machine_id !== null),
 )
 
@@ -60,7 +66,7 @@ async function onSubmit() {
       counted: form.value.counted_amount,
       expected: props.theoreticalCash?.cash_sales_since ?? 0,
       machineId: form.value.machine_id,
-      floatBack: form.value.float_back,
+      floatBack: floatBack.value,
       description: form.value.description,
     })
   } finally {
@@ -118,7 +124,7 @@ async function onSubmit() {
         <p class="mt-1 text-xs text-muted-foreground">{{ t('cashBook.floatBackHint') }}</p>
       </div>
 
-      <div v-if="form.float_back > 0" class="text-sm text-muted-foreground">
+      <div v-if="floatBack > 0" class="text-sm text-muted-foreground">
         {{ t('cashBook.netToBox') }}: {{ formatCurrency(netToBox) }}
       </div>
 
