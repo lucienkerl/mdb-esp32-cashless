@@ -45,6 +45,19 @@ BEGIN
     RAISE EXCEPTION 'not authenticated';
   END IF;
 
+  -- Barkasse muss der eigenen Firma gehören. Die INSERT-Policy prüft nur
+  -- company_id — und das setzt diese Funktion selbst aus my_company_id().
+  -- Ohne diese Prüfung ließe sich ein Eintrag in die hash-verkettete
+  -- Historie einer fremden Firma einhängen: für deren Eigentümerin
+  -- unsichtbar (ihr SELECT filtert auf company_id), aber Saldo und Kette
+  -- dauerhaft verschoben, weil der BEFORE-INSERT-Trigger entry_number und
+  -- balance_after aus genau dieser Kette ableitet.
+  PERFORM 1 FROM public.cash_books
+   WHERE id = p_cash_book_id AND company_id = v_company;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'cash book does not belong to this company';
+  END IF;
+
   IF p_counted IS NULL OR p_counted < 0 THEN
     RAISE EXCEPTION 'counted amount must be >= 0';
   END IF;

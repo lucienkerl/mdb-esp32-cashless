@@ -143,6 +143,7 @@ DECLARE
   v_machine uuid := gen_random_uuid();
   v_other_company uuid := gen_random_uuid();
   v_other_machine uuid := gen_random_uuid();
+  v_other_book uuid := gen_random_uuid();
   r jsonb; v_raised boolean; v_err text; v_balance float8; n int; n_after int;
 BEGIN
   INSERT INTO public.companies (id, name) VALUES (v_company, 'WithdrawRpcCo');
@@ -244,6 +245,28 @@ BEGIN
   ASSERT n_after = n,
     format('abgewiesener Aufruf darf keine Zeile hinterlassen: vorher %s, nachher %s', n, n_after);
   RAISE NOTICE 'Test 10 bestanden: fremder Automat abgewiesen';
+
+  -- ═══ Test 11: fremde Barkasse wird abgewiesen ════════════════════════════
+  -- Ohne diese Prüfung ließe sich ein Eintrag in die hash-verkettete
+  -- Historie einer fremden Firma einhängen.
+  INSERT INTO public.cash_books (id, company_id, name, initial_balance, created_by)
+    VALUES (v_other_book, v_other_company, 'FremdeKasse', 0, v_user);
+
+  SELECT count(*) INTO n FROM public.cash_book_entries WHERE cash_book_id = v_other_book;
+  v_err := '';
+  BEGIN
+    PERFORM public.record_cash_book_withdrawal(v_other_book, NULL, 10.00, 10.00, 0,
+                                               'Geldentnahme', NULL);
+  EXCEPTION WHEN others THEN
+    v_err := SQLERRM;
+  END;
+  ASSERT v_err LIKE '%cash book does not belong to this company%',
+    format('erwartet wurde die Barkassen-Firmenprüfung, kam aber: %s', v_err);
+
+  SELECT count(*) INTO n_after FROM public.cash_book_entries WHERE cash_book_id = v_other_book;
+  ASSERT n_after = n,
+    format('abgewiesener Aufruf darf keine Zeile hinterlassen: vorher %s, nachher %s', n, n_after);
+  RAISE NOTICE 'Test 11 bestanden: fremde Barkasse abgewiesen';
 
 END $$;
 
