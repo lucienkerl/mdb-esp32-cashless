@@ -1668,7 +1668,8 @@
     "floatBackHint": "Munten die je direct terug in de buizen hebt gedaan. De opname wordt nog steeds voor het volledige getelde bedrag geboekt.",
     "netToBox": "Netto naar de kas",
     "changeFloatEmpty": "Geen wisselgeld voorgeschoten",
-    "changeFloatUnavailable": "Je wisselgeldsaldo kon niet worden geladen"
+    "changeFloatUnavailable": "Je wisselgeldsaldo kon niet worden geladen",
+    "noAssignedMachineHint": "Aan deze kassa is geen automaat toegewezen. Wijs er eerst een toe."
   },
   "publicStorefront": {
     "online": "Online",

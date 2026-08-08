@@ -57,24 +57,30 @@ struct ChangeFloatSheet: View {
                 }
 
                 Section("cash_book_for_machine") {
-                    Picker("cash_book_for_machine", selection: $selectedMachineId) {
-                        Text("—").tag(UUID?.none)
-                        ForEach(assignedMachines) { m in
-                            Text(m.name ?? String(m.id.uuidString.prefix(8)))
-                                .tag(UUID?.some(m.id))
+                    if assignedMachines.isEmpty {
+                        Text("cash_book_no_assigned_machine_hint")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Picker("cash_book_for_machine", selection: $selectedMachineId) {
+                            Text("—").tag(UUID?.none)
+                            ForEach(assignedMachines) { m in
+                                Text(m.name ?? String(m.id.uuidString.prefix(8)))
+                                    .tag(UUID?.some(m.id))
+                            }
                         }
-                    }
-                    .labelsHidden()
+                        .labelsHidden()
 
-                    if selectedMachineId != nil {
-                        LabeledContent {
-                            Text(currentFloat, format: .currency(code: "EUR"))
-                                .monospacedDigit()
-                        } label: {
-                            Text("cash_book_total_change_float")
+                        if selectedMachineId != nil {
+                            LabeledContent {
+                                Text(currentFloat, format: .currency(code: "EUR"))
+                                    .monospacedDigit()
+                            } label: {
+                                Text("cash_book_total_change_float")
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                     }
                 }
 

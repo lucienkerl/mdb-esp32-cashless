@@ -138,6 +138,9 @@ function onSubmit() {
           </option>
         </select>
       </div>
+      <p v-else-if="machineRequired && assignedMachines.length === 0" class="text-xs text-muted-foreground">
+        {{ t('cashBook.noAssignedMachineHint') }}
+      </p>
 
       <div>
         <label class="text-sm font-medium">{{ t('cashBook.description') }}</label>

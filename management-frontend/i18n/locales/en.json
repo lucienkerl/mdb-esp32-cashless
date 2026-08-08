@@ -1865,7 +1865,8 @@
     "floatBackHint": "Coins you put straight back into the tubes. The withdrawal is still recorded for the full counted amount.",
     "netToBox": "Net into the box",
     "changeFloatEmpty": "No change float advanced",
-    "changeFloatUnavailable": "Your change float balance could not be loaded"
+    "changeFloatUnavailable": "Your change float balance could not be loaded",
+    "noAssignedMachineHint": "No machine is assigned to this cash register. Assign one first."
   },
   "publicStorefront": {
     "online": "Online",

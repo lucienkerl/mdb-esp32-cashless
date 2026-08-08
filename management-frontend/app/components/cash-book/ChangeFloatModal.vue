@@ -93,19 +93,24 @@ function onSubmit() {
 
       <div>
         <label class="text-sm font-medium">{{ t('cashBook.forMachine') }}</label>
-        <select
-          v-model="form.machine_id"
-          required
-          class="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        >
-          <option value="">—</option>
-          <option v-for="m in assignedMachines" :key="m.id" :value="m.id">
-            {{ m.name || m.id.slice(0, 8) }}
-          </option>
-        </select>
-        <p v-if="form.machine_id" class="mt-1 text-xs text-muted-foreground">
-          {{ t('cashBook.totalChangeFloat') }}: {{ formatCurrency(currentFloat) }}
+        <p v-if="assignedMachines.length === 0" class="mt-1 text-xs text-muted-foreground">
+          {{ t('cashBook.noAssignedMachineHint') }}
         </p>
+        <template v-else>
+          <select
+            v-model="form.machine_id"
+            required
+            class="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <option value="">—</option>
+            <option v-for="m in assignedMachines" :key="m.id" :value="m.id">
+              {{ m.name || m.id.slice(0, 8) }}
+            </option>
+          </select>
+          <p v-if="form.machine_id" class="mt-1 text-xs text-muted-foreground">
+            {{ t('cashBook.totalChangeFloat') }}: {{ formatCurrency(currentFloat) }}
+          </p>
+        </template>
       </div>
 
       <div>

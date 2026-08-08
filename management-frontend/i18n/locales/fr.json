@@ -1668,7 +1668,8 @@
     "floatBackHint": "Pièces remises directement dans les tubes. Le prélèvement reste enregistré pour le montant total compté.",
     "netToBox": "Net vers la caisse",
     "changeFloatEmpty": "Aucun fonds de monnaie avancé",
-    "changeFloatUnavailable": "Votre solde de fonds de monnaie n'a pas pu être chargé"
+    "changeFloatUnavailable": "Votre solde de fonds de monnaie n'a pas pu être chargé",
+    "noAssignedMachineHint": "Aucun distributeur n'est assigné à cette caisse. Assignez-en un d'abord."
   },
   "publicStorefront": {
     "online": "En ligne",

@@ -238,6 +238,15 @@ Deno.serve(async (req) => {
     )
   }
 
+  // Deleting a machine survives via cash_book_entries.machine_id ON DELETE
+  // SET NULL — the change_float booking stays, but loses its attribution.
+  // The balance card inner-joins vendingMachine, so it silently stops
+  // showing money that is still the operator's. Warn (non-blocking) when
+  // the machine still carries a non-zero advanced float.
+  if (resource === 'machines' && req.method === 'DELETE' && id) {
+    return proxyMachineDelete(req, url, route.table, id, keyInfo, adminClient)
+  }
+
   return proxyCrud(req, url, route.table, id, keyInfo)
 })
 
@@ -321,6 +330,60 @@ async function proxyCrud(
   } catch (err: any) {
     return errorResponse('internal_error', `Proxy error: ${err.message}`, 502)
   }
+}
+
+// ── Machine delete: non-blocking change-float warning ──────────────────────
+//
+// cash_book_entries.machine_id is ON DELETE SET NULL, so a change_float
+// booking survives a machine delete but loses its attribution — the balance
+// card (which inner-joins vendingMachine) silently stops showing an amount
+// that is still the operator's. This proxy looks the balance up before
+// deleting and, if non-zero, folds a warning into the response. The delete
+// itself is never blocked by this check.
+async function proxyMachineDelete(
+  req: Request,
+  url: URL,
+  table: string,
+  machineId: string,
+  keyInfo: { id: string; company_id: string },
+  adminClient: ReturnType<typeof createClient>,
+): Promise<Response> {
+  // Queried directly with the service-role adminClient rather than through
+  // get_machine_change_float(): that RPC authenticates via auth.uid() against
+  // organization_members, but the gateway's minted JWT carries the API key id
+  // as `sub` — it never matches a membership row, so the RPC would silently
+  // return NULL for every API-key caller. Summing the same rows the RPC uses
+  // (type = 'change_float', not reversed, this machine, this company)
+  // reproduces its balance exactly.
+  let floatBalance = 0
+  try {
+    const { data } = await adminClient
+      .from('cash_book_entries')
+      .select('amount')
+      .eq('machine_id', machineId)
+      .eq('company_id', keyInfo.company_id)
+      .eq('type', 'change_float')
+      .eq('is_reversed', false)
+    const sum = (data ?? []).reduce((acc: number, row: { amount: number }) => acc + row.amount, 0)
+    floatBalance = Math.round(-sum * 100) / 100
+  } catch {
+    // Best-effort only — a failed lookup must never block the delete itself.
+    floatBalance = 0
+  }
+
+  const response = await proxyCrud(req, url, table, machineId, keyInfo)
+
+  if (floatBalance !== 0 && response.status >= 200 && response.status < 300) {
+    const amountLabel = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(floatBalance)
+    return jsonResponse({
+      id: machineId,
+      deleted: true,
+      warning: `Diesem Automaten sind noch ${amountLabel} Wechselgeld vorgestreckt. Nach dem Löschen ist der Betrag nicht mehr zuzuordnen.`,
+      float_balance: floatBalance,
+    }, 200)
+  }
+
+  return response
 }
 
 // ── Action proxy ────────────────────────────────────────────────────────────

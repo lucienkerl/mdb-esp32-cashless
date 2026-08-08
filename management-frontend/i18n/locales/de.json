@@ -1865,7 +1865,8 @@
     "floatBackHint": "Münzen, die du direkt wieder in die Tuben gefüllt hast. Die Entnahme wird trotzdem über den vollen gezählten Betrag gebucht.",
     "netToBox": "Netto in die Kasse",
     "changeFloatEmpty": "Kein Wechselgeld vorgestreckt",
-    "changeFloatUnavailable": "Dein Wechselgeldbestand konnte nicht geladen werden"
+    "changeFloatUnavailable": "Dein Wechselgeldbestand konnte nicht geladen werden",
+    "noAssignedMachineHint": "Dieser Barkasse ist kein Automat zugeordnet. Ordne zuerst einen zu."
   },
   "publicStorefront": {
     "online": "Online",

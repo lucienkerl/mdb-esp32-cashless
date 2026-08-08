@@ -3984,6 +3984,35 @@
         }
       }
     },
+    "cash_book_no_assigned_machine_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Barkasse ist kein Automat zugeordnet. Ordne zuerst einen zu."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No machine is assigned to this cash book. Assign one first."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun distributeur n'est assigné à cette caisse. Assignez-en un d'abord."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aan dit kasboek is geen automaat toegewezen. Wijs er eerst een toe."
+          }
+        }
+      }
+    },
     "cash_book_full_amount": {
       "extractionState": "manual",
       "localizations": {

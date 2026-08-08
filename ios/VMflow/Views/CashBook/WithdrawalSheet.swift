@@ -151,6 +151,12 @@ struct WithdrawalSheet: View {
                         }
                         .labelsHidden()
                     }
+                } else if !isMultiMachine && machineRequired && assignedMachines.isEmpty {
+                    Section {
+                        Text("cash_book_no_assigned_machine_hint")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 if let errorMessage {
