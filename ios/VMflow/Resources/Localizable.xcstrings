@@ -3587,25 +3587,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nicht mehr zuzuordnen"
+            "value": "Nicht zuordenbar (Automat gelöscht)"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No longer attributable"
+            "value": "Unattributed (machine deleted)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Non attribuable"
+            "value": "Non attribuable (machine supprimée)"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Niet meer toewijsbaar"
+            "value": "Niet toewijsbaar (automaat verwijderd)"
           }
         }
       }
