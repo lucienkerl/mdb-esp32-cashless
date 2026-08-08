@@ -36,6 +36,11 @@ DECLARE
   v_book6 uuid := gen_random_uuid();
   v_book7 uuid := gen_random_uuid();
   v_book8 uuid := gen_random_uuid();
+  v_book9  uuid := gen_random_uuid();
+  v_book10 uuid := gen_random_uuid();
+
+  -- an v_book1 gebundener Automat, für die "fremde Kasse"-Tests (Fix 4)
+  v_machine_bound uuid := gen_random_uuid();
 
   r jsonb; res jsonb; v_err text;
   v_withdrawal1 uuid;
@@ -71,7 +76,15 @@ BEGIN
     (v_book5, v_company, 'Buch5 unveränderter Einzelfall', 0, v_user),
     (v_book6, v_company, 'Buch6 negativer Betrag',     0, v_user),
     (v_book7, v_company, 'Buch7 fehlender Automat',    0, v_user),
-    (v_book8, v_company, 'Buch8 leeres Array',         0, v_user);
+    (v_book8, v_company, 'Buch8 leeres Array',         0, v_user),
+    (v_book9, v_company, 'Buch9 fremde Kasse Einzelfall',  0, v_user),
+    (v_book10, v_company, 'Buch10 fremde Kasse Array',     0, v_user);
+
+  -- v_machine_bound gehört fest zu v_book1 — für die "Automat gehört
+  -- nicht zu dieser Kasse"-Tests (Fix 4). v_machine_a/b/c bleiben
+  -- absichtlich ohne cash_book_id, um den Nullable-Fall abzudecken.
+  INSERT INTO public."vendingMachine" (id, name, company, cash_book_id)
+    VALUES (v_machine_bound, 'Gebunden', v_company, v_book1);
 
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', v_user::text, 'role', 'authenticated')::text, true);
@@ -350,6 +363,64 @@ BEGIN
   SELECT count(*) INTO n_after FROM public.cash_book_entries WHERE cash_book_id = v_book8;
   ASSERT n_after = n, format('ein nicht-Array p_floats darf keine Zeile hinterlassen: vorher %s, nachher %s', n, n_after);
   RAISE NOTICE 'Test 10 bestanden: nicht-Array p_floats abgewiesen';
+
+  -- ═══ Test 11: Automat aus fremder Kasse wird im Einzelfall abgewiesen (Fix 4) ═
+  -- v_machine_bound gehört zu v_book1, nicht zu v_book9.
+  SELECT count(*) INTO n FROM public.cash_book_entries WHERE cash_book_id = v_book9;
+  v_err := '';
+  BEGIN
+    PERFORM public.record_cash_book_withdrawal(
+      v_book9, v_machine_bound, 50.00, 50.00, 0, 'Entnahme', NULL
+    );
+  EXCEPTION WHEN others THEN
+    v_err := SQLERRM;
+  END;
+  ASSERT v_err LIKE '%machine does not belong to this cash book%',
+    format('erwartet die Barkassen-Zugehörigkeitsprüfung, kam aber: %s', v_err);
+  SELECT count(*) INTO n_after FROM public.cash_book_entries WHERE cash_book_id = v_book9;
+  ASSERT n_after = n, 'ein Automat aus fremder Kasse darf keine Zeile hinterlassen (Einzelfall)';
+  RAISE NOTICE 'Test 11 bestanden: Automat aus fremder Kasse im Einzelfall abgewiesen';
+
+  -- ═══ Test 12: Automat aus fremder Kasse mittendrin im Array wird abgewiesen (Fix 4) ═
+  SELECT count(*) INTO n FROM public.cash_book_entries WHERE cash_book_id = v_book10;
+  v_err := '';
+  BEGIN
+    PERFORM public.record_cash_book_withdrawal(
+      v_book10, NULL, 60.00, 60.00, 0, 'Tour-Entnahme', 'Rücklage',
+      jsonb_build_array(
+        jsonb_build_object('machine_id', v_machine_a, 'amount', 10.00),
+        jsonb_build_object('machine_id', v_machine_bound, 'amount', 5.00)
+      )
+    );
+  EXCEPTION WHEN others THEN
+    v_err := SQLERRM;
+  END;
+  ASSERT v_err LIKE '%machine does not belong to this cash book%',
+    format('erwartet die Barkassen-Zugehörigkeitsprüfung im Array, kam aber: %s', v_err);
+  SELECT count(*) INTO n_after FROM public.cash_book_entries WHERE cash_book_id = v_book10;
+  ASSERT n_after = n,
+    format('ein Automat aus fremder Kasse im Array darf keine Teilbuchung hinterlassen: vorher %s, nachher %s',
+           n, n_after);
+  RAISE NOTICE 'Test 12 bestanden: Automat aus fremder Kasse im Array abgewiesen, keine Teilbuchung';
+
+  -- ═══ Test 13: Automat ohne Kassenbindung bleibt buchbar (Einzelfall, Fix 4) ═
+  -- v_machine_a hat cash_book_id = NULL — nur eine GESETZTE, abweichende
+  -- Bindung darf abgewiesen werden, NULL muss weiterhin überall buchbar sein.
+  r := public.record_cash_book_withdrawal(
+    v_book10, v_machine_a, 20.00, 20.00, 0, 'Entnahme ohne Kassenbindung', NULL
+  );
+  ASSERT r->>'withdrawal_entry_id' IS NOT NULL,
+    'ein Automat ohne Kassenbindung muss weiterhin buchbar sein (Einzelfall)';
+  RAISE NOTICE 'Test 13 bestanden: Automat ohne Kassenbindung akzeptiert (Einzelfall)';
+
+  -- ═══ Test 14: Automat ohne Kassenbindung bleibt buchbar (Array, Fix 4) ══
+  r := public.record_cash_book_withdrawal(
+    v_book10, NULL, 15.00, 15.00, 0, 'Tour-Entnahme', 'Rücklage',
+    jsonb_build_array(jsonb_build_object('machine_id', v_machine_c, 'amount', 5.00))
+  );
+  ASSERT jsonb_array_length(r->'change_float_entry_ids') = 1,
+    'ein Automat ohne Kassenbindung muss weiterhin buchbar sein (Array)';
+  RAISE NOTICE 'Test 14 bestanden: Automat ohne Kassenbindung akzeptiert (Array)';
 
 END $$;
 
