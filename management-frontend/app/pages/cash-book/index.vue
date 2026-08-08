@@ -65,6 +65,9 @@ const deleting = ref(false)
 const reversalLoading = ref(false)
 const withdrawalSubmitting = ref(false)
 const changeFloatSubmitting = ref(false)
+const bankDepositSubmitting = ref(false)
+const correctionSubmitting = ref(false)
+const expenseSubmitting = ref(false)
 
 const reversalTarget = ref<CashBookEntry | null>(null)
 
@@ -150,6 +153,7 @@ const assignedMachines = computed(() =>
 // ── Action handlers ──────────────────────────────────────────────────────────
 
 async function openWithdrawal() {
+  errorMessage.value = null
   if (selectedCashBook.value) {
     await Promise.all([
       fetchTheoreticalCash(selectedCashBook.value.id),
@@ -166,6 +170,7 @@ async function onWithdrawalSubmit(payload: {
   expected: number
   machineId: string | null
   floatBack: number
+  floats: { machineId: string; amount: number }[]
   description: string
 }) {
   if (!selectedCashBook.value) return
@@ -177,9 +182,13 @@ async function onWithdrawalSubmit(payload: {
       counted: payload.counted,
       expected: payload.expected,
       float_back: payload.floatBack,
+      floats: payload.floats.map(f => ({ machine_id: f.machineId, amount: f.amount })),
       description: payload.description,
       float_description: t('cashBook.changeFloatIn'),
     })
+    // Der Schreibvorgang ist bereits committet, sobald recordWithdrawal
+    // zurückkehrt — ein Refetch-Fehler danach wird intern abgefangen und
+    // darf den Dialog nicht offen halten (sonst bucht ein Retry doppelt).
     showWithdrawalModal.value = false
   } catch (err: any) {
     errorMessage.value = err.message
@@ -190,6 +199,7 @@ async function onWithdrawalSubmit(payload: {
 
 async function onBankDepositSubmit(payload: { amount: number; description: string }) {
   if (!selectedCashBook.value) return
+  bankDepositSubmitting.value = true
   try {
     await createEntry({
       cash_book_id: selectedCashBook.value.id,
@@ -200,11 +210,14 @@ async function onBankDepositSubmit(payload: { amount: number; description: strin
     showPayoutModal.value = false
   } catch (err: any) {
     errorMessage.value = err.message
+  } finally {
+    bankDepositSubmitting.value = false
   }
 }
 
 async function onCorrectionSubmit(payload: { amount: number; description: string }) {
   if (!selectedCashBook.value) return
+  correctionSubmitting.value = true
   try {
     await createEntry({
       cash_book_id: selectedCashBook.value.id,
@@ -215,11 +228,14 @@ async function onCorrectionSubmit(payload: { amount: number; description: string
     showCorrectionModal.value = false
   } catch (err: any) {
     errorMessage.value = err.message
+  } finally {
+    correctionSubmitting.value = false
   }
 }
 
 async function onExpenseSubmit(payload: { amount: number; category: string; receiptReference: string; description: string }) {
   if (!selectedCashBook.value) return
+  expenseSubmitting.value = true
   try {
     await createEntry({
       cash_book_id: selectedCashBook.value.id,
@@ -232,10 +248,28 @@ async function onExpenseSubmit(payload: { amount: number; category: string; rece
     showExpenseModal.value = false
   } catch (err: any) {
     errorMessage.value = err.message
+  } finally {
+    expenseSubmitting.value = false
   }
 }
 
+function openBankDeposit() {
+  errorMessage.value = null
+  showPayoutModal.value = true
+}
+
+function openCorrection() {
+  errorMessage.value = null
+  showCorrectionModal.value = true
+}
+
+function openExpense() {
+  errorMessage.value = null
+  showExpenseModal.value = true
+}
+
 async function openChangeFloat() {
+  errorMessage.value = null
   if (allMachines.value.length === 0) await fetchAllMachines()
   showChangeFloatModal.value = true
 }
@@ -261,6 +295,7 @@ async function onChangeFloatSubmit(payload: { amount: number; machineId: string;
 }
 
 function openReversalConfirm(entry: CashBookEntry) {
+  errorMessage.value = null
   reversalTarget.value = entry
   showReversalConfirm.value = true
 }
@@ -501,7 +536,7 @@ async function exportPdf() {
         :cash-book-id="selectedCashBook.id"
         :change-float-unavailable="changeFloatUnavailable"
         @withdraw="openWithdrawal"
-        @deposit="showPayoutModal = true"
+        @deposit="openBankDeposit"
       />
 
       <!-- Error message -->
@@ -515,8 +550,8 @@ async function exportPdf() {
 
       <!-- Secondary toolbar -->
       <CashBookSecondaryToolbar
-        @expense="showExpenseModal = true"
-        @correction="showCorrectionModal = true"
+        @expense="openExpense"
+        @correction="openCorrection"
         @change-float="openChangeFloat"
         @manage-machines="openAssignModal"
         @export-pdf="exportPdf"
@@ -571,26 +606,35 @@ async function exportPdf() {
       :assigned-machines="assignedMachines"
       :track-per-machine="selectedCashBook?.track_per_machine ?? false"
       :submitting="withdrawalSubmitting"
+      :error="errorMessage"
       @submit="onWithdrawalSubmit"
     />
     <CashBookBankDepositModal
       v-model:open="showPayoutModal"
       :current-balance="currentBalance"
+      :submitting="bankDepositSubmitting"
+      :error="errorMessage"
       @submit="onBankDepositSubmit"
     />
     <CashBookCorrectionModal
       v-model:open="showCorrectionModal"
+      :submitting="correctionSubmitting"
+      :error="errorMessage"
       @submit="onCorrectionSubmit"
     />
     <CashBookExpenseModal
       v-model:open="showExpenseModal"
+      :submitting="expenseSubmitting"
+      :error="errorMessage"
       @submit="onExpenseSubmit"
     />
     <CashBookChangeFloatModal
       v-model:open="showChangeFloatModal"
       :assigned-machines="assignedMachines"
       :change-float="changeFloat"
+      :change-float-unavailable="changeFloatUnavailable"
       :submitting="changeFloatSubmitting"
+      :error="errorMessage"
       @submit="onChangeFloatSubmit"
     />
     <CashBookReversalModal
@@ -598,6 +642,7 @@ async function exportPdf() {
       :entry="reversalTarget"
       :entries="entries"
       :loading="reversalLoading"
+      :error="errorMessage"
       @confirm="submitReversal"
     />
     <CashBookAssignMachinesModal

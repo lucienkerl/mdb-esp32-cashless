@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { IconAlertTriangle } from '@tabler/icons-vue'
 import { formatCurrency } from '@/lib/utils'
 import {
   changeFloatAmount,
@@ -12,7 +13,13 @@ const props = defineProps<{
   open: boolean
   assignedMachines: VendingMachineBasic[]
   changeFloat: MachineChangeFloat[]
+  /** True when the balance couldn't be loaded (RPC error/null) — mirrors
+   *  the balance card's `unavailable` flag. Without this, "we don't know"
+   *  silently renders as "0,00 €", the stronger claim "nothing advanced",
+   *  which then triggers a spurious over-return warning below. */
+  changeFloatUnavailable: boolean
   submitting: boolean
+  error?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -37,9 +44,12 @@ const currentFloat = computed(() =>
 )
 
 /** Warnung, wenn mehr zurückgenommen wird als vorgestreckt wurde. Blockiert
- *  nicht — eine Buchung, die die Realität abbildet, wird nie verweigert. */
+ *  nicht — eine Buchung, die die Realität abbildet, wird nie verweigert.
+ *  Unterdrückt, wenn der Bestand nicht geladen werden konnte — sonst würde
+ *  eine unbekannte (nicht: null) Rücklage einen falschen Alarm auslösen. */
 const showNegativeWarning = computed(() =>
-  form.value.direction === 'back_to_box'
+  !props.changeFloatUnavailable
+  && form.value.direction === 'back_to_box'
   && form.value.amount > 0
   && form.value.amount > currentFloat.value + 0.001,
 )
@@ -107,7 +117,11 @@ function onSubmit() {
               {{ m.name || m.id.slice(0, 8) }}
             </option>
           </select>
-          <p v-if="form.machine_id" class="mt-1 text-xs text-muted-foreground">
+          <p v-if="form.machine_id && changeFloatUnavailable" class="mt-1 flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+            <IconAlertTriangle class="size-3.5 shrink-0" />
+            {{ t('cashBook.changeFloatUnavailable') }}
+          </p>
+          <p v-else-if="form.machine_id" class="mt-1 text-xs text-muted-foreground">
             {{ t('cashBook.totalChangeFloat') }}: {{ formatCurrency(currentFloat) }}
           </p>
         </template>
@@ -133,6 +147,10 @@ function onSubmit() {
           type="text"
           class="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
+      </div>
+
+      <div v-if="error" class="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
+        {{ error }}
       </div>
 
       <div class="flex justify-end gap-2">

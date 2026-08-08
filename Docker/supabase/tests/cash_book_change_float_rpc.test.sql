@@ -270,4 +270,92 @@ BEGIN
 
 END $$;
 
+-- ═════════════════════════════════════════════════════════════════════════
+-- get_machine_change_float: gelöschter Automat (20260807000700)
+-- ═════════════════════════════════════════════════════════════════════════
+
+DO $$
+DECLARE
+  v_company       uuid := gen_random_uuid();
+  v_user          uuid := gen_random_uuid();
+  v_book          uuid := gen_random_uuid();
+  v_machine       uuid := gen_random_uuid();
+  v_other_company uuid := gen_random_uuid();
+  v_other_machine uuid := gen_random_uuid();
+  r jsonb; a float8; n int; v_elem jsonb;
+BEGIN
+  INSERT INTO public.companies (id, name) VALUES (v_company, 'OrphanFloatCo');
+
+  INSERT INTO auth.users (id, instance_id, email, created_at)
+    VALUES (v_user, '00000000-0000-0000-0000-000000000000', 'orphanfloat@test.local', now());
+  INSERT INTO public.users (id, company, email)
+    VALUES (v_user, v_company, 'orphanfloat@test.local')
+    ON CONFLICT (id) DO UPDATE SET company = EXCLUDED.company, email = EXCLUDED.email;
+  INSERT INTO public.organization_members (company_id, user_id, role)
+    VALUES (v_company, v_user, 'admin');
+
+  INSERT INTO public.cash_books (id, company_id, name, initial_balance, created_by)
+    VALUES (v_book, v_company, 'OrphanKasse', 0, v_user);
+
+  INSERT INTO public."vendingMachine" (id, name, company, cash_book_id)
+    VALUES (v_machine, 'ZuLoeschen', v_company, v_book);
+
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', v_user::text, 'role', 'authenticated')::text, true);
+
+  -- ═══ Test 12: Automat mit vorgestrecktem Float wird gelöscht ════════════
+  INSERT INTO public.cash_book_entries
+    (cash_book_id, company_id, type, amount, machine_id, created_by)
+    VALUES (v_book, v_company, 'change_float', -200, v_machine, v_user);
+
+  r := public.get_machine_change_float(v_company);
+  SELECT (e->>'float_balance')::float8 INTO a
+    FROM jsonb_array_elements(r) e WHERE (e->>'machine_id')::uuid = v_machine;
+  ASSERT a = 200, format('vor dem Löschen erwartet 200, war %s', a);
+
+  -- machine_id trägt REFERENCES vendingMachine(id) ON DELETE SET NULL —
+  -- die Buchungszeile bleibt bestehen, nur ihre machine_id wird NULL.
+  DELETE FROM public."vendingMachine" WHERE id = v_machine;
+
+  r := public.get_machine_change_float(v_company);
+  RAISE NOTICE 'Bestand nach Löschung: %', r;
+
+  SELECT count(*) INTO n FROM jsonb_array_elements(r) e;
+  ASSERT n = 1,
+    format('nach der Löschung wird genau ein nicht zuordenbarer Posten erwartet, waren %s Zeilen', n);
+
+  SELECT e INTO v_elem FROM jsonb_array_elements(r) e LIMIT 1;
+  ASSERT v_elem->'machine_id' = 'null'::jsonb,
+    format('machine_id des nicht zuordenbaren Postens erwartet null, war %s', v_elem->'machine_id');
+  ASSERT v_elem->'machine_name' = 'null'::jsonb,
+    format('machine_name des nicht zuordenbaren Postens erwartet null, war %s', v_elem->'machine_name');
+  ASSERT (v_elem->>'float_balance')::float8 = 200,
+    format('Betrag des nicht zuordenbaren Postens erwartet 200, war %s', v_elem->>'float_balance');
+  RAISE NOTICE 'Test 12 bestanden: Float eines gelöschten Automaten bleibt als nicht zuordenbarer Posten sichtbar';
+
+  -- ═══ Test 13: eine machine_id einer fremden Firma bleibt ausgeschlossen ═
+  -- Regressionsschutz für die in der ON-Bedingung verschobene
+  -- vm.company-Prüfung: ein fremder, aber weiterhin existierender Automat
+  -- darf nicht als "nicht zuordenbar" durchrutschen und seine UUID leaken.
+  INSERT INTO public.companies (id, name) VALUES (v_other_company, 'FremdeFloatFirma');
+  INSERT INTO public."vendingMachine" (id, name, company)
+    VALUES (v_other_machine, 'FremdAutomat', v_other_company);
+
+  INSERT INTO public.cash_book_entries
+    (cash_book_id, company_id, type, amount, machine_id, created_by)
+    VALUES (v_book, v_company, 'change_float', -75, v_other_machine, v_user);
+
+  r := public.get_machine_change_float(v_company);
+  SELECT count(*) INTO n
+    FROM jsonb_array_elements(r) e WHERE (e->>'machine_id')::uuid = v_other_machine;
+  ASSERT n = 0, format('fremder Automat darf nicht auftauchen, gefunden %s', n);
+
+  -- Weiterhin nur der eine nicht zuordenbare Posten aus Test 12.
+  SELECT count(*) INTO n FROM jsonb_array_elements(r) e;
+  ASSERT n = 1,
+    format('weiterhin nur der nicht zuordenbare Posten erwartet, waren %s Zeilen', n);
+  RAISE NOTICE 'Test 13 bestanden: fremder, weiterhin existierender Automat bleibt ausgeschlossen';
+
+END $$;
+
 ROLLBACK;

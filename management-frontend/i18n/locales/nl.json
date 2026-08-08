@@ -1622,7 +1622,7 @@
     "createCorrectionYes": "Correctie aanmaken",
     "reversalConfirmTitle": "Boeking terugboeken",
     "reversalConfirmMessage": "Boeking #{number} terugboeken? Dit maakt een tegenboeking aan en kan niet ongedaan gemaakt worden.",
-    "reversalIncludesPaired": "De bijbehorende wisselgeldboeking wordt mee teruggeboekt.",
+    "reversalIncludesPaired": "De bijbehorende wisselgeldboeking wordt mee teruggeboekt. | De {count} bijbehorende wisselgeldboekingen worden mee teruggeboekt.",
     "deleteCashBook": "Kassa verwijderen",
     "deleteWarning": "Waarschuwing: deze actie kan niet ongedaan gemaakt worden!",
     "deleteWarningEntries": "Alle {count} boekingen worden definitief verwijderd",
@@ -1669,7 +1669,8 @@
     "netToBox": "Netto naar de kas",
     "changeFloatEmpty": "Geen wisselgeld voorgeschoten",
     "changeFloatUnavailable": "Je wisselgeldsaldo kon niet worden geladen",
-    "noAssignedMachineHint": "Aan deze kassa is geen automaat toegewezen. Wijs er eerst een toe."
+    "noAssignedMachineHint": "Aan deze kassa is geen automaat toegewezen. Wijs er eerst een toe.",
+    "changeFloatOrphaned": "Niet toewijsbaar (automaat verwijderd)"
   },
   "publicStorefront": {
     "online": "Online",

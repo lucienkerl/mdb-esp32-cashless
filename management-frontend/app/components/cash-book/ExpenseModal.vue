@@ -3,6 +3,8 @@ import { EXPENSE_CATEGORIES } from '@/composables/useCashBook'
 
 const props = defineProps<{
   open: boolean
+  submitting: boolean
+  error?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -18,7 +20,6 @@ const form = ref({
   receipt_reference: '',
   description: '',
 })
-const loading = ref(false)
 
 const needsDescription = computed(() => form.value.category === 'other')
 const canSubmit = computed(() =>
@@ -37,19 +38,14 @@ watch(() => props.open, (now) => {
   }
 })
 
-async function onSubmit() {
+function onSubmit() {
   if (!canSubmit.value) return
-  loading.value = true
-  try {
-    emit('submit', {
-      amount: form.value.amount,
-      category: form.value.category,
-      receiptReference: form.value.receipt_reference.trim(),
-      description: form.value.description.trim(),
-    })
-  } finally {
-    loading.value = false
-  }
+  emit('submit', {
+    amount: form.value.amount,
+    category: form.value.category,
+    receiptReference: form.value.receipt_reference.trim(),
+    description: form.value.description.trim(),
+  })
 }
 </script>
 
@@ -105,13 +101,17 @@ async function onSubmit() {
         />
       </div>
 
+      <div v-if="error" class="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
+        {{ error }}
+      </div>
+
       <div class="flex justify-end gap-2">
         <button type="button" class="h-9 rounded-md border border-input px-4 text-sm font-medium hover:bg-accent" @click="emit('update:open', false)">
           {{ t('common.cancel') }}
         </button>
-        <button type="submit" :disabled="loading || !canSubmit"
+        <button type="submit" :disabled="submitting || !canSubmit"
                 class="h-9 rounded-md bg-amber-600 px-4 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50">
-          {{ loading ? t('common.loading') : t('cashBook.bookEntry') }}
+          {{ submitting ? t('common.loading') : t('cashBook.bookEntry') }}
         </button>
       </div>
     </form>

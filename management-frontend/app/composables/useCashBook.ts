@@ -68,9 +68,12 @@ export type ExpenseCategory = typeof EXPENSE_CATEGORIES[number]
 export type ChangeFloatDirection = 'into_machine' | 'back_to_box'
 
 /** Eine Zeile aus `get_machine_change_float` — vorgestrecktes Wechselgeld
- *  je (Automat, Barkasse). */
+ *  je (Automat, Barkasse). `machine_id`/`machine_name` sind beide null,
+ *  wenn der Automat inzwischen gelöscht wurde (ON DELETE SET NULL) — die
+ *  Zeile bleibt als nicht zuordenbarer Sammelposten sichtbar, statt aus
+ *  dem Bestand zu verschwinden. */
 export interface MachineChangeFloat {
-  machine_id: string
+  machine_id: string | null
   machine_name: string | null
   cash_book_id: string
   float_balance: number
@@ -335,9 +338,17 @@ export function useCashBook() {
       category: entry.category ?? null,
     })
 
-    // Refresh entries and theoretical cash
-    await fetchEntries(entry.cash_book_id)
-    await fetchTheoreticalCash(entry.cash_book_id)
+    // Refresh entries and theoretical cash. Best-effort: the write already
+    // committed above — a network blip here must not be reported as if the
+    // write itself had failed, or the caller's dialog stays open and the
+    // operator retries, booking the entry twice into an immutable ledger.
+    // The next load (page mount, pull-to-refresh) repairs any staleness.
+    try {
+      await fetchEntries(entry.cash_book_id)
+      await fetchTheoreticalCash(entry.cash_book_id)
+    } catch (err) {
+      console.warn('cash book refresh after write failed:', err)
+    }
 
     return data as CashBookEntry
   }
@@ -390,7 +401,15 @@ export function useCashBook() {
   }
 
   /** Bucht eine Entnahme, optional mit Wechselgeld-Rücklage in die Münztuben.
-   *  Beide Zeilen entstehen serverseitig in einer Transaktion. */
+   *  Beide Zeilen entstehen serverseitig in einer Transaktion.
+   *
+   *  `floats` deckt den Mehrfach-Automaten-Fall ab (mirror von iOS'
+   *  `floats: [UUID: Double]`): eine Rücklage je besuchtem Automaten statt
+   *  eines einzelnen Betrags auf genau einem. Es geht ausschließlich über
+   *  `p_floats` — `float_back` bleibt dann 0, die RPC lehnt beide Wege
+   *  gleichzeitig ab. Nullbeträge werden vor dem Senden herausgefiltert;
+   *  ein leeres Array lässt den Parameter ganz weg (matcht iOS' `nil` bei
+   *  leerem `floatEntries`) statt ein `[]` zu senden. */
   async function recordWithdrawal(payload: {
     cash_book_id: string
     machine_id: string | null
@@ -399,21 +418,33 @@ export function useCashBook() {
     float_back: number
     description: string
     float_description: string
+    floats?: { machine_id: string; amount: number }[]
   }) {
+    const floats = (payload.floats ?? []).filter(f => f.amount > 0)
+
+    const rpcParams: Record<string, unknown> = {
+      p_cash_book_id: payload.cash_book_id,
+      p_machine_id: payload.machine_id,
+      p_counted: payload.counted,
+      p_expected: payload.expected,
+      p_float_back: payload.float_back,
+      p_description: payload.description,
+      p_float_description: payload.float_description,
+    }
+    if (floats.length > 0) {
+      rpcParams.p_floats = floats.map(f => ({ machine_id: f.machine_id, amount: f.amount }))
+    }
+
     const { data, error } = await (supabase as any)
-      .rpc('record_cash_book_withdrawal', {
-        p_cash_book_id: payload.cash_book_id,
-        p_machine_id: payload.machine_id,
-        p_counted: payload.counted,
-        p_expected: payload.expected,
-        p_float_back: payload.float_back,
-        p_description: payload.description,
-        p_float_description: payload.float_description,
-      })
+      .rpc('record_cash_book_withdrawal', rpcParams)
 
     if (error) throw error
 
-    const result = data as { withdrawal_entry_id: string; change_float_entry_id: string | null }
+    const result = data as {
+      withdrawal_entry_id: string
+      change_float_entry_id: string | null
+      change_float_entry_ids?: string[] | null
+    }
 
     await logActivity('cash_book_entry_created', result.withdrawal_entry_id, {
       cash_book_id: payload.cash_book_id,
@@ -433,9 +464,36 @@ export function useCashBook() {
       })
     }
 
-    await fetchEntries(payload.cash_book_id)
-    await fetchTheoreticalCash(payload.cash_book_id)
-    await fetchChangeFloat()
+    // Mehrfach-Automaten-Fall: die RPC legt `change_float_entry_ids` in
+    // derselben Reihenfolge an, in der `p_floats` durchlaufen wurde — also
+    // derselben Reihenfolge wie `floats` hier. Ein Log-Eintrag je Zeile,
+    // sonst erreicht nur die erste Barkassen-Rücklage die Aktivitäten.
+    if (result.change_float_entry_ids && result.change_float_entry_ids.length > 0) {
+      for (let i = 0; i < result.change_float_entry_ids.length; i++) {
+        const id = result.change_float_entry_ids[i]
+        const f = floats[i]
+        if (!id || !f) continue
+        await logActivity('cash_book_entry_created', id, {
+          cash_book_id: payload.cash_book_id,
+          type: 'change_float',
+          amount: -Math.abs(f.amount),
+          description: payload.float_description,
+          category: null,
+        })
+      }
+    }
+
+    // Best-effort: die Buchung ist bereits committet — ein Refetch-Fehler
+    // darf nicht als fehlgeschlagene Buchung gemeldet werden (siehe
+    // createEntry). Der Dialog schließt trotzdem, die nächste Ladung
+    // holt Entnahme + Bestand nach.
+    try {
+      await fetchEntries(payload.cash_book_id)
+      await fetchTheoreticalCash(payload.cash_book_id)
+      await fetchChangeFloat()
+    } catch (err) {
+      console.warn('cash book refresh after write failed:', err)
+    }
 
     return result
   }
@@ -450,7 +508,11 @@ export function useCashBook() {
 
     if (error) throw error
 
-    const result = data as { reversal_entry_id: string; paired_reversal_entry_id: string | null }
+    const result = data as {
+      reversal_entry_id: string
+      paired_reversal_entry_id: string | null
+      paired_reversal_entry_ids?: string[] | null
+    }
 
     // Erst aktualisieren, dann loggen: der BEFORE-INSERT-Trigger überschreibt
     // amount/description serverseitig (negierter Originalbetrag bzw.
@@ -462,7 +524,12 @@ export function useCashBook() {
       await fetchChangeFloat()
     }
 
-    const reversalIds = [result.reversal_entry_id, result.paired_reversal_entry_id].filter(
+    // `paired_reversal_entry_ids` enthält bereits alle Gegenbuchungen
+    // (inklusive der, die früher allein in `paired_reversal_entry_id`
+    // stand) — eine Mehrfach-Float-Entnahme kann mehrere Gegenzeilen haben.
+    // Nur das Array verwenden, sonst würde die erste Gegenbuchung doppelt
+    // geloggt.
+    const reversalIds = [result.reversal_entry_id, ...(result.paired_reversal_entry_ids ?? [])].filter(
       (id): id is string => id !== null && id !== undefined,
     )
 

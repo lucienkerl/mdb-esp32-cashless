@@ -1,6 +1,8 @@
 <script setup lang="ts">
 const props = defineProps<{
   open: boolean
+  submitting: boolean
+  error?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -11,20 +13,14 @@ const emit = defineEmits<{
 const { t } = useI18n()
 
 const form = ref({ amount: 0, description: '' })
-const loading = ref(false)
 
 watch(() => props.open, (now) => {
   if (now) form.value = { amount: 0, description: '' }
 })
 
-async function onSubmit() {
+function onSubmit() {
   if (!form.value.description.trim() || form.value.amount === 0) return
-  loading.value = true
-  try {
-    emit('submit', { amount: form.value.amount, description: form.value.description })
-  } finally {
-    loading.value = false
-  }
+  emit('submit', { amount: form.value.amount, description: form.value.description })
 }
 </script>
 
@@ -53,13 +49,16 @@ async function onSubmit() {
           class="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
       </div>
+      <div v-if="error" class="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
+        {{ error }}
+      </div>
       <div class="flex justify-end gap-2">
         <button type="button" class="h-9 rounded-md border border-input px-4 text-sm font-medium hover:bg-accent" @click="emit('update:open', false)">
           {{ t('common.cancel') }}
         </button>
-        <button type="submit" :disabled="loading || form.amount === 0"
+        <button type="submit" :disabled="submitting || form.amount === 0"
                 class="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
-          {{ loading ? t('common.loading') : t('cashBook.recordCorrection') }}
+          {{ submitting ? t('common.loading') : t('cashBook.recordCorrection') }}
         </button>
       </div>
     </form>

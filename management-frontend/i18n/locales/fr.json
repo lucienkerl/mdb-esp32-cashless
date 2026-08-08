@@ -1622,7 +1622,7 @@
     "createCorrectionYes": "Créer une correction",
     "reversalConfirmTitle": "Extourner l'écriture",
     "reversalConfirmMessage": "Extourner l'écriture n°{number} ? Cela crée une contre-écriture et est irréversible.",
-    "reversalIncludesPaired": "L'écriture de fonds de caisse associée sera également extournée.",
+    "reversalIncludesPaired": "L'écriture de fonds de caisse associée sera également extournée. | Les {count} écritures de fonds de caisse associées seront également extournées.",
     "deleteCashBook": "Supprimer la caisse",
     "deleteWarning": "Attention : cette action est irréversible !",
     "deleteWarningEntries": "Les {count} écritures seront définitivement supprimées",
@@ -1669,7 +1669,8 @@
     "netToBox": "Net vers la caisse",
     "changeFloatEmpty": "Aucun fonds de monnaie avancé",
     "changeFloatUnavailable": "Votre solde de fonds de monnaie n'a pas pu être chargé",
-    "noAssignedMachineHint": "Aucun distributeur n'est assigné à cette caisse. Assignez-en un d'abord."
+    "noAssignedMachineHint": "Aucun distributeur n'est assigné à cette caisse. Assignez-en un d'abord.",
+    "changeFloatOrphaned": "Non attribuable (machine supprimée)"
   },
   "publicStorefront": {
     "online": "En ligne",

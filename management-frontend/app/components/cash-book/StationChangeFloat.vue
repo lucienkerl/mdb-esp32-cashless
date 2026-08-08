@@ -22,18 +22,28 @@ const scoped = computed(() => props.changeFloat.filter(row => row.cash_book_id =
 
 const total = computed(() => totalChangeFloat(scoped.value))
 
+/** Sentinel-Key für Zeilen mit machine_id = null (Automat gelöscht) — echte
+ *  Automaten-IDs sind UUIDs und können damit nicht kollidieren. */
+const ORPHANED_KEY = '__orphaned__'
+
 /** Je Automat summiert — ein Automat kann in mehreren Barkassen Zeilen haben,
- *  aber nach der cashBookId-Filterung oben bleibt hier nur die ausgewählte. */
+ *  aber nach der cashBookId-Filterung oben bleibt hier nur die ausgewählte.
+ *  Zeilen ohne machine_id (Automat inzwischen gelöscht) fallen alle unter
+ *  denselben Sammel-Key und werden zu einem nicht zuordenbaren Posten
+ *  summiert, statt beim ersten Zugriff auf `machine_id.slice()` zu crashen. */
 const perMachine = computed(() => {
-  const byId = new Map<string, { id: string; name: string; balance: number }>()
+  const byId = new Map<string, { id: string | null; name: string; balance: number }>()
   for (const row of scoped.value) {
-    const existing = byId.get(row.machine_id)
+    const key = row.machine_id ?? ORPHANED_KEY
+    const existing = byId.get(key)
     if (existing) {
       existing.balance += row.float_balance
     } else {
-      byId.set(row.machine_id, {
+      byId.set(key, {
         id: row.machine_id,
-        name: row.machine_name || row.machine_id.slice(0, 8),
+        name: row.machine_id
+          ? (row.machine_name || row.machine_id.slice(0, 8))
+          : t('cashBook.changeFloatOrphaned'),
         balance: row.float_balance,
       })
     }
@@ -64,7 +74,7 @@ const perMachine = computed(() => {
       <div v-else class="space-y-0.5">
         <div
           v-for="m in perMachine"
-          :key="m.id"
+          :key="m.id ?? 'orphaned'"
           class="flex items-center justify-between text-xs text-muted-foreground"
         >
           <span>{{ m.name }}</span>
