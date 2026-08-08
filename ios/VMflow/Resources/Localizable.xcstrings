@@ -2981,6 +2981,35 @@
         }
       }
     },
+    "cash_book_amount_invalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültiger Betrag. Bitte prüfe die Eingabe."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid amount. Please check the value."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Montant invalide. Vérifiez la valeur."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ongeldig bedrag. Controleer de invoer."
+          }
+        }
+      }
+    },
     "cash_book_amount_to_bank": {
       "extractionState": "manual",
       "localizations": {
@@ -3923,6 +3952,35 @@
           "stringUnit": {
             "state": "translated",
             "value": "Munten die je direct terug in de buizen hebt gedaan. De opname wordt nog steeds voor het volledige getelde bedrag geboekt."
+          }
+        }
+      }
+    },
+    "cash_book_float_breakdown_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Aufteilung nach Automat konnte nicht geladen werden. Diese Entnahme wird ohne Wechselgeld-Rücklage gebucht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The per-machine breakdown couldn't be loaded. This withdrawal will be recorded without a change float."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La répartition par distributeur n'a pas pu être chargée. Ce prélèvement sera enregistré sans dotation de fonds de monnaie."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De verdeling per automaat kon niet worden geladen. Deze opname wordt geboekt zonder wisselgeld-reservering."
           }
         }
       }

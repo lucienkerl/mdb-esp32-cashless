@@ -250,6 +250,22 @@ final class CashBookViewModel: ObservableObject {
             ? nil
             : sortedFloats.map { FloatEntry(machine_id: $0.machineId, amount: $0.amount) }
 
+        // Custom `encode(to:)`: `record_cash_book_withdrawal`'s deployed
+        // signature (verified via `pg_get_function_arguments`) gives
+        // `p_machine_id` NO SQL default — only `p_float_back` onward have
+        // one. Swift's synthesized Encodable uses `encodeIfPresent` for
+        // optionals, which OMITS the key entirely when `machineId` is nil.
+        // For a manual withdrawal without `track_per_machine`, or any
+        // multi-machine tour (picker hidden), that is the common case — and
+        // an omitted, non-defaulted parameter means PostgREST can't resolve
+        // the overload and returns 404, silently failing the withdrawal.
+        // `container.encode(...)` (vs. `encodeIfPresent`) always writes the
+        // key, transmitting `null` for a nil machine so Postgres receives an
+        // explicit NULL argument instead of a missing one.
+        // `p_description` / `p_float_description` / `p_floats` all carry a
+        // SQL `DEFAULT NULL`, so omitting them when nil is equivalent —
+        // `encodeIfPresent` stays correct (and keeps the payload smaller) for
+        // those.
         struct Params: Encodable {
             let p_cash_book_id: UUID
             let p_machine_id: UUID?
@@ -259,6 +275,23 @@ final class CashBookViewModel: ObservableObject {
             let p_description: String?
             let p_float_description: String?
             let p_floats: [FloatEntry]?
+
+            enum CodingKeys: String, CodingKey {
+                case p_cash_book_id, p_machine_id, p_counted, p_expected
+                case p_float_back, p_description, p_float_description, p_floats
+            }
+
+            func encode(to encoder: Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                try container.encode(p_cash_book_id, forKey: .p_cash_book_id)
+                try container.encode(p_machine_id, forKey: .p_machine_id)
+                try container.encode(p_counted, forKey: .p_counted)
+                try container.encode(p_expected, forKey: .p_expected)
+                try container.encode(p_float_back, forKey: .p_float_back)
+                try container.encodeIfPresent(p_description, forKey: .p_description)
+                try container.encodeIfPresent(p_float_description, forKey: .p_float_description)
+                try container.encodeIfPresent(p_floats, forKey: .p_floats)
+            }
         }
 
         struct Result: Decodable {
@@ -472,11 +505,19 @@ final class CashBookViewModel: ObservableObject {
         }
     }
 
-    /// Vorgestrecktes Wechselgeld eines Automaten, summiert über Barkassen —
-    /// ein Automat kann die Barkasse gewechselt haben.
-    func floatBalance(for machineId: UUID) -> Double {
+    /// Vorgestrecktes Wechselgeld eines Automaten, gescoped auf eine einzelne
+    /// Barkasse. Die Entnahme- und Wechselgeld-Dialoge sind jeweils für genau
+    /// eine Barkasse geöffnet (`cashBook: CashBook`) — ein Automat kann aber
+    /// in mehreren Barkassen Wechselgeld vorgestreckt bekommen haben (z. B.
+    /// 45 € in Barkasse A und 20 € in B). Über alle Barkassen zu summieren
+    /// würde dort 65 € zeigen, während die Bestandskarte korrekt 45 € für A
+    /// anzeigt — und eine Über-Rückgabe-Warnung auf Basis der falschen,
+    /// zu hohen Summe würde nicht auslösen, obwohl die Rückgabe die
+    /// tatsächliche Barkasse A ins Minus treibt. `MachineChangeFloat.cashBookId`
+    /// macht den Filter direkt möglich.
+    func floatBalance(for machineId: UUID, cashBookId: UUID) -> Double {
         changeFloat
-            .filter { $0.machineId == machineId }
+            .filter { $0.machineId == machineId && $0.cashBookId == cashBookId }
             .reduce(0) { $0 + $1.floatBalance }
     }
 

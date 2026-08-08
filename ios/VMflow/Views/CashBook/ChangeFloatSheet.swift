@@ -29,7 +29,7 @@ struct ChangeFloatSheet: View {
 
     private var currentFloat: Double {
         guard let id = selectedMachineId else { return 0 }
-        return cashBookVM.floatBalance(for: id)
+        return cashBookVM.floatBalance(for: id, cashBookId: cashBook.id)
     }
 
     /// Warnt, wenn mehr zurückgenommen wird als vorgestreckt wurde. Blockiert
@@ -115,6 +115,11 @@ struct ChangeFloatSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
+                        // Set synchronously, before the Task is spawned — the
+                        // button's own `.disabled` re-renders immediately, so
+                        // a second rapid tap can't race a Task-scheduling
+                        // delay into starting a second write to the ledger.
+                        isSubmitting = true
                         Task { await submit() }
                     } label: {
                         if isSubmitting { ProgressView() } else { Text("cash_book_book_entry") }
@@ -132,10 +137,13 @@ struct ChangeFloatSheet: View {
     }
 
     private func submit() async {
-        guard canSubmit, let machineId = selectedMachineId else { return }
-        isSubmitting = true
-        errorMessage = nil
+        // `isSubmitting` is already `true` — set synchronously by the button
+        // action. This `defer` is what clears it again, on every exit path
+        // (including the guard below and a thrown error), so a failed submit
+        // never leaves the button permanently disabled.
         defer { isSubmitting = false }
+        guard canSubmit, let machineId = selectedMachineId else { return }
+        errorMessage = nil
         do {
             try await cashBookVM.recordChangeFloat(
                 cashBookId: cashBook.id,

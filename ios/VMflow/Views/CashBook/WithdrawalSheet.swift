@@ -77,6 +77,17 @@ struct WithdrawalSheet: View {
         parseAmount(floatBackText)
     }
 
+    /// Whether the single-machine Rücklage field parses cleanly. `false`
+    /// only when the field is non-empty AND unparseable (e.g. "1.234,50",
+    /// a thousands-separator format `parseAmount` doesn't accept) — an empty
+    /// field is valid and means "no Rücklage". `parseAmount` silently
+    /// clamps a parse failure to 0, which is right for *booking* (nothing
+    /// entered) but wrong for *validating* (garbage entered) — this is the
+    /// check `canSubmit` needs to tell those two apart.
+    private var floatBackIsValid: Bool {
+        parsedAmountIfValid(floatBackText) != nil
+    }
+
     /// Geparste Rücklage-Beträge je Automat im Mehrfach-Modus, keyed by
     /// machine id — eine Zeile pro `breakdownMachines`-Eintrag. Nutzt
     /// denselben `parseAmount`-Helper wie `floatBack`, damit beide Felder
@@ -86,6 +97,15 @@ struct WithdrawalSheet: View {
         Dictionary(uniqueKeysWithValues: breakdownMachines.map {
             ($0.machineId, parseAmount(multiFloatTexts[$0.machineId] ?? ""))
         })
+    }
+
+    /// Whether every per-machine Rücklage row parses cleanly — same
+    /// empty-is-valid / garbage-is-invalid distinction as `floatBackIsValid`,
+    /// applied per row.
+    private var multiFloatsAreValid: Bool {
+        breakdownMachines.allSatisfy {
+            parsedAmountIfValid(multiFloatTexts[$0.machineId] ?? "") != nil
+        }
     }
 
     /// Summe der Rücklage über alle Eingabewege — im Mehrfach-Modus alle
@@ -110,7 +130,11 @@ struct WithdrawalSheet: View {
     }
 
     private var canSubmit: Bool {
-        counted > 0 && (!machineRequired || selectedMachineId != nil)
+        counted > 0
+            && (!machineRequired || selectedMachineId != nil)
+            // An unparseable float amount must never silently book as 0 —
+            // block submission until it's fixed or cleared.
+            && (isMultiMachine ? multiFloatsAreValid : floatBackIsValid)
     }
 
     /// Whether the input contains an operator — drives the "= 25,50 €" preview.
@@ -171,6 +195,11 @@ struct WithdrawalSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
+                        // Set synchronously, before the Task is spawned — the
+                        // button's own `.disabled` re-renders immediately, so
+                        // a second rapid tap can't race a Task-scheduling
+                        // delay into starting a second write to the ledger.
+                        isSubmitting = true
                         Task { await submit() }
                     } label: {
                         if isSubmitting {
@@ -274,8 +303,13 @@ struct WithdrawalSheet: View {
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.trailing)
                 .font(.body.monospacedDigit())
+                .foregroundStyle(floatBackIsValid ? Color.primary : Color.red)
 
-            if floatBack > 0 {
+            if !floatBackIsValid {
+                Text("cash_book_amount_invalid")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            } else if floatBack > 0 {
                 LabeledContent {
                     Text(netToBox, format: .currency(code: "EUR"))
                         .monospacedDigit()
@@ -295,35 +329,59 @@ struct WithdrawalSheet: View {
     /// Eine Zeile je besuchtem Automaten dieser Barkasse (`breakdownMachines`
     /// — bereits auf `tourMachineIds` gescoped). Jede Zeile parst identisch
     /// zum Einzel-Feld (`parseAmount`); die Summe treibt `netToBox`.
+    ///
+    /// `breakdownMachines` can be empty even while `isMultiMachine` is true:
+    /// it derives from `theoretical`, which the view model nils out on any
+    /// load error, while `isMultiMachine` derives independently from
+    /// `tourMachineIds`. Rendering the usual header + rows + footer in that
+    /// state would show an empty section that still *claims* to handle a
+    /// Rücklage — the user could submit believing a float was recorded when
+    /// none was. Showing an explanatory message instead makes that outcome
+    /// visible rather than silent.
     @ViewBuilder
     private var multiFloatSection: some View {
-        Section {
-            ForEach(breakdownMachines) { m in
-                HStack {
-                    Text(m.machineName ?? String(m.machineId.uuidString.prefix(8)))
-                    Spacer()
-                    TextField("0,00", text: multiFloatTextBinding(for: m.machineId))
-                        .keyboardType(.decimalPad)
-                        .multilineTextAlignment(.trailing)
-                        .font(.body.monospacedDigit())
-                        .frame(maxWidth: 100)
-                }
+        if breakdownMachines.isEmpty {
+            Section {
+                Text("cash_book_float_breakdown_unavailable")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
+        } else {
+            Section {
+                ForEach(breakdownMachines) { m in
+                    let rowText = multiFloatTextBinding(for: m.machineId)
+                    let rowIsValid = parsedAmountIfValid(rowText.wrappedValue) != nil
+                    HStack {
+                        Text(m.machineName ?? String(m.machineId.uuidString.prefix(8)))
+                        Spacer()
+                        TextField("0,00", text: rowText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .font(.body.monospacedDigit())
+                            .foregroundStyle(rowIsValid ? Color.primary : Color.red)
+                            .frame(maxWidth: 100)
+                    }
+                }
 
-            if totalFloatBack > 0 {
-                LabeledContent {
-                    Text(netToBox, format: .currency(code: "EUR"))
-                        .monospacedDigit()
-                } label: {
-                    Text("cash_book_net_to_box")
+                if !multiFloatsAreValid {
+                    Text("cash_book_amount_invalid")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                } else if totalFloatBack > 0 {
+                    LabeledContent {
+                        Text(netToBox, format: .currency(code: "EUR"))
+                            .monospacedDigit()
+                    } label: {
+                        Text("cash_book_net_to_box")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            } header: {
+                Text("cash_book_float_back")
+            } footer: {
+                Text("cash_book_float_back_hint")
             }
-        } header: {
-            Text("cash_book_float_back")
-        } footer: {
-            Text("cash_book_float_back_hint")
         }
     }
 
@@ -410,11 +468,30 @@ struct WithdrawalSheet: View {
     /// ab und würde die Eingabe still als 0 buchen), akzeptiert `,` als
     /// Dezimaltrennzeichen, und klemmt negative Ergebnisse auf 0 — die RPC
     /// negiert den Betrag intern selbst.
+    ///
+    /// For *booking*, an unparseable string collapses to 0 — that's the
+    /// right behaviour once submission was already allowed. It is the wrong
+    /// behaviour for *validating* the field, though: "1.234,50" (a
+    /// thousands-separator format this parser doesn't accept) would
+    /// otherwise book silently as 0,00 €, exactly where a silent zero costs
+    /// money. `parsedAmountIfValid` is the validating counterpart `canSubmit`
+    /// uses to catch that case before it reaches the RPC.
     private func parseAmount(_ text: String) -> Double {
+        parsedAmountIfValid(text) ?? 0
+    }
+
+    /// Validating counterpart to `parseAmount`. Returns 0 for an empty field
+    /// (nothing entered — valid, means "no Rücklage"), the parsed value for
+    /// a well-formed one, and `nil` only when the field is non-empty AND
+    /// fails to parse (garbage input) — the case `parseAmount` alone can't
+    /// distinguish from "nothing entered".
+    private func parsedAmountIfValid(_ text: String) -> Double? {
         let cleaned = text
             .trimmingCharacters(in: .whitespaces)
             .replacingOccurrences(of: ",", with: ".")
-        return max(0, Double(cleaned) ?? 0)
+        if cleaned.isEmpty { return 0 }
+        guard let value = Double(cleaned) else { return nil }
+        return max(0, value)
     }
 
     private func amountFormatted(_ value: Double) -> String {
@@ -468,14 +545,21 @@ struct WithdrawalSheet: View {
     }
 
     private func submit() async {
+        // `isSubmitting` is already `true` — set synchronously by the button
+        // action. This `defer` is what clears it again, on every exit path
+        // (including both guards below and a thrown error), so a failed
+        // submit never leaves the button permanently disabled.
+        defer { isSubmitting = false }
         // Final evaluation in case the user submits without tapping "="
         guard let evaluated = evaluateExpression(countedText), evaluated > 0 else {
             errorMessage = NSLocalizedString("cash_book_counted_amount", comment: "")
             return
         }
-        isSubmitting = true
+        guard isMultiMachine ? multiFloatsAreValid : floatBackIsValid else {
+            errorMessage = NSLocalizedString("cash_book_amount_invalid", comment: "")
+            return
+        }
         errorMessage = nil
-        defer { isSubmitting = false }
         do {
             try await cashBookVM.recordWithdrawal(
                 cashBookId: cashBook.id,
