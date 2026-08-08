@@ -632,6 +632,7 @@ async function exportPdf() {
       v-model:open="showChangeFloatModal"
       :assigned-machines="assignedMachines"
       :change-float="changeFloat"
+      :cash-book-id="selectedCashBook?.id ?? ''"
       :change-float-unavailable="changeFloatUnavailable"
       :submitting="changeFloatSubmitting"
       :error="errorMessage"

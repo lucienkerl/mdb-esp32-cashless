@@ -1867,7 +1867,9 @@
     "changeFloatEmpty": "Kein Wechselgeld vorgestreckt",
     "changeFloatUnavailable": "Dein Wechselgeldbestand konnte nicht geladen werden",
     "noAssignedMachineHint": "Dieser Barkasse ist kein Automat zugeordnet. Ordne zuerst einen zu.",
-    "changeFloatOrphaned": "Nicht zuordenbar (Automat gelöscht)"
+    "changeFloatOrphaned": "Nicht zuordenbar (Automat gelöscht)",
+    "withdrawalEmptiesAllMachines": "Ohne ausgewählten Automat gilt diese Entnahme als Leerung aller Automaten dieser Barkasse.",
+    "amountInvalid": "Ungültiger Betrag. Bitte prüfe die Eingabe."
   },
   "publicStorefront": {
     "online": "Online",

@@ -1670,7 +1670,9 @@
     "changeFloatEmpty": "Geen wisselgeld voorgeschoten",
     "changeFloatUnavailable": "Je wisselgeldsaldo kon niet worden geladen",
     "noAssignedMachineHint": "Aan deze kassa is geen automaat toegewezen. Wijs er eerst een toe.",
-    "changeFloatOrphaned": "Niet toewijsbaar (automaat verwijderd)"
+    "changeFloatOrphaned": "Niet toewijsbaar (automaat verwijderd)",
+    "withdrawalEmptiesAllMachines": "Zonder geselecteerde machine telt deze opname als het legen van alle machines van deze kassa.",
+    "amountInvalid": "Ongeldig bedrag. Controleer de invoer."
   },
   "publicStorefront": {
     "online": "Online",

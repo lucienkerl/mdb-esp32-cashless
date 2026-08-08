@@ -27,13 +27,20 @@ const { t } = useI18n()
 
 const form = ref({
   counted_amount: 0,
-  float_back: 0,
   description: 'Geldentnahme aus Automat',
   machine_id: null as string | null,
 })
 
-/** Rücklage-Rohwerte je Automat im Mehrfach-Modus, keyed by machine id. */
-const multiFloatAmounts = ref<Record<string, number>>({})
+/** Rohtext des Einzel-Rücklage-Felds — bewusst `text` statt `number`, damit
+ *  ein unparsbarer Wert (z. B. "1.234,50", ein von `parsedAmountIfValid`
+ *  nicht unterstütztes Tausendertrennzeichen-Format) erkennbar bleibt.
+ *  `type="number"` liefert für so etwas einfach `''` zurück, und
+ *  `Number(x) || 0` bucht das dann still als 0 — ohne Rücklage-Zeile und
+ *  ohne jede Fehlermeldung. Mirror von iOS' `floatBackText`. */
+const floatBackText = ref('')
+
+/** Rücklage-Rohtexte je Automat im Mehrfach-Modus, keyed by machine id. */
+const multiFloatTexts = ref<Record<string, string>>({})
 
 const difference = computed(() => {
   if (!props.theoreticalCash) return 0
@@ -43,21 +50,46 @@ const difference = computed(() => {
 /** Mehr als ein Automat in der Theoretical-Cash-Aufschlüsselung → die
  *  Rücklage muss je Automat erfasst werden, sonst würde der gesamte Betrag
  *  fälschlich auf einen einzigen gebucht — genau die Fehlzuordnung, die die
- *  Mehrfach-RPC beheben soll (mirror von iOS' `isMultiMachine`). */
+ *  Mehrfach-RPC beheben soll (mirror von iOS' `isMultiMachine`). Betrifft
+ *  ausschließlich, ob die Rücklage in einem Feld oder pro Automat erfasst
+ *  wird — die Automatenauswahl für die Entnahme selbst (`form.machine_id`)
+ *  ist davon unabhängig, siehe die Picker-Bedingung unten. */
 const isMultiMachine = computed(() => (props.theoreticalCash?.machines?.length ?? 0) > 1)
 
-/** `v-model.number` lässt ein geleertes Zahlenfeld als '' stehen, nicht als 0.
- *  Einmal hier normalisieren — sonst ginge '' an die RPC und Postgres lehnte
- *  den ganzen Vorgang ab, inklusive der eigentlich gültigen Entnahme. */
-const floatBack = computed(() => Number(form.value.float_back) || 0)
+/** Validierender Parser für Rücklage-Beträge — Mirror von iOS'
+ *  `parsedAmountIfValid`. Ein leeres Feld ist gültig (keine Rücklage → 0);
+ *  ein nicht-leeres, aber nicht parsbares Feld liefert `null` — das ist der
+ *  Fall, den `Number(x) || 0` bisher still auf 0 buchte, obwohl der
+ *  Bediener etwas eingegeben hatte, das nie in der Buchung ankam.
+ *  `replaceAll` (nicht nur die erste Fundstelle) ersetzt jedes Komma, damit
+ *  ein Tausendertrennzeichen-Format wie "1.234,50" korrekt als ungültig
+ *  erkannt wird ("1.234.50" ist kein parsbares JS-Number-Literal) statt in
+ *  ein plausibel aussehendes, aber falsches Ergebnis zu rutschen. */
+function parsedAmountIfValid(raw: string): number | null {
+  const cleaned = raw.trim().replaceAll(',', '.')
+  if (cleaned === '') return 0
+  const n = Number(cleaned)
+  return Number.isFinite(n) ? Math.max(0, n) : null
+}
+
+const floatBackIsValid = computed(() => parsedAmountIfValid(floatBackText.value) !== null)
+const floatBack = computed(() => parsedAmountIfValid(floatBackText.value) ?? 0)
 
 /** Rücklage-Beträge je Automat im Mehrfach-Modus, ein Eintrag pro Zeile aus
  *  der Theoretical-Cash-Aufschlüsselung. */
 const multiFloats = computed(() =>
   (props.theoreticalCash?.machines ?? []).map(m => ({
     machineId: m.machine_id,
-    amount: Number(multiFloatAmounts.value[m.machine_id]) || 0,
+    amount: parsedAmountIfValid(multiFloatTexts.value[m.machine_id] ?? '') ?? 0,
   })),
+)
+
+/** Ob jede Mehrfach-Rücklage-Zeile sauber parst — dieselbe leer-ist-gültig-
+ *  /Müll-ist-ungültig-Unterscheidung wie `floatBackIsValid`, pro Zeile. */
+const multiFloatsAreValid = computed(() =>
+  (props.theoreticalCash?.machines ?? []).every(
+    m => parsedAmountIfValid(multiFloatTexts.value[m.machine_id] ?? '') !== null,
+  ),
 )
 
 const totalFloatBack = computed(() =>
@@ -79,8 +111,8 @@ const machineRequired = computed(() => !isMultiMachine.value && floatBack.value 
 const canSubmit = computed(() =>
   form.value.counted_amount > 0
   && (isMultiMachine.value
-    ? multiFloats.value.every(f => f.amount >= 0)
-    : floatBack.value >= 0)
+    ? multiFloatsAreValid.value
+    : floatBackIsValid.value)
   && (!machineRequired.value || form.value.machine_id !== null),
 )
 
@@ -88,11 +120,11 @@ watch(() => props.open, (now) => {
   if (now) {
     form.value = {
       counted_amount: 0,
-      float_back: 0,
       description: 'Geldentnahme aus Automat',
       machine_id: props.assignedMachines.length === 1 ? props.assignedMachines[0]!.id : null,
     }
-    multiFloatAmounts.value = {}
+    floatBackText.value = ''
+    multiFloatTexts.value = {}
   }
 })
 
@@ -101,10 +133,18 @@ function onSubmit() {
   emit('submit', {
     counted: form.value.counted_amount,
     expected: props.theoreticalCash?.cash_sales_since ?? 0,
+    // Der Automatenbezug der Entnahme selbst geht immer über das, was der
+    // Bediener im Picker gewählt hat (auch im Mehrfach-Modus) — er ist nicht
+    // an isMultiMachine gekoppelt. `null` ist ein legitimer, expliziter
+    // Wert ("diese Entnahme hat alle Automaten dieser Barkasse geleert"),
+    // siehe get_theoretical_cash-Anker-Logik; er darf hier nur zurückkommen,
+    // wenn der Bediener das tatsächlich so gewählt (oder nichts gewählt)
+    // hat — nie hart erzwungen, weil per-Automat-Rücklage-Zeilen angezeigt
+    // werden.
+    machineId: form.value.machine_id,
     // Im Mehrfach-Modus geht die Rücklage ausschließlich über `floats` —
-    // machineId/floatBack bleiben leer/0, damit die RPC-seitige
-    // "p_float_back und p_floats schließen sich aus"-Prüfung nie anschlägt.
-    machineId: isMultiMachine.value ? null : form.value.machine_id,
+    // floatBack bleibt 0, damit die RPC-seitige "p_float_back und p_floats
+    // schließen sich aus"-Prüfung nie anschlägt.
     floatBack: isMultiMachine.value ? 0 : floatBack.value,
     floats: isMultiMachine.value ? multiFloats.value.filter(f => f.amount > 0) : [],
     description: form.value.description,
@@ -151,15 +191,21 @@ function onSubmit() {
         {{ t('cashBook.differenceLabel') }}: {{ formatCurrency(difference) }}
       </div>
 
-      <!-- Einzelfall: ein Feld, wie bisher. -->
+      <!-- Einzelfall: ein Feld, wie bisher. `type="text"` statt `number` —
+           siehe `parsedAmountIfValid`: ein unparsbarer Wert muss sichtbar
+           bleiben statt still als 0 zu landen. -->
       <div v-if="!isMultiMachine">
         <label class="text-sm font-medium">{{ t('cashBook.floatBack') }} (EUR)</label>
         <input
-          v-model.number="form.float_back"
-          type="number" step="0.01" min="0"
-          class="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          v-model="floatBackText"
+          type="text" inputmode="decimal"
+          :class="[
+            'mt-1 h-9 w-full rounded-md border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+            floatBackIsValid ? 'border-input' : 'border-red-500 text-red-600',
+          ]"
         />
-        <p class="mt-1 text-xs text-muted-foreground">{{ t('cashBook.floatBackHint') }}</p>
+        <p v-if="!floatBackIsValid" class="mt-1 text-xs text-red-600">{{ t('cashBook.amountInvalid') }}</p>
+        <p v-else class="mt-1 text-xs text-muted-foreground">{{ t('cashBook.floatBackHint') }}</p>
       </div>
 
       <!-- Mehrfach-Modus: eine Zeile je Automat der Theoretical-Cash-Aufschlüsselung,
@@ -175,20 +221,32 @@ function onSubmit() {
           >
             <span class="flex-1 truncate text-sm">{{ m.machine_name || 'Automat' }}</span>
             <input
-              v-model.number="multiFloatAmounts[m.machine_id]"
-              type="number" step="0.01" min="0"
-              class="h-9 w-28 rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              v-model="multiFloatTexts[m.machine_id]"
+              type="text" inputmode="decimal"
+              :class="[
+                'h-9 w-28 rounded-md border bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                parsedAmountIfValid(multiFloatTexts[m.machine_id] ?? '') !== null ? 'border-input' : 'border-red-500 text-red-600',
+              ]"
             />
           </div>
         </div>
-        <p class="mt-1 text-xs text-muted-foreground">{{ t('cashBook.floatBackHint') }}</p>
+        <p v-if="!multiFloatsAreValid" class="mt-1 text-xs text-red-600">{{ t('cashBook.amountInvalid') }}</p>
+        <p v-else class="mt-1 text-xs text-muted-foreground">{{ t('cashBook.floatBackHint') }}</p>
       </div>
 
       <div v-if="totalFloatBack > 0" class="text-sm text-muted-foreground">
         {{ t('cashBook.netToBox') }}: {{ formatCurrency(netToBox) }}
       </div>
 
-      <div v-if="!isMultiMachine && (trackPerMachine || machineRequired) && assignedMachines.length > 0">
+      <!-- Automatenauswahl für die Entnahme selbst — bewusst unabhängig von
+           isMultiMachine (Pre-Branch-Bedingung, siehe fix-wave-e-report.md):
+           die Rücklage kann pro Automat erfasst werden, ohne dass das die
+           Entnahme-Zuordnung selbst auf NULL zwingt. NULL heißt für
+           get_theoretical_cash "diese Entnahme hat alle Automaten dieser
+           Barkasse geleert" — ein legitimer, aber folgenreicher Wert, den
+           der Bediener bewusst wählen (oder auf "—" belassen) muss, siehe
+           der Hinweis unten. -->
+      <div v-if="(trackPerMachine || machineRequired) && assignedMachines.length > 0">
         <label class="text-sm font-medium">
           {{ t('cashBook.fromMachine') }}
           <span v-if="machineRequired" class="text-red-600">*</span>
@@ -202,8 +260,11 @@ function onSubmit() {
             {{ m.name || m.id.slice(0, 8) }}
           </option>
         </select>
+        <p v-if="trackPerMachine && form.machine_id === null" class="mt-1 text-xs text-muted-foreground">
+          {{ t('cashBook.withdrawalEmptiesAllMachines') }}
+        </p>
       </div>
-      <p v-else-if="!isMultiMachine && machineRequired && assignedMachines.length === 0" class="text-xs text-muted-foreground">
+      <p v-else-if="machineRequired && assignedMachines.length === 0" class="text-xs text-muted-foreground">
         {{ t('cashBook.noAssignedMachineHint') }}
       </p>
 

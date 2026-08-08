@@ -4100,6 +4100,35 @@
         }
       }
     },
+    "cash_book_withdrawal_empties_all_machines": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ohne ausgewählten Automat gilt diese Entnahme als Leerung aller Automaten dieser Barkasse."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Without a selected machine, this withdrawal counts as emptying every machine on this cash book."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sans machine sélectionnée, ce prélèvement compte comme la vidange de toutes les machines de cette caisse."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zonder geselecteerde machine telt deze opname als het legen van alle machines van dit kasboek."
+          }
+        }
+      }
+    },
     "cash_book_full_amount": {
       "extractionState": "manual",
       "localizations": {

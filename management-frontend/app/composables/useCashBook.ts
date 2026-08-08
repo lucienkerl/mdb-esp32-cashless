@@ -93,12 +93,19 @@ export function changeFloatAmount(direction: ChangeFloatDirection, input: number
   return signed === 0 ? 0 : signed
 }
 
-/** Vorgestrecktes Wechselgeld eines Automaten, summiert über Barkassen.
- *  Ein Automat kann die Barkasse gewechselt haben und dann mehrere Zeilen
- *  tragen. */
-export function floatBalanceForMachine(rows: MachineChangeFloat[], machineId: string): number {
+/** Vorgestrecktes Wechselgeld eines Automaten, gescoped auf eine einzelne
+ *  Barkasse. Der Wechselgeld-Dialog ist immer für genau eine Barkasse
+ *  geöffnet — ein Automat kann aber die Barkasse gewechselt haben und in
+ *  mehreren Barkassen Wechselgeld vorgestreckt bekommen haben (z. B. 45 €
+ *  in Barkasse A und 20 € in B). Über alle Barkassen zu summieren würde
+ *  dort 65 € zeigen, während die Bestandskarte (`StationChangeFloat`)
+ *  korrekt 45 € für A anzeigt — und eine Über-Rückgabe-Warnung auf Basis
+ *  der falschen, zu hohen Summe würde nicht auslösen, obwohl die Rückgabe
+ *  die tatsächliche Barkasse A ins Minus treibt. Mirror von iOS'
+ *  `floatBalance(for:cashBookId:)`. */
+export function floatBalanceForMachine(rows: MachineChangeFloat[], machineId: string, cashBookId: string): number {
   return rows
-    .filter(r => r.machine_id === machineId)
+    .filter(r => r.machine_id === machineId && r.cash_book_id === cashBookId)
     .reduce((sum, r) => sum + r.float_balance, 0)
 }
 

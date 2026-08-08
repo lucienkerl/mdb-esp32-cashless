@@ -43,20 +43,26 @@ describe('changeFloatAmount', () => {
 })
 
 describe('floatBalanceForMachine', () => {
-  it('sums a machine across cash books', () => {
-    expect(floatBalanceForMachine(rows, 'm1')).toBe(65)
+  it('scopes to the given cash book, not the machine\'s total across every cash book', () => {
+    // m1 has 45 in b1 and 20 in b2 — a caller scoped to b1 must see only 45,
+    // not the 65 cross-book sum (that sum is exactly the bug: a machine that
+    // moved cash books would show an inflated balance and suppress the
+    // over-return warning in the book it actually sits in now).
+    expect(floatBalanceForMachine(rows, 'm1', 'b1')).toBe(45)
+    expect(floatBalanceForMachine(rows, 'm1', 'b2')).toBe(20)
   })
 
   it('returns the single balance for a machine in one cash book', () => {
-    expect(floatBalanceForMachine(rows, 'm2')).toBe(80)
+    expect(floatBalanceForMachine(rows, 'm2', 'b1')).toBe(80)
   })
 
-  it('returns zero for a machine with no float', () => {
-    expect(floatBalanceForMachine(rows, 'unknown')).toBe(0)
+  it('returns zero for a machine with no float in that cash book', () => {
+    expect(floatBalanceForMachine(rows, 'unknown', 'b1')).toBe(0)
+    expect(floatBalanceForMachine(rows, 'm2', 'b2')).toBe(0)
   })
 
   it('returns zero for an empty list', () => {
-    expect(floatBalanceForMachine([], 'm1')).toBe(0)
+    expect(floatBalanceForMachine([], 'm1', 'b1')).toBe(0)
   })
 })
 

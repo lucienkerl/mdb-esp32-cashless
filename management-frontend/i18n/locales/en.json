@@ -1867,7 +1867,9 @@
     "changeFloatEmpty": "No change float advanced",
     "changeFloatUnavailable": "Your change float balance could not be loaded",
     "noAssignedMachineHint": "No machine is assigned to this cash register. Assign one first.",
-    "changeFloatOrphaned": "Unattributed (machine deleted)"
+    "changeFloatOrphaned": "Unattributed (machine deleted)",
+    "withdrawalEmptiesAllMachines": "Without a selected machine, this withdrawal counts as emptying every machine on this cash register.",
+    "amountInvalid": "Invalid amount. Please check the value."
   },
   "publicStorefront": {
     "online": "Online",

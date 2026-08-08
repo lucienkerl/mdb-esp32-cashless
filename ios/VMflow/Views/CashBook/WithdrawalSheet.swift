@@ -160,12 +160,18 @@ struct WithdrawalSheet: View {
                     }
                 }
 
-                // Im Mehrfach-Modus trägt jede Zeile in multiFloatSection
-                // bereits ihren eigenen Automaten — ein zusätzlicher
-                // Top-Level-Picker wäre redundant und wird deshalb
-                // unabhängig von trackPerMachine ausgeblendet.
-                if !isMultiMachine && (cashBook.trackPerMachine || machineRequired) && !assignedMachines.isEmpty {
-                    Section("cash_book_from_machine") {
+                // The machine attribution of the withdrawal *itself* is
+                // independent of isMultiMachine — a per-machine float row
+                // (multiFloatSection) only decides where the Rücklage is
+                // booked, not which machine(s) this withdrawal emptied.
+                // Hiding this picker whenever a tour visited more than one
+                // machine used to leave selectedMachineId stuck at nil,
+                // which record_cash_book_withdrawal's anchor logic reads as
+                // "this withdrawal emptied every machine on the Barkasse" —
+                // silently advancing the anchor of machines that were never
+                // actually collected. See fix-wave-e-report.md.
+                if (cashBook.trackPerMachine || machineRequired) && !assignedMachines.isEmpty {
+                    Section {
                         Picker("cash_book_from_machine", selection: $selectedMachineId) {
                             Text("—").tag(UUID?.none)
                             ForEach(assignedMachines) { m in
@@ -174,8 +180,19 @@ struct WithdrawalSheet: View {
                             }
                         }
                         .labelsHidden()
+                    } header: {
+                        Text("cash_book_from_machine")
+                    } footer: {
+                        // NULL is a legitimate choice (it means "this
+                        // withdrawal emptied every machine on this
+                        // Barkasse"), but a silent one — make the
+                        // consequence visible instead of leaving the
+                        // operator to guess.
+                        if cashBook.trackPerMachine && selectedMachineId == nil {
+                            Text("cash_book_withdrawal_empties_all_machines")
+                        }
                     }
-                } else if !isMultiMachine && machineRequired && assignedMachines.isEmpty {
+                } else if machineRequired && assignedMachines.isEmpty {
                     Section {
                         Text("cash_book_no_assigned_machine_hint")
                             .font(.caption)

@@ -13,6 +13,12 @@ const props = defineProps<{
   open: boolean
   assignedMachines: VendingMachineBasic[]
   changeFloat: MachineChangeFloat[]
+  /** Scopes `floatBalanceForMachine` below to the Barkasse this dialog is
+   *  open for — a machine can have moved between Barkassen and carry a
+   *  float balance in more than one. Without this, `currentFloat` would
+   *  sum across every Barkasse the machine has ever been in, and the
+   *  over-return warning would fail to fire for the correct one. */
+  cashBookId: string
   /** True when the balance couldn't be loaded (RPC error/null) — mirrors
    *  the balance card's `unavailable` flag. Without this, "we don't know"
    *  silently renders as "0,00 €", the stronger claim "nothing advanced",
@@ -39,7 +45,7 @@ const form = ref({
 /** Vorgestrecktes Wechselgeld des gewählten Automaten. */
 const currentFloat = computed(() =>
   form.value.machine_id
-    ? floatBalanceForMachine(props.changeFloat, form.value.machine_id)
+    ? floatBalanceForMachine(props.changeFloat, form.value.machine_id, props.cashBookId)
     : 0,
 )
 
