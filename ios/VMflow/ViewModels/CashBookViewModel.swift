@@ -208,6 +208,13 @@ final class CashBookViewModel: ObservableObject {
     /// Leer (`[:]`, der Default) heißt: `p_floats` wird ganz weggelassen statt
     /// als leeres Array gesendet, sodass bestehende Aufrufe unverändert das
     /// alte `p_float_back`-Verhalten treffen.
+    ///
+    /// `emptiedMachineIds` deckt den Fall ab, dass eine Tour mehr als einen
+    /// Automaten dieser Barkasse geleert hat (20260807000900): die Liste wird
+    /// nur gesendet, wenn sie 2+ Einträge enthält — der Server lehnt sie
+    /// zusammen mit einer nicht-null `machineId` ab, und ein einzelner
+    /// Automat hat ohnehin schon eine Darstellung über `machineId`. Leer
+    /// (`[]`, der Default) heißt: bestehende Aufrufe bleiben unverändert.
     func recordWithdrawal(
         cashBookId: UUID,
         counted: Double,
@@ -216,7 +223,8 @@ final class CashBookViewModel: ObservableObject {
         floatBack: Double = 0,
         description: String,
         floatDescription: String? = nil,
-        floats: [UUID: Double] = [:]
+        floats: [UUID: Double] = [:],
+        emptiedMachineIds: [UUID] = []
     ) async throws {
         guard let companyId = cashBooks.first(where: { $0.id == cashBookId })?.companyId,
               client.auth.currentUser?.id != nil else {
@@ -250,6 +258,13 @@ final class CashBookViewModel: ObservableObject {
             ? nil
             : sortedFloats.map { FloatEntry(machine_id: $0.machineId, amount: $0.amount) }
 
+        // `p_emptied_machine_ids` (20260807000900): only sent once it holds
+        // 2+ machines — the RPC rejects it together with a non-null
+        // `p_machine_id`, and a single machine already has a representation
+        // via `p_machine_id`. Same nil-collapsing shape as `floatEntries`
+        // above.
+        let emptiedIdsToSend: [UUID]? = emptiedMachineIds.count >= 2 ? emptiedMachineIds : nil
+
         // Custom `encode(to:)`: `record_cash_book_withdrawal`'s deployed
         // signature (verified via `pg_get_function_arguments`) gives
         // `p_machine_id` NO SQL default — only `p_float_back` onward have
@@ -275,10 +290,12 @@ final class CashBookViewModel: ObservableObject {
             let p_description: String?
             let p_float_description: String?
             let p_floats: [FloatEntry]?
+            let p_emptied_machine_ids: [UUID]?
 
             enum CodingKeys: String, CodingKey {
                 case p_cash_book_id, p_machine_id, p_counted, p_expected
                 case p_float_back, p_description, p_float_description, p_floats
+                case p_emptied_machine_ids
             }
 
             func encode(to encoder: Encoder) throws {
@@ -291,6 +308,12 @@ final class CashBookViewModel: ObservableObject {
                 try container.encodeIfPresent(p_description, forKey: .p_description)
                 try container.encodeIfPresent(p_float_description, forKey: .p_float_description)
                 try container.encodeIfPresent(p_floats, forKey: .p_floats)
+                // `p_emptied_machine_ids` carries a SQL `DEFAULT NULL` (like
+                // `p_floats`), so — unlike `p_machine_id`, which has no SQL
+                // default and must always be sent, even as an explicit
+                // `null` — omitting the key entirely when nil is equivalent
+                // to sending SQL NULL and is safe here.
+                try container.encodeIfPresent(p_emptied_machine_ids, forKey: .p_emptied_machine_ids)
             }
         }
 
@@ -309,7 +332,8 @@ final class CashBookViewModel: ObservableObject {
                 p_float_back: floatBack,
                 p_description: description.isEmpty ? nil : description,
                 p_float_description: floatDescription,
-                p_floats: floatEntries
+                p_floats: floatEntries,
+                p_emptied_machine_ids: emptiedIdsToSend
             ))
             .execute()
             .value

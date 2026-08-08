@@ -172,6 +172,7 @@ async function onWithdrawalSubmit(payload: {
   floatBack: number
   floats: { machineId: string; amount: number }[]
   description: string
+  emptiedMachineIds: string[]
 }) {
   if (!selectedCashBook.value) return
   withdrawalSubmitting.value = true
@@ -185,6 +186,7 @@ async function onWithdrawalSubmit(payload: {
       floats: payload.floats.map(f => ({ machine_id: f.machineId, amount: f.amount })),
       description: payload.description,
       float_description: t('cashBook.changeFloatIn'),
+      emptied_machine_ids: payload.emptiedMachineIds,
     })
     // Der Schreibvorgang ist bereits committet, sobald recordWithdrawal
     // zurückkehrt — ein Refetch-Fehler danach wird intern abgefangen und

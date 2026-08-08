@@ -1869,7 +1869,8 @@
     "changeFloatUnavailable": "Dein Wechselgeldbestand konnte nicht geladen werden",
     "noAssignedMachineHint": "Dieser Barkasse ist kein Automat zugeordnet. Ordne zuerst einen zu.",
     "changeFloatOrphaned": "Nicht zuordenbar (Automat gelöscht)",
-    "withdrawalEmptiesAllMachines": "Ohne ausgewählten Automat gilt diese Entnahme als Leerung aller Automaten dieser Barkasse.",
+    "withdrawalEmptiesAllMachines": "Diese Entnahme wird als Leerung aller Automaten dieser Barkasse gebucht.",
+    "withdrawalEmptiesSelectedMachines": "Nur die markierten Automaten werden als geleert gebucht. Nicht markierte Automaten behalten ihren Erwartungswert bis zur nächsten Entnahme.",
     "amountInvalid": "Ungültiger Betrag. Bitte prüfe die Eingabe."
   },
   "publicStorefront": {

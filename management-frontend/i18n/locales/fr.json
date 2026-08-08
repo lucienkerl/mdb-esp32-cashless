@@ -1672,7 +1672,8 @@
     "changeFloatUnavailable": "Votre solde de fonds de monnaie n'a pas pu être chargé",
     "noAssignedMachineHint": "Aucun distributeur n'est assigné à cette caisse. Assignez-en un d'abord.",
     "changeFloatOrphaned": "Non attribuable (machine supprimée)",
-    "withdrawalEmptiesAllMachines": "Sans machine sélectionnée, ce prélèvement compte comme la vidange de toutes les machines de cette caisse.",
+    "withdrawalEmptiesAllMachines": "Ce prélèvement sera enregistré comme la vidange de toutes les machines de cette caisse.",
+    "withdrawalEmptiesSelectedMachines": "Seules les machines cochées seront enregistrées comme vidées. Les machines non cochées conservent leur montant attendu jusqu'au prochain prélèvement.",
     "amountInvalid": "Montant invalide. Vérifiez la valeur."
   },
   "publicStorefront": {

@@ -417,7 +417,14 @@ export function useCashBook() {
    *  `p_floats` — `float_back` bleibt dann 0, die RPC lehnt beide Wege
    *  gleichzeitig ab. Nullbeträge werden vor dem Senden herausgefiltert;
    *  ein leeres Array lässt den Parameter ganz weg (matcht iOS' `nil` bei
-   *  leerem `floatEntries`) statt ein `[]` zu senden. */
+   *  leerem `floatEntries`) statt ein `[]` zu senden.
+   *
+   *  `emptied_machine_ids` (20260807000900) deckt eine Entnahme ab, die nur
+   *  einen Teil der Automaten dieser Barkasse geleert hat: eine Liste von
+   *  2+ Automat-IDs statt eines einzelnen `machine_id`. Wird nur gesendet,
+   *  wenn sie nicht leer ist — die RPC lehnt sie zusammen mit einer
+   *  nicht-null `machine_id` ab, daher muss `payload.machine_id` in diesem
+   *  Fall bereits `null` sein (Aufrufer-Pflicht, siehe `WithdrawalModal`). */
   async function recordWithdrawal(payload: {
     cash_book_id: string
     machine_id: string | null
@@ -427,6 +434,7 @@ export function useCashBook() {
     description: string
     float_description: string
     floats?: { machine_id: string; amount: number }[]
+    emptied_machine_ids?: string[]
   }) {
     const floats = (payload.floats ?? []).filter(f => f.amount > 0)
 
@@ -441,6 +449,9 @@ export function useCashBook() {
     }
     if (floats.length > 0) {
       rpcParams.p_floats = floats.map(f => ({ machine_id: f.machine_id, amount: f.amount }))
+    }
+    if (payload.emptied_machine_ids && payload.emptied_machine_ids.length > 0) {
+      rpcParams.p_emptied_machine_ids = payload.emptied_machine_ids
     }
 
     const { data, error } = await (supabase as any)

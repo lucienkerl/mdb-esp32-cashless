@@ -41,8 +41,12 @@ struct ChangeFloatSheet: View {
 
     /// Warnt, wenn mehr zurückgenommen wird als vorgestreckt wurde. Blockiert
     /// nicht — eine Buchung, die die Realität abbildet, wird nie verweigert.
+    /// Unterdrückt, wenn der Bestand nicht geladen werden konnte — sonst
+    /// würde eine unbekannte (nicht: null) Rücklage einen falschen Alarm
+    /// auslösen, weil `currentFloat` in diesem Fall auf 0 zurückfällt.
     private var showsNegativeWarning: Bool {
-        direction == .backToBox && amount > 0 && amount > currentFloat + 0.001
+        !cashBookVM.changeFloatUnavailable
+            && direction == .backToBox && amount > 0 && amount > currentFloat + 0.001
     }
 
     private var canSubmit: Bool {
@@ -79,14 +83,24 @@ struct ChangeFloatSheet: View {
                         .labelsHidden()
 
                         if selectedMachineId != nil {
-                            LabeledContent {
-                                Text(currentFloat, format: .currency(code: "EUR"))
-                                    .monospacedDigit()
-                            } label: {
-                                Text("cash_book_total_change_float")
+                            // "We don't know" (RPC failed) must never render
+                            // as "0,00 €" (a stronger claim — "nothing was
+                            // advanced") — mirrors FlowVisualisationCard and
+                            // the PWA's ChangeFloatModal.
+                            if cashBookVM.changeFloatUnavailable {
+                                Label("cash_book_change_float_unavailable", systemImage: "exclamationmark.triangle")
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                            } else {
+                                LabeledContent {
+                                    Text(currentFloat, format: .currency(code: "EUR"))
+                                        .monospacedDigit()
+                                } label: {
+                                    Text("cash_book_total_change_float")
+                                }
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                             }
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                         }
                     }
                 }

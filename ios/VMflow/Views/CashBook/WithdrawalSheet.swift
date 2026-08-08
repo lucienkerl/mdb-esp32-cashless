@@ -66,6 +66,20 @@ struct WithdrawalSheet: View {
         (tourMachineIds?.count ?? 0) > 1
     }
 
+    /// Machines to report via the new `p_emptied_machine_ids` RPC parameter
+    /// (20260807000900), scoped to *this* Barkasse via `breakdownMachines`.
+    /// Non-empty only when the tour visited more than one machine of this
+    /// Barkasse — a single visited machine (or a manual withdrawal, where
+    /// `breakdownMachines` mirrors the whole-Barkasse list but the picker
+    /// still drives attribution) keeps today's `machineId` representation
+    /// unchanged. When non-empty, the withdrawal's `machineId` must be sent
+    /// as `nil` — the RPC rejects a non-null `p_machine_id` together with a
+    /// non-empty list.
+    private var emptiedMachineIds: [UUID] {
+        guard tourMachineIds != nil, breakdownMachines.count > 1 else { return [] }
+        return breakdownMachines.map(\.machineId)
+    }
+
     /// Rücklage in die Münztuben (nicht-negativ; die RPC negiert intern).
     /// Whitespace wird getrimmt, bevor geparst wird: `Double.init?` lehnt
     /// " 50 " ab, und ohne das Trimmen würde eine eingefügte Zahl mit
@@ -187,8 +201,12 @@ struct WithdrawalSheet: View {
                         // withdrawal emptied every machine on this
                         // Barkasse"), but a silent one — make the
                         // consequence visible instead of leaving the
-                        // operator to guess.
-                        if cashBook.trackPerMachine && selectedMachineId == nil {
+                        // operator to guess. Suppressed when
+                        // `emptiedMachineIds` is about to be sent instead —
+                        // in that case a nil `selectedMachineId` no longer
+                        // means "every machine", it means "exactly the
+                        // visited subset", and this text would be false.
+                        if cashBook.trackPerMachine && selectedMachineId == nil && emptiedMachineIds.isEmpty {
                             Text("cash_book_withdrawal_empties_all_machines")
                         }
                     }
@@ -499,16 +517,18 @@ struct WithdrawalSheet: View {
 
     /// Validating counterpart to `parseAmount`. Returns 0 for an empty field
     /// (nothing entered — valid, means "no Rücklage"), the parsed value for
-    /// a well-formed one, and `nil` only when the field is non-empty AND
-    /// fails to parse (garbage input) — the case `parseAmount` alone can't
-    /// distinguish from "nothing entered".
+    /// a well-formed non-negative one, and `nil` when the field is non-empty
+    /// AND either fails to parse (garbage input) OR parses to a negative
+    /// number — a negative Rücklage makes no sense and must be surfaced as
+    /// an error like any other invalid input, not silently clamped to 0
+    /// (which used to book the withdrawal as if nothing had been entered).
     private func parsedAmountIfValid(_ text: String) -> Double? {
         let cleaned = text
             .trimmingCharacters(in: .whitespaces)
             .replacingOccurrences(of: ",", with: ".")
         if cleaned.isEmpty { return 0 }
-        guard let value = Double(cleaned) else { return nil }
-        return max(0, value)
+        guard let value = Double(cleaned), value >= 0 else { return nil }
+        return value
     }
 
     private func amountFormatted(_ value: Double) -> String {
@@ -582,7 +602,11 @@ struct WithdrawalSheet: View {
                 cashBookId: cashBook.id,
                 counted: evaluated,
                 expected: expected,
-                machineId: selectedMachineId,
+                // Wenn `emptiedMachineIds` gesendet wird (Tour über >1
+                // Automaten dieser Barkasse), muss `machineId` nil bleiben —
+                // die RPC lehnt beide gleichzeitig ab. Sonst unverändert der
+                // Picker-Wert (Einzel-Automat oder manuelle Entnahme).
+                machineId: emptiedMachineIds.isEmpty ? selectedMachineId : nil,
                 // Im Mehrfach-Modus geht die Rücklage ausschließlich über
                 // `floats` — `floatBack` bleibt 0, damit die RPC-seitige
                 // "p_float_back und p_floats schließen sich aus"-Prüfung nie
@@ -593,7 +617,8 @@ struct WithdrawalSheet: View {
                 floatDescription: totalFloatBack > 0
                     ? NSLocalizedString("cash_book_change_float_in", comment: "")
                     : nil,
-                floats: isMultiMachine ? multiFloats : [:]
+                floats: isMultiMachine ? multiFloats : [:],
+                emptiedMachineIds: emptiedMachineIds
             )
             dismiss()
         } catch {

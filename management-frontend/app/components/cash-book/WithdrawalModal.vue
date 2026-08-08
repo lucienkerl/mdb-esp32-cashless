@@ -20,6 +20,7 @@ const emit = defineEmits<{
     floatBack: number
     floats: { machineId: string; amount: number }[]
     description: string
+    emptiedMachineIds: string[]
   }): void
 }>()
 
@@ -64,12 +65,15 @@ const isMultiMachine = computed(() => (props.theoreticalCash?.machines?.length ?
  *  `replaceAll` (nicht nur die erste Fundstelle) ersetzt jedes Komma, damit
  *  ein Tausendertrennzeichen-Format wie "1.234,50" korrekt als ungültig
  *  erkannt wird ("1.234.50" ist kein parsbares JS-Number-Literal) statt in
- *  ein plausibel aussehendes, aber falsches Ergebnis zu rutschen. */
+ *  ein plausibel aussehendes, aber falsches Ergebnis zu rutschen. Ein
+ *  negativer Wert ist ebenfalls ungültig statt stillschweigend auf 0
+ *  geklemmt zu werden — sonst würde z. B. "-5" wie "nichts eingegeben"
+ *  gebucht, ohne dass der Bediener je einen Fehler sieht. */
 function parsedAmountIfValid(raw: string): number | null {
   const cleaned = raw.trim().replaceAll(',', '.')
   if (cleaned === '') return 0
   const n = Number(cleaned)
-  return Number.isFinite(n) ? Math.max(0, n) : null
+  return Number.isFinite(n) && n >= 0 ? n : null
 }
 
 const floatBackIsValid = computed(() => parsedAmountIfValid(floatBackText.value) !== null)
@@ -108,6 +112,44 @@ const netToBox = computed(() => form.value.counted_amount - totalFloatBack.value
  *  wäre überflüssig. */
 const machineRequired = computed(() => !isMultiMachine.value && floatBack.value > 0)
 
+/** Checkbox-Zustand je Automat für die Entnahme-Zuordnung selbst (nicht zu
+ *  verwechseln mit `multiFloatTexts`, das die Rücklage betrifft). Keyed by
+ *  machine id, `true` = angehakt. Bei jedem Öffnen auf "alle angehakt"
+ *  zurückgesetzt (siehe `watch` unten) — das Leeren aller Automaten ist der
+ *  häufigste Fall und entspricht der heutigen NULL-Bedeutung. */
+const checkedMachineIds = ref<Record<string, boolean>>({})
+
+/** Mehr als ein zugeordneter Automat UND `trackPerMachine` an → die
+ *  Entnahme kann nur einen Teil der Automaten geleert haben, das lässt sich
+ *  mit einem einzelnen Dropdown nicht ausdrücken. Bewusst NICHT an
+ *  `isMultiMachine` gekoppelt (das reagiert unabhängig von
+ *  `trackPerMachine` auf die Rücklage-Zeilen) — ohne `trackPerMachine`
+ *  bleibt das bisherige Verhalten unverändert (Aufgabenstellung). */
+const showMachineCheckboxes = computed(() => props.trackPerMachine && props.assignedMachines.length > 1)
+
+/** Bisheriges Einzel-Dropdown — jetzt nur noch gezeigt, wenn die
+ *  Checkbox-Variante nicht greift (genau ein Automat, oder `trackPerMachine`
+ *  aus und nur wegen `machineRequired` überhaupt sichtbar). */
+const showMachinePicker = computed(() =>
+  !showMachineCheckboxes.value
+  && (props.trackPerMachine || machineRequired.value)
+  && props.assignedMachines.length > 0,
+)
+
+const checkedMachineList = computed(() =>
+  props.assignedMachines.filter(m => checkedMachineIds.value[m.id]).map(m => m.id),
+)
+
+/** Echte Teilmenge (mind. einer angehakt, aber nicht alle) → nur dann ist
+ *  die neue `p_emptied_machine_ids`-Liste maßgeblich. Alle angehakt oder
+ *  keiner angehakt bleiben beide die heutige NULL-Darstellung ("alle
+ *  Automaten"), damit sich für den häufigen Fall nichts ändert. */
+const isSubsetSelection = computed(() =>
+  showMachineCheckboxes.value
+  && checkedMachineList.value.length > 0
+  && checkedMachineList.value.length < props.assignedMachines.length,
+)
+
 const canSubmit = computed(() =>
   form.value.counted_amount > 0
   && (isMultiMachine.value
@@ -125,6 +167,9 @@ watch(() => props.open, (now) => {
     }
     floatBackText.value = ''
     multiFloatTexts.value = {}
+    // Alle Automaten angehakt starten — Leeren aller Automaten ist der
+    // häufige Fall und entspricht der heutigen NULL-Bedeutung.
+    checkedMachineIds.value = Object.fromEntries(props.assignedMachines.map(m => [m.id, true]))
   }
 })
 
@@ -133,15 +178,19 @@ function onSubmit() {
   emit('submit', {
     counted: form.value.counted_amount,
     expected: props.theoreticalCash?.cash_sales_since ?? 0,
-    // Der Automatenbezug der Entnahme selbst geht immer über das, was der
-    // Bediener im Picker gewählt hat (auch im Mehrfach-Modus) — er ist nicht
-    // an isMultiMachine gekoppelt. `null` ist ein legitimer, expliziter
-    // Wert ("diese Entnahme hat alle Automaten dieser Barkasse geleert"),
-    // siehe get_theoretical_cash-Anker-Logik; er darf hier nur zurückkommen,
-    // wenn der Bediener das tatsächlich so gewählt (oder nichts gewählt)
-    // hat — nie hart erzwungen, weil per-Automat-Rücklage-Zeilen angezeigt
-    // werden.
-    machineId: form.value.machine_id,
+    // Wenn die Checkbox-Variante aktiv ist, geht der Automatenbezug der
+    // Entnahme selbst NIE über `machine_id` — bei "alle" oder "keiner"
+    // angehakt bleibt das die heutige NULL-Darstellung ("alle Automaten
+    // dieser Barkasse geleert"), bei einer echten Teilmenge übernimmt
+    // `emptiedMachineIds` unten (die RPC lehnt eine nicht-null `machine_id`
+    // zusammen mit einer nicht-leeren Liste ab). Ohne Checkboxen unverändert
+    // das, was der Bediener im Picker gewählt hat (auch im Mehrfach-
+    // Rücklage-Modus) — nicht an isMultiMachine gekoppelt, `null` ist dort
+    // weiterhin ein legitimer, expliziter Wert.
+    machineId: showMachineCheckboxes.value ? null : form.value.machine_id,
+    // Nur bei einer echten Teilmenge gesendet — "alle" oder "keiner"
+    // angehakt bleiben die heutige NULL-Darstellung, siehe oben.
+    emptiedMachineIds: isSubsetSelection.value ? checkedMachineList.value : [],
     // Im Mehrfach-Modus geht die Rücklage ausschließlich über `floats` —
     // floatBack bleibt 0, damit die RPC-seitige "p_float_back und p_floats
     // schließen sich aus"-Prüfung nie anschlägt.
@@ -241,12 +290,35 @@ function onSubmit() {
       <!-- Automatenauswahl für die Entnahme selbst — bewusst unabhängig von
            isMultiMachine (Pre-Branch-Bedingung, siehe fix-wave-e-report.md):
            die Rücklage kann pro Automat erfasst werden, ohne dass das die
-           Entnahme-Zuordnung selbst auf NULL zwingt. NULL heißt für
-           get_theoretical_cash "diese Entnahme hat alle Automaten dieser
-           Barkasse geleert" — ein legitimer, aber folgenreicher Wert, den
-           der Bediener bewusst wählen (oder auf "—" belassen) muss, siehe
-           der Hinweis unten. -->
-      <div v-if="(trackPerMachine || machineRequired) && assignedMachines.length > 0">
+           Entnahme-Zuordnung selbst auf NULL zwingt. Bei mehr als einem
+           zugeordneten Automaten UND trackPerMachine an (showMachineCheckboxes)
+           ersetzen Checkboxen das Dropdown, damit sich eine Tour ausdrücken
+           lässt, die nur einen Teil der Automaten geleert hat
+           (20260807000900, p_emptied_machine_ids). -->
+      <div v-if="showMachineCheckboxes">
+        <label class="text-sm font-medium">{{ t('cashBook.fromMachine') }}</label>
+        <div class="mt-1 space-y-1.5">
+          <label
+            v-for="m in assignedMachines"
+            :key="m.id"
+            class="flex items-center gap-2 text-sm"
+          >
+            <input
+              v-model="checkedMachineIds[m.id]"
+              type="checkbox"
+              class="size-4 rounded border-input"
+            />
+            <span>{{ m.name || m.id.slice(0, 8) }}</span>
+          </label>
+        </div>
+        <p v-if="isSubsetSelection" class="mt-1 text-xs text-muted-foreground">
+          {{ t('cashBook.withdrawalEmptiesSelectedMachines') }}
+        </p>
+        <p v-else class="mt-1 text-xs text-muted-foreground">
+          {{ t('cashBook.withdrawalEmptiesAllMachines') }}
+        </p>
+      </div>
+      <div v-else-if="showMachinePicker">
         <label class="text-sm font-medium">
           {{ t('cashBook.fromMachine') }}
           <span v-if="machineRequired" class="text-red-600">*</span>
