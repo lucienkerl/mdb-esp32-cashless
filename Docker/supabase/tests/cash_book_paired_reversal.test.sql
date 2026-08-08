@@ -26,6 +26,16 @@ DECLARE
   v_withdrawal3 uuid; v_float3 uuid;
   v_withdrawal4 uuid; v_number4 integer;
   v_desc text;
+  v_book3    uuid := gen_random_uuid();
+  v_machine_x uuid := gen_random_uuid();
+  v_machine_y uuid := gen_random_uuid();
+  v_withdrawal5 uuid;
+  v_float_ids   jsonb;
+  v_pair_ids    jsonb;
+  v_float_x_id  uuid; v_float_y_id uuid;
+  v_float_x_number integer; v_float_y_number integer;
+  v_target_number  integer;
+  v_float3_number  integer;
 BEGIN
   INSERT INTO public.companies (id, name) VALUES (v_company, 'PairCo');
   INSERT INTO auth.users (id, instance_id, email, created_at)
@@ -46,6 +56,16 @@ BEGIN
     VALUES (v_book2, v_company, 'PairKasse2', 0, v_user);
   INSERT INTO public."vendingMachine" (id, name, company, cash_book_id)
     VALUES (v_machine2, 'A2', v_company, v_book2);
+
+  -- Dritte Kasse + zwei Automaten für Test 11 (mehrere Rücklagenzeilen,
+  -- jede mit ihrer eigenen entry_number in der Gegenbuchung) — eigener
+  -- Kassenstand, damit er nicht von den vorherigen Tests abhängt.
+  INSERT INTO public.cash_books (id, company_id, name, initial_balance, created_by)
+    VALUES (v_book3, v_company, 'PairKasse3', 0, v_user);
+  INSERT INTO public."vendingMachine" (id, name, company, cash_book_id)
+    VALUES (v_machine_x, 'X', v_company, v_book3);
+  INSERT INTO public."vendingMachine" (id, name, company, cash_book_id)
+    VALUES (v_machine_y, 'Y', v_company, v_book3);
 
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', v_user::text, 'role', 'authenticated')::text, true);
@@ -163,26 +183,36 @@ BEGIN
     'ein abgewiesenes Storno-eines-Stornos darf keine Zeile hinterlassen';
   RAISE NOTICE 'Test 8 bestanden: Storno eines Stornos abgewiesen';
 
-  -- ═══ Test 9: eigene Storno-Beschreibung erreicht beide Zeilen (Fix 3) ═══
+  -- ═══ Test 9: eine übergebene Bezeichnung ergibt '<Bezeichnung> #N' auf
+  --             der Gegenbuchung DER ZIELZEILE (20260807000800) ══════════
+  -- p_description/p_paired_description sind seit 20260807000800 keine
+  -- vollen Beschreibungen mehr, sondern lokalisierte Bezeichnungen, an die
+  -- die Funktion selbst " #" + die entry_number der jeweils betroffenen
+  -- Zeile anhängt — damit trägt jede Gegenbuchung ihren eigenen
+  -- Rückverweis statt eines für alle Zeilen identischen Texts.
   r := public.record_cash_book_withdrawal(v_book, v_machine, 40.00, 40.00, 15.00,
                                           'Entnahme mit Rücklage', 'Rücklage für Storno-Test');
   v_withdrawal3 := (r->>'withdrawal_entry_id')::uuid;
   v_float3      := (r->>'change_float_entry_id')::uuid;
 
+  SELECT entry_number INTO v_target_number FROM public.cash_book_entries WHERE id = v_withdrawal3;
+  SELECT entry_number INTO v_float3_number FROM public.cash_book_entries WHERE id = v_float3;
+
   res := public.reverse_cash_book_entry(v_withdrawal3, 'Reversal of withdrawal', 'Reversal of float');
 
   SELECT description INTO v_desc FROM public.cash_book_entries
    WHERE id = (res->>'reversal_entry_id')::uuid;
-  ASSERT v_desc = 'Reversal of withdrawal',
-    format('eigene Beschreibung für die Entnahme-Gegenbuchung erwartet, war %s', v_desc);
+  ASSERT v_desc = format('Reversal of withdrawal #%s', v_target_number),
+    format('Bezeichnung + eigene Nummer für die Entnahme-Gegenbuchung erwartet, war %s', v_desc);
 
   SELECT description INTO v_desc FROM public.cash_book_entries
    WHERE id = (res->>'paired_reversal_entry_id')::uuid;
-  ASSERT v_desc = 'Reversal of float',
-    format('eigene Beschreibung für die Rücklagen-Gegenbuchung erwartet, war %s', v_desc);
-  RAISE NOTICE 'Test 9 bestanden: eigene Storno-Beschreibung erreicht beide Zeilen';
+  ASSERT v_desc = format('Reversal of float #%s', v_float3_number),
+    format('Bezeichnung + eigene Nummer für die Rücklagen-Gegenbuchung erwartet, war %s', v_desc);
+  RAISE NOTICE 'Test 9 bestanden: übergebene Bezeichnung + eigene Nummer auf der Gegenbuchung';
 
-  -- ═══ Test 10: NULL fällt auf den deutschen Standardtext zurück ══════════
+  -- ═══ Test 10: NULL fällt auf 'Storno von Eintrag #N' zurück, byte-für-
+  --              byte identisch zum bisherigen Text (20260807000800) ═════
   r := public.record_cash_book_withdrawal(v_book, v_machine, 25.00, 25.00, 5.00,
                                           'Entnahme ohne Storno-Text', 'Rücklage ohne Storno-Text');
   v_withdrawal4 := (r->>'withdrawal_entry_id')::uuid;
@@ -200,7 +230,50 @@ BEGIN
    WHERE id = (res->>'paired_reversal_entry_id')::uuid;
   ASSERT v_desc LIKE 'Storno von Eintrag #%',
     format('deutscher Fallback-Text für die Rücklagen-Gegenbuchung erwartet, war %s', v_desc);
-  RAISE NOTICE 'Test 10 bestanden: NULL fällt auf deutschen Standardtext zurück';
+  RAISE NOTICE 'Test 10 bestanden: NULL fällt auf deutschen Standardtext "Storno von Eintrag #N" zurück';
+
+  -- ═══ Test 11: mehrere Rücklagenzeilen → jede Gegenbuchung trägt ihre
+  --              EIGENE entry_number, nicht eine gemeinsame (20260807000800) ═══
+  -- Ohne den Fix hätte ein einziges p_paired_description wortwörtlich auf
+  -- ALLE Gegenbuchungen gepasst — jede hätte denselben Text getragen und
+  -- damit ihren individuellen Rückverweis auf die Zeile verloren, die sie
+  -- tatsächlich storniert.
+  r := public.record_cash_book_withdrawal(
+    v_book3, NULL, 100.00, 70.00, 0, 'Tour-Entnahme', 'Rücklage Standard',
+    jsonb_build_array(
+      jsonb_build_object('machine_id', v_machine_x, 'amount', 15.00),
+      jsonb_build_object('machine_id', v_machine_y, 'amount', 15.00)
+    )
+  );
+  v_withdrawal5 := (r->>'withdrawal_entry_id')::uuid;
+  v_float_ids   := r->'change_float_entry_ids';
+  ASSERT jsonb_array_length(v_float_ids) = 2,
+    format('erwartet 2 Rücklagenzeilen, waren %s', jsonb_array_length(v_float_ids));
+
+  v_float_x_id := (v_float_ids->>0)::uuid;
+  v_float_y_id := (v_float_ids->>1)::uuid;
+  SELECT entry_number INTO v_float_x_number FROM public.cash_book_entries WHERE id = v_float_x_id;
+  SELECT entry_number INTO v_float_y_number FROM public.cash_book_entries WHERE id = v_float_y_id;
+  ASSERT v_float_x_number <> v_float_y_number,
+    'die beiden Rücklagenzeilen müssen unterschiedliche entry_number haben (Testvoraussetzung)';
+
+  res := public.reverse_cash_book_entry(v_withdrawal5, 'Reversal of entry', 'Reversal of entry');
+  v_pair_ids := res->'paired_reversal_entry_ids';
+  ASSERT jsonb_array_length(v_pair_ids) = 2,
+    format('erwartet 2 Rücklagen-Gegenbuchungen, waren %s', jsonb_array_length(v_pair_ids));
+
+  -- Die Gegenbuchung, die die X-Rücklage korrigiert, muss X's eigene Nummer
+  -- tragen — nicht Y's, und nicht irgendeine gemeinsame.
+  SELECT description INTO v_desc FROM public.cash_book_entries
+   WHERE corrects_entry_id = v_float_x_id;
+  ASSERT v_desc = format('Reversal of entry #%s', v_float_x_number),
+    format('Gegenbuchung von X erwartet eigene Nummer %s, Beschreibung war %s', v_float_x_number, v_desc);
+
+  SELECT description INTO v_desc FROM public.cash_book_entries
+   WHERE corrects_entry_id = v_float_y_id;
+  ASSERT v_desc = format('Reversal of entry #%s', v_float_y_number),
+    format('Gegenbuchung von Y erwartet eigene Nummer %s, Beschreibung war %s', v_float_y_number, v_desc);
+  RAISE NOTICE 'Test 11 bestanden: jede Rücklagen-Gegenbuchung trägt ihre eigene entry_number';
 
 END $$;
 

@@ -123,6 +123,7 @@ const userCache = new Map<string, string>()
 export function useCashBook() {
   const supabase = useSupabaseClient()
   const { organization } = useOrganization()
+  const { t } = useI18n()
 
   // ── Reactive state ───────────────────────────────────────────────────────
 
@@ -510,8 +511,18 @@ export function useCashBook() {
    *  Transaktion mitstorniert. Ohne das bliebe sie verwaist zurück und der
    *  Automat führte dauerhaft Wechselgeld, das längst zurück ist. */
   async function reverseEntry(entryId: string) {
+    // Der Server hängt selbst " #<entry_number der jeweiligen Zeile>" an
+    // dieses Label an — siehe reverse_cash_book_entry (20260807000800).
+    // Ein einziges, wortwörtliches Description hätte bei mehreren
+    // verketteten Rücklagenzeilen allen Gegenbuchungen denselben
+    // Rückverweis gegeben.
+    const label = t('cashBook.reversalOf')
     const { data, error } = await (supabase as any)
-      .rpc('reverse_cash_book_entry', { p_entry_id: entryId })
+      .rpc('reverse_cash_book_entry', {
+        p_entry_id: entryId,
+        p_description: label,
+        p_paired_description: label,
+      })
 
     if (error) throw error
 
@@ -521,10 +532,12 @@ export function useCashBook() {
       paired_reversal_entry_ids?: string[] | null
     }
 
-    // Erst aktualisieren, dann loggen: der BEFORE-INSERT-Trigger überschreibt
-    // amount/description serverseitig (negierter Originalbetrag bzw.
-    // "Storno von Eintrag #N") — der hier angeforderte Wert wäre bedeutungslos.
-    // Die echten Werte kommen erst nach fetchEntries() in entries.value an.
+    // Erst aktualisieren, dann loggen: die RPC selbst berechnet amount
+    // serverseitig (negierter Originalbetrag) und baut description aus dem
+    // hier übergebenen Label plus der jeweils eigenen entry_number
+    // zusammen (z. B. "Storno von Eintrag #N") — die Response enthält nur
+    // IDs, nicht den fertig zusammengesetzten Text. Die echten Werte
+    // kommen erst nach fetchEntries() in entries.value an.
     //
     // Best-effort: die Stornierung ist bereits committet — ein Netzwerk-Hänger
     // hier darf nicht als fehlgeschlagene Stornierung gemeldet werden (siehe

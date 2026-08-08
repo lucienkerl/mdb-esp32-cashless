@@ -1820,6 +1820,7 @@
     "reversalConfirmTitle": "Reverse Entry",
     "reversalConfirmMessage": "Reverse entry #{number}? This creates a counter-entry and cannot be undone.",
     "reversalIncludesPaired": "The linked change float booking will be reversed as well. | The {count} linked change float bookings will be reversed as well.",
+    "reversalOf": "Reversal of entry",
     "deleteCashBook": "Delete Cash Register",
     "deleteWarning": "Warning: This action cannot be undone!",
     "deleteWarningEntries": "All {count} entries will be permanently deleted",

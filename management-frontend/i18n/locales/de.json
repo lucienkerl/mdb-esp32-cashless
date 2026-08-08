@@ -1820,6 +1820,7 @@
     "reversalConfirmTitle": "Eintrag stornieren",
     "reversalConfirmMessage": "Eintrag #{number} stornieren? Dies erstellt eine Gegenbuchung und kann nicht rückgängig gemacht werden.",
     "reversalIncludesPaired": "Die zugehörige Wechselgeldbuchung wird mitstorniert. | Die {count} zugehörigen Wechselgeldbuchungen werden mitstorniert.",
+    "reversalOf": "Storno von Eintrag",
     "deleteCashBook": "Barkasse löschen",
     "deleteWarning": "Achtung: Diese Aktion kann nicht rückgängig gemacht werden!",
     "deleteWarningEntries": "Alle {count} Einträge werden unwiderruflich gelöscht",

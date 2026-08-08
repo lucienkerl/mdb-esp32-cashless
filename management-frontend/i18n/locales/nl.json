@@ -1623,6 +1623,7 @@
     "reversalConfirmTitle": "Boeking terugboeken",
     "reversalConfirmMessage": "Boeking #{number} terugboeken? Dit maakt een tegenboeking aan en kan niet ongedaan gemaakt worden.",
     "reversalIncludesPaired": "De bijbehorende wisselgeldboeking wordt mee teruggeboekt. | De {count} bijbehorende wisselgeldboekingen worden mee teruggeboekt.",
+    "reversalOf": "Storno van boeking",
     "deleteCashBook": "Kassa verwijderen",
     "deleteWarning": "Waarschuwing: deze actie kan niet ongedaan gemaakt worden!",
     "deleteWarningEntries": "Alle {count} boekingen worden definitief verwijderd",

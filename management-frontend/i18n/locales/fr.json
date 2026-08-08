@@ -1623,6 +1623,7 @@
     "reversalConfirmTitle": "Extourner l'écriture",
     "reversalConfirmMessage": "Extourner l'écriture n°{number} ? Cela crée une contre-écriture et est irréversible.",
     "reversalIncludesPaired": "L'écriture de fonds de caisse associée sera également extournée. | Les {count} écritures de fonds de caisse associées seront également extournées.",
+    "reversalOf": "Annulation de l'écriture",
     "deleteCashBook": "Supprimer la caisse",
     "deleteWarning": "Attention : cette action est irréversible !",
     "deleteWarningEntries": "Les {count} écritures seront définitivement supprimées",
