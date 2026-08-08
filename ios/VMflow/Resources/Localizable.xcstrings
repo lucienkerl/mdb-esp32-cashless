@@ -3581,6 +3581,35 @@
         }
       }
     },
+    "cash_book_change_float_orphaned": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht mehr zuzuordnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No longer attributable"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non attribuable"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niet meer toewijsbaar"
+          }
+        }
+      }
+    },
     "cash_book_changer_hint": {
       "extractionState": "manual",
       "localizations": {

@@ -518,10 +518,21 @@ export function useCashBook() {
     // amount/description serverseitig (negierter Originalbetrag bzw.
     // "Storno von Eintrag #N") — der hier angeforderte Wert wäre bedeutungslos.
     // Die echten Werte kommen erst nach fetchEntries() in entries.value an.
+    //
+    // Best-effort: die Stornierung ist bereits committet — ein Netzwerk-Hänger
+    // hier darf nicht als fehlgeschlagene Stornierung gemeldet werden (siehe
+    // createEntry/recordWithdrawal). Sonst böte der Aufrufer-Dialog eine
+    // erneute Stornierung an, die die DB als doppelte Stornierung ablehnt —
+    // eine verwirrende Sackgasse für eine Buchung, die längst durch ist. Die
+    // nächste Ladung holt Einträge + Bestand nach.
     if (selectedCashBook.value) {
-      await fetchEntries(selectedCashBook.value.id)
-      await fetchTheoreticalCash(selectedCashBook.value.id)
-      await fetchChangeFloat()
+      try {
+        await fetchEntries(selectedCashBook.value.id)
+        await fetchTheoreticalCash(selectedCashBook.value.id)
+        await fetchChangeFloat()
+      } catch (err) {
+        console.warn('cash book refresh after write failed:', err)
+      }
     }
 
     // `paired_reversal_entry_ids` enthält bereits alle Gegenbuchungen

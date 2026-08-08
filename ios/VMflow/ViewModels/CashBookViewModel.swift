@@ -515,6 +515,14 @@ final class CashBookViewModel: ObservableObject {
     /// zu hohen Summe würde nicht auslösen, obwohl die Rückgabe die
     /// tatsächliche Barkasse A ins Minus treibt. `MachineChangeFloat.cashBookId`
     /// macht den Filter direkt möglich.
+    ///
+    /// `machineId` here is always a real, non-optional machine id — callers
+    /// (`ChangeFloatSheet`) only ever pass one picked from `assignedMachines`.
+    /// `$0.machineId == machineId` still compiles and behaves correctly now
+    /// that `MachineChangeFloat.machineId` is optional (Swift promotes the
+    /// non-optional `machineId` for the comparison): an orphaned row
+    /// (`machineId == nil`) can never match and is correctly excluded here —
+    /// it has no real machine to book a return against.
     func floatBalance(for machineId: UUID, cashBookId: UUID) -> Double {
         changeFloat
             .filter { $0.machineId == machineId && $0.cashBookId == cashBookId }

@@ -168,9 +168,28 @@ struct CashBookMachineRef: Codable, Identifiable, Hashable {
 /// Vorgestrecktes Wechselgeld je (Automat, Barkasse) aus
 /// `get_machine_change_float`. Kein Tubenfüllstand — der ist von außen nicht
 /// ermittelbar. Diese Zahl ändert sich ausschließlich durch eigene Buchungen.
+///
+/// `machineId`/`machineName` sind beide `nil`, wenn der zugehörige Automat
+/// inzwischen gelöscht wurde (`cash_book_entries.machine_id` steht auf
+/// `ON DELETE SET NULL`) — die Zeile bleibt als nicht zuordenbarer
+/// Sammelposten sichtbar statt aus dem Bestand zu verschwinden (siehe
+/// Migration `20260807000700_change_float_orphans.sql`).
 struct MachineChangeFloat: Codable, Identifiable, Hashable {
-    var id: String { "\(machineId.uuidString)-\(cashBookId.uuidString)" }
-    let machineId: UUID
+    /// Für eine echte Automaten-Zeile eindeutig über (Automat, Barkasse).
+    /// Für eine verwaiste Zeile (machineId == nil) fasst die RPC serverseitig
+    /// bereits alle gelöschten Automaten derselben Barkasse per
+    /// `GROUP BY e.machine_id, vm.name, e.cash_book_id` zu höchstens einer
+    /// Zeile zusammen — "orphaned-<cashBookId>" ist damit ebenfalls je
+    /// Barkasse eindeutig und kann nicht mit einer echten, UUID-basierten id
+    /// kollidieren (die immer mit einem UUID-String, nie mit dem Literal
+    /// "orphaned", beginnt). Stabil über Reloads hinweg, was SwiftUI-Listen-
+    /// Identität braucht — eine wackelige id würde Zeilen beim Neuladen
+    /// fälschlich vertauschen.
+    var id: String {
+        guard let machineId else { return "orphaned-\(cashBookId.uuidString)" }
+        return "\(machineId.uuidString)-\(cashBookId.uuidString)"
+    }
+    let machineId: UUID?
     let machineName: String?
     let cashBookId: UUID
     let floatBalance: Double

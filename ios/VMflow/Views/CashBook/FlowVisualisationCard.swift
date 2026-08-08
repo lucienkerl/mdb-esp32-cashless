@@ -215,11 +215,17 @@ struct FlowVisualisationCard: View {
     /// books would otherwise show up twice and can't key a `ForEach` safely.
     /// Keyed on `machineId` rather than `machineName`, which has no
     /// uniqueness constraint and could misattribute a balance on re-sort.
+    /// `id` is a `String` (not `UUID`) so the orphaned bucket — which has no
+    /// machine id at all — can key the same `ForEach` as real machine rows.
     private struct MachineFloatRow: Identifiable {
-        let id: UUID
+        let id: String
         let name: String
         let balance: Double
     }
+
+    /// Sentinel key for rows with `machineId == nil` (Automat gelöscht) —
+    /// real machine ids are UUID strings and can never collide with this.
+    private static let orphanedKey = "__orphaned__"
 
     /// `cashBookVM.changeFloat` holds rows for every cash book of the company —
     /// scope to the Barkasse this card represents so the total matches the
@@ -228,12 +234,21 @@ struct FlowVisualisationCard: View {
         cashBookVM.changeFloat.filter { $0.cashBookId == cashBookId }
     }
 
+    /// Rows without a `machineId` (Automat inzwischen gelöscht) are grouped
+    /// under `orphanedKey` into their own row instead of being dropped or
+    /// merged into a real machine — the money they represent must stay
+    /// visible and attributable to "not assignable", not silently vanish or
+    /// misattribute to the wrong machine.
     private var changeFloatByMachine: [MachineFloatRow] {
-        var byId: [UUID: (name: String, balance: Double)] = [:]
+        var byId: [String: (name: String, balance: Double)] = [:]
         for row in changeFloatForThisBook {
-            var existing = byId[row.machineId] ?? (name: row.machineName ?? "—", balance: 0)
+            let key = row.machineId?.uuidString ?? Self.orphanedKey
+            let defaultName = row.machineId == nil
+                ? NSLocalizedString("cash_book_change_float_orphaned", comment: "")
+                : (row.machineName ?? "—")
+            var existing = byId[key] ?? (name: defaultName, balance: 0)
             existing.balance += row.floatBalance
-            byId[row.machineId] = existing
+            byId[key] = existing
         }
         return byId
             .map { MachineFloatRow(id: $0.key, name: $0.value.name, balance: $0.value.balance) }

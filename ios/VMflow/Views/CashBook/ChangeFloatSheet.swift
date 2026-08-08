@@ -23,6 +23,13 @@ struct ChangeFloatSheet: View {
         Double(amountText.replacingOccurrences(of: ",", with: ".")) ?? 0
     }
 
+    /// Picker source. Deliberately `CashBookMachineRef` (live `vendingMachine`
+    /// rows currently assigned to this Barkasse), never `MachineChangeFloat`
+    /// rows from `cashBookVM.changeFloat` — a booking can only target a
+    /// machine that still exists. This also means the orphaned bucket row
+    /// (`machineId == nil`, surfaced by `get_machine_change_float` for a
+    /// deleted machine's stranded float) can never appear here as a bookable
+    /// target.
     private var assignedMachines: [CashBookMachineRef] {
         cashBookVM.assignedMachines(for: cashBook.id)
     }
