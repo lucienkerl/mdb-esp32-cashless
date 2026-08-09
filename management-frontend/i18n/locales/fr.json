@@ -1656,7 +1656,7 @@
     "typeChangeFloat": "Fonds de monnaie",
     "changeFloatIn": "Fonds vers le distributeur",
     "changeFloatOut": "Fonds repris du distributeur",
-    "totalChangeFloat": "Fonds de monnaie avancé",
+    "totalChangeFloat": "Fonds de monnaie ajouté (net)",
     "recordChangeFloat": "Enregistrer le fonds de monnaie",
     "changeFloatDirection": "Sens",
     "changeFloatIntoMachine": "Vers le distributeur",

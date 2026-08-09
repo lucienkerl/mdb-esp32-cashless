@@ -1656,7 +1656,7 @@
     "typeChangeFloat": "Wisselgeld",
     "changeFloatIn": "Wisselgeld naar automaat",
     "changeFloatOut": "Wisselgeld terug uit automaat",
-    "totalChangeFloat": "Wisselgeld voorgeschoten",
+    "totalChangeFloat": "Wisselgeld ingelegd (netto)",
     "recordChangeFloat": "Wisselgeld boeken",
     "changeFloatDirection": "Richting",
     "changeFloatIntoMachine": "In de automaat leggen",

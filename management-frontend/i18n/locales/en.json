@@ -1853,7 +1853,7 @@
     "typeChangeFloat": "Change float",
     "changeFloatIn": "Float into machine",
     "changeFloatOut": "Float back from machine",
-    "totalChangeFloat": "Change float advanced",
+    "totalChangeFloat": "Change float added (net)",
     "recordChangeFloat": "Record change float",
     "changeFloatDirection": "Direction",
     "changeFloatIntoMachine": "Into the machine",

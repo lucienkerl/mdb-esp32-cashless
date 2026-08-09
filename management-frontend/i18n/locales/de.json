@@ -1853,7 +1853,7 @@
     "typeChangeFloat": "Wechselgeld",
     "changeFloatIn": "Wechselgeld in Automat",
     "changeFloatOut": "Wechselgeld aus Automat",
-    "totalChangeFloat": "Wechselgeld vorgestreckt",
+    "totalChangeFloat": "Wechselgeld eingelegt (netto)",
     "recordChangeFloat": "Wechselgeld buchen",
     "changeFloatDirection": "Richtung",
     "changeFloatIntoMachine": "In den Automaten einlegen",
