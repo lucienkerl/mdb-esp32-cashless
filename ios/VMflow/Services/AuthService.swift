@@ -35,7 +35,19 @@ final class AuthService: ObservableObject {
     }
 
     private var client: SupabaseClient { SupabaseService.shared.client }
-    private var authStateTask: Task<Void, Never>?
+
+    /// Runs `checkSession()` — the one-shot initial restore attempt.
+    /// Independently cancellable from `authListenerTask` so bailing out of a
+    /// hung restore (`cancelSessionRestore()`) doesn't tear down the
+    /// long-lived auth-state observation below.
+    private var sessionRestoreTask: Task<Void, Never>?
+
+    /// Long-lived subscription to `client.auth.authStateChanges`. Reacts to
+    /// `.signedIn` / `.signedOut` for the rest of the process (server-forced
+    /// sign-outs, sign-ins from elsewhere). Must keep running across a
+    /// cancelled session restore — only `restartAuthListener()` (new server)
+    /// or `deinit` may cancel it.
+    private var authListenerTask: Task<Void, Never>?
 
     /// Write guard for the in-flight session-restore path. Set by
     /// `cancelSessionRestore()`; checked by every write `checkSession()`
@@ -54,18 +66,23 @@ final class AuthService: ObservableObject {
     /// session-restore write guard and timeout flag so a fresh restore
     /// attempt (e.g. after picking a different server) starts clean and the
     /// "server not responding" button doesn't linger from the previous
-    /// attempt.
+    /// attempt. Cancels both existing tasks first so restarting twice never
+    /// leaves two listeners subscribed to auth events.
     func restartAuthListener() {
-        authStateTask?.cancel()
+        sessionRestoreTask?.cancel()
+        authListenerTask?.cancel()
         restoreCancelled = false
         sessionRestoreTimedOut = false
         startAuthListener()
     }
 
     private func startAuthListener() {
-        authStateTask = Task { [weak self] in
+        sessionRestoreTask = Task { [weak self] in
+            await self?.checkSession()
+        }
+
+        authListenerTask = Task { [weak self] in
             guard let self else { return }
-            await self.checkSession()
             for await (event, _) in self.client.auth.authStateChanges {
                 switch event {
                 case .signedIn:
@@ -80,6 +97,16 @@ final class AuthService: ObservableObject {
                     self.firstName = ""
                     self.lastName = ""
                     self.userEmail = nil
+                case .initialSession:
+                    // The SDK always delivers this the instant the loop
+                    // subscribes, which — now that this task starts
+                    // concurrently with `sessionRestoreTask` — can race
+                    // ahead of `checkSession()`. `checkSession()` alone owns
+                    // the initial isAuthenticated/isLoading determination;
+                    // falling through to the shared `isLoading = false`
+                    // below would flash the login screen before the restore
+                    // (and its 5s timeout) gets a chance to finish.
+                    continue
                 default:
                     break
                 }
@@ -89,7 +116,8 @@ final class AuthService: ObservableObject {
     }
 
     deinit {
-        authStateTask?.cancel()
+        sessionRestoreTask?.cancel()
+        authListenerTask?.cancel()
     }
 
     // MARK: - Session
@@ -134,10 +162,13 @@ final class AuthService: ObservableObject {
     /// the user out to the ordinary login screen (which carries the server
     /// picker) without waiting for the in-flight `client.auth.session` call
     /// to resolve. That call keeps running in the background — the guard
-    /// above ensures its eventual result (or the auth listener's handling of
-    /// it) writes nothing once `restoreCancelled` is set here.
+    /// above ensures its eventual result writes nothing once
+    /// `restoreCancelled` is set here. Only cancels `sessionRestoreTask`;
+    /// `authListenerTask` is deliberately left running so a sign-in or an
+    /// externally-triggered sign-out that happens afterwards is still
+    /// observed for the rest of the session.
     func cancelSessionRestore() {
-        authStateTask?.cancel()
+        sessionRestoreTask?.cancel()
         isAuthenticated = false
         isLoading = false
         restoreCancelled = true
