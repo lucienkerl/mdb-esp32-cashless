@@ -133,16 +133,17 @@ BEGIN
   ASSERT v_desc = 'Rücklage Standard', format('C erwartet Fallback-Beschreibung, war %s', v_desc);
   ASSERT v_paired = v_withdrawal1, 'C-Zeile muss auf die Entnahme zeigen';
 
-  -- Bestandsabfrage bestätigt die Salden je Automat in dieser Barkasse.
-  r := public.get_machine_change_float(v_company);
-  SELECT (e->>'float_balance')::float8 INTO v_amt FROM jsonb_array_elements(r) e
-   WHERE (e->>'machine_id')::uuid = v_machine_a AND (e->>'cash_book_id')::uuid = v_book1;
+  -- Salden je Automat in dieser Barkasse direkt aus den Buchungen geprüft
+  -- (get_machine_change_float wurde mit 20260809000000 entfernt — die
+  -- Bestandsanzeige ist gestrichen, das Buchen selbst bleibt unverändert).
+  SELECT COALESCE(-SUM(amount), 0) INTO v_amt FROM public.cash_book_entries
+   WHERE cash_book_id = v_book1 AND type = 'change_float' AND machine_id = v_machine_a AND is_reversed = false;
   ASSERT v_amt = 20.00, format('Bestand A erwartet 20.00, war %s', v_amt);
-  SELECT (e->>'float_balance')::float8 INTO v_amt FROM jsonb_array_elements(r) e
-   WHERE (e->>'machine_id')::uuid = v_machine_b AND (e->>'cash_book_id')::uuid = v_book1;
+  SELECT COALESCE(-SUM(amount), 0) INTO v_amt FROM public.cash_book_entries
+   WHERE cash_book_id = v_book1 AND type = 'change_float' AND machine_id = v_machine_b AND is_reversed = false;
   ASSERT v_amt = 30.00, format('Bestand B erwartet 30.00, war %s', v_amt);
-  SELECT (e->>'float_balance')::float8 INTO v_amt FROM jsonb_array_elements(r) e
-   WHERE (e->>'machine_id')::uuid = v_machine_c AND (e->>'cash_book_id')::uuid = v_book1;
+  SELECT COALESCE(-SUM(amount), 0) INTO v_amt FROM public.cash_book_entries
+   WHERE cash_book_id = v_book1 AND type = 'change_float' AND machine_id = v_machine_c AND is_reversed = false;
   ASSERT v_amt = 10.00, format('Bestand C erwartet 10.00, war %s', v_amt);
 
   SELECT balance_after INTO v_balance FROM public.cash_book_entries

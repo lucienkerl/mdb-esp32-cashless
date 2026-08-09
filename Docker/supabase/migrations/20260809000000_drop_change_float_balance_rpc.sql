@@ -1,0 +1,27 @@
+-- =========================================================
+-- Kassenbuch: Bestandsabfrage für vorgestrecktes Wechselgeld entfernt
+--
+-- get_machine_change_float (20260807000100, zuletzt geändert in
+-- 20260807000700) hat die per-Automat-Bestandsabfrage für Wechselgeld
+-- geliefert, auf der die PWA-Karte `StationChangeFloat`, der iOS
+-- `changeFloatSection` und die "bisher vorgestreckt"-Anzeige im
+-- Wechselgeld-Dialog beider Clients aufbauten.
+--
+-- Der Bestand wuchs in der Praxis monoton: Geld, das über eine normale
+-- Entnahme (ohne "float back"-Rücklage) aus den Münztuben geholt wurde,
+-- floss buchhalterisch unsichtbar zurück in die Barkasse, ohne die
+-- change_float-Buchungen zu stornieren, die es ursprünglich vorgestreckt
+-- hatten. Der angezeigte Bestand driftete damit dauerhaft von der Realität
+-- weg — eine Reparatur würde Automatendaten voraussetzen, die nicht mehr
+-- vorliegen.
+--
+-- Der Nutzer hat entschieden, diese Bestandsanzeige ersatzlos zu streichen.
+-- Das Buchen von change_float-Einträgen selbst (Typ, Constraint, Trigger,
+-- record_cash_book_withdrawal, reverse_cash_book_entry) bleibt unverändert
+-- bestehen — nur die abgeleitete Saldenanzeige fällt weg.
+--
+-- Kein Client (PWA, iOS, api-v1 Edge Function) ruft diese Funktion nach der
+-- Entfernung der Bestandsoberfläche noch auf.
+-- =========================================================
+
+DROP FUNCTION IF EXISTS public.get_machine_change_float(uuid);

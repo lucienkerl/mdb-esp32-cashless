@@ -67,19 +67,6 @@ export type ExpenseCategory = typeof EXPENSE_CATEGORIES[number]
 /** Richtung einer Wechselgeldbuchung aus Sicht der Barkasse. */
 export type ChangeFloatDirection = 'into_machine' | 'back_to_box'
 
-/** Eine Zeile aus `get_machine_change_float` — vorgestrecktes Wechselgeld
- *  je (Automat, Barkasse). `machine_id`/`machine_name` sind beide null,
- *  wenn der Automat inzwischen gelöscht wurde (ON DELETE SET NULL) — die
- *  Zeile bleibt als nicht zuordenbarer Sammelposten sichtbar, statt aus
- *  dem Bestand zu verschwinden. */
-export interface MachineChangeFloat {
-  machine_id: string | null
-  machine_name: string | null
-  cash_book_id: string
-  float_balance: number
-  last_change_at: string
-}
-
 /** Rechnet Richtung + nicht-negative Eingabe in den signierten `amount` um,
  *  der auf dem Eintrag landet. `amount` ist die Wirkung auf die Barkasse:
  *  Einlage in den Automaten senkt sie, Rücknahme hebt sie. Das Vorzeichen
@@ -91,27 +78,6 @@ export function changeFloatAmount(direction: ChangeFloatDirection, input: number
   // Bewusst `=== 0` statt `|| 0` — das lässt NaN durch, statt einen
   // ungültigen Betrag in eine gültig aussehende Nullbuchung zu verwandeln.
   return signed === 0 ? 0 : signed
-}
-
-/** Vorgestrecktes Wechselgeld eines Automaten, gescoped auf eine einzelne
- *  Barkasse. Der Wechselgeld-Dialog ist immer für genau eine Barkasse
- *  geöffnet — ein Automat kann aber die Barkasse gewechselt haben und in
- *  mehreren Barkassen Wechselgeld vorgestreckt bekommen haben (z. B. 45 €
- *  in Barkasse A und 20 € in B). Über alle Barkassen zu summieren würde
- *  dort 65 € zeigen, während die Bestandskarte (`StationChangeFloat`)
- *  korrekt 45 € für A anzeigt — und eine Über-Rückgabe-Warnung auf Basis
- *  der falschen, zu hohen Summe würde nicht auslösen, obwohl die Rückgabe
- *  die tatsächliche Barkasse A ins Minus treibt. Mirror von iOS'
- *  `floatBalance(for:cashBookId:)`. */
-export function floatBalanceForMachine(rows: MachineChangeFloat[], machineId: string, cashBookId: string): number {
-  return rows
-    .filter(r => r.machine_id === machineId && r.cash_book_id === cashBookId)
-    .reduce((sum, r) => sum + r.float_balance, 0)
-}
-
-/** Gesamtes vorgestrecktes Wechselgeld über alle Zeilen. */
-export function totalChangeFloat(rows: MachineChangeFloat[]): number {
-  return rows.reduce((sum, r) => sum + r.float_balance, 0)
 }
 
 // ── User name cache (shared across instances) ──────────────────────────────
@@ -131,12 +97,6 @@ export function useCashBook() {
   const selectedCashBook = ref<CashBook | null>(null)
   const entries = ref<CashBookEntry[]>([])
   const theoreticalCash = ref<TheoreticalCash | null>(null)
-  const changeFloat = ref<MachineChangeFloat[]>([])
-  /** True, wenn der Wechselgeldbestand nicht geladen werden konnte (kein Mitglied
-   *  dieser Firma, RPC-Fehler oder NULL). Ohne dieses Flag wäre der Fall von
-   *  "kein Wechselgeld vorgestreckt" ([]) nicht zu unterscheiden — siehe
-   *  fetchChangeFloat. */
-  const changeFloatUnavailable = ref(false)
   const loading = ref(false)
   const entriesLoading = ref(false)
   const allMachines = ref<VendingMachineBasic[]>([])
@@ -374,40 +334,6 @@ export function useCashBook() {
     theoreticalCash.value = data as TheoreticalCash | null
   }
 
-  // ── Wechselgeld-Bestand ──────────────────────────────────────────────────
-
-  /** Wirft nie — ein fehlgeschlagener Wechselgeld-Ladevorgang darf den Rest von
-   *  loadCashBookData() (insb. die Hash-Ketten-Prüfung) nicht per Promise.all-
-   *  Abbruch mit sich reißen. Stattdessen wird changeFloatUnavailable gesetzt,
-   *  damit die UI eine Warnung statt eines stillschweigend leeren Bestands zeigt. */
-  async function fetchChangeFloat() {
-    const companyId = organization.value?.id
-    if (!companyId) {
-      // Keine Organisation geladen — kann während des initialen Ladens kurz
-      // auftreten. Nicht Mitglied dieser Firma und "kein Wechselgeld
-      // vorgestreckt" ([]) müssen unterscheidbar bleiben.
-      changeFloat.value = []
-      changeFloatUnavailable.value = true
-      return
-    }
-
-    const { data, error } = await (supabase as any)
-      .rpc('get_machine_change_float', {
-        p_company_id: companyId,
-      })
-
-    // NULL heißt "nicht Mitglied dieser Firma" und ist etwas anderes als
-    // [] ("kein Wechselgeld vorgestreckt") — nicht stillschweigend einebnen.
-    if (error || data === null) {
-      changeFloat.value = []
-      changeFloatUnavailable.value = true
-      return
-    }
-
-    changeFloat.value = data as MachineChangeFloat[]
-    changeFloatUnavailable.value = false
-  }
-
   /** Bucht eine Entnahme, optional mit Wechselgeld-Rücklage in die Münztuben.
    *  Beide Zeilen entstehen serverseitig in einer Transaktion.
    *
@@ -509,7 +435,6 @@ export function useCashBook() {
     try {
       await fetchEntries(payload.cash_book_id)
       await fetchTheoreticalCash(payload.cash_book_id)
-      await fetchChangeFloat()
     } catch (err) {
       console.warn('cash book refresh after write failed:', err)
     }
@@ -560,7 +485,6 @@ export function useCashBook() {
       try {
         await fetchEntries(selectedCashBook.value.id)
         await fetchTheoreticalCash(selectedCashBook.value.id)
-        await fetchChangeFloat()
       } catch (err) {
         console.warn('cash book refresh after write failed:', err)
       }
@@ -738,8 +662,6 @@ export function useCashBook() {
     selectedCashBook,
     entries,
     theoreticalCash,
-    changeFloat,
-    changeFloatUnavailable,
     loading,
     entriesLoading,
     allMachines,
@@ -757,7 +679,6 @@ export function useCashBook() {
 
     // Theoretical cash
     fetchTheoreticalCash,
-    fetchChangeFloat,
 
     // Machine assignment
     fetchAllMachines,

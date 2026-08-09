@@ -10,11 +10,6 @@ final class CashBookViewModel: ObservableObject {
     @Published var selectedCashBookId: UUID?
     @Published private(set) var entries: [CashBookEntry] = []
     @Published private(set) var theoreticalCash: TheoreticalCash?
-    @Published private(set) var changeFloat: [MachineChangeFloat] = []
-    /// True, wenn der Wechselgeldbestand nicht geladen werden konnte. Ohne das
-    /// wäre "nicht Mitglied dieser Firma" (die RPC liefert dann NULL) von
-    /// "kein Wechselgeld vorgestreckt" ([]) nicht zu unterscheiden.
-    @Published private(set) var changeFloatUnavailable = false
     @Published private(set) var machines: [CashBookMachineRef] = []
     @Published private(set) var isLoading = false
     @Published private(set) var isLoadingEntries = false
@@ -99,7 +94,6 @@ final class CashBookViewModel: ObservableObject {
             self.cashBooks = books
             self.machines = fetchedMachines
             reconcileSelection()
-            await loadChangeFloat()
 
             // If we now have a selection, load its entries + theoretical cash
             if let id = selectedCashBookId {
@@ -383,7 +377,6 @@ final class CashBookViewModel: ObservableObject {
 
         await loadEntries(for: cashBookId)
         await loadTheoreticalCash(for: cashBookId)
-        await loadChangeFloat()
     }
 
     /// Records a bank deposit (cash flowing OUT of the box to the bank).
@@ -501,58 +494,6 @@ final class CashBookViewModel: ObservableObject {
 
     // MARK: - Wechselgeld (change_float)
 
-    /// Lädt den vorgestreckten Wechselgeldbestand je Automat für die Firma.
-    func loadChangeFloat() async {
-        guard let companyId = cashBooks.first?.companyId else {
-            changeFloat = []
-            changeFloatUnavailable = false
-            return
-        }
-        struct Params: Encodable { let p_company_id: UUID }
-        do {
-            // Optional dekodieren: NULL heißt "nicht Mitglied dieser Firma"
-            // und ist etwas anderes als [] ("kein Wechselgeld vorgestreckt").
-            let rows: [MachineChangeFloat]? = try await client
-                .rpc("get_machine_change_float", params: Params(p_company_id: companyId))
-                .execute()
-                .value
-            changeFloat = rows ?? []
-            changeFloatUnavailable = (rows == nil)
-        } catch is CancellationError {
-            // SwiftUI cancels tasks routinely (tab switches, refreshable) —
-            // silent, matching refresh()/loadEntries(). Must NOT flip
-            // changeFloatUnavailable, which would show a spurious warning
-            // for what is actually just an interrupted, retriable load.
-        } catch {
-            changeFloat = []
-            changeFloatUnavailable = true
-        }
-    }
-
-    /// Vorgestrecktes Wechselgeld eines Automaten, gescoped auf eine einzelne
-    /// Barkasse. Die Entnahme- und Wechselgeld-Dialoge sind jeweils für genau
-    /// eine Barkasse geöffnet (`cashBook: CashBook`) — ein Automat kann aber
-    /// in mehreren Barkassen Wechselgeld vorgestreckt bekommen haben (z. B.
-    /// 45 € in Barkasse A und 20 € in B). Über alle Barkassen zu summieren
-    /// würde dort 65 € zeigen, während die Bestandskarte korrekt 45 € für A
-    /// anzeigt — und eine Über-Rückgabe-Warnung auf Basis der falschen,
-    /// zu hohen Summe würde nicht auslösen, obwohl die Rückgabe die
-    /// tatsächliche Barkasse A ins Minus treibt. `MachineChangeFloat.cashBookId`
-    /// macht den Filter direkt möglich.
-    ///
-    /// `machineId` here is always a real, non-optional machine id — callers
-    /// (`ChangeFloatSheet`) only ever pass one picked from `assignedMachines`.
-    /// `$0.machineId == machineId` still compiles and behaves correctly now
-    /// that `MachineChangeFloat.machineId` is optional (Swift promotes the
-    /// non-optional `machineId` for the comparison): an orphaned row
-    /// (`machineId == nil`) can never match and is correctly excluded here —
-    /// it has no real machine to book a return against.
-    func floatBalance(for machineId: UUID, cashBookId: UUID) -> Double {
-        changeFloat
-            .filter { $0.machineId == machineId && $0.cashBookId == cashBookId }
-            .reduce(0) { $0 + $1.floatBalance }
-    }
-
     /// Bucht eine eigenständige Wechselgeldbewegung. `amount` ist bereits
     /// signiert (siehe `ChangeFloatDirection.signedAmount`).
     func recordChangeFloat(
@@ -606,7 +547,6 @@ final class CashBookViewModel: ObservableObject {
 
         await loadEntries(for: cashBookId)
         await loadTheoreticalCash(for: cashBookId)
-        await loadChangeFloat()
     }
 
     // MARK: - Activity Log

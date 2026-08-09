@@ -1,29 +1,13 @@
 <script setup lang="ts">
-import { IconAlertTriangle } from '@tabler/icons-vue'
-import { formatCurrency } from '@/lib/utils'
 import {
   changeFloatAmount,
-  floatBalanceForMachine,
   type ChangeFloatDirection,
-  type MachineChangeFloat,
   type VendingMachineBasic,
 } from '@/composables/useCashBook'
 
 const props = defineProps<{
   open: boolean
   assignedMachines: VendingMachineBasic[]
-  changeFloat: MachineChangeFloat[]
-  /** Scopes `floatBalanceForMachine` below to the Barkasse this dialog is
-   *  open for — a machine can have moved between Barkassen and carry a
-   *  float balance in more than one. Without this, `currentFloat` would
-   *  sum across every Barkasse the machine has ever been in, and the
-   *  over-return warning would fail to fire for the correct one. */
-  cashBookId: string
-  /** True when the balance couldn't be loaded (RPC error/null) — mirrors
-   *  the balance card's `unavailable` flag. Without this, "we don't know"
-   *  silently renders as "0,00 €", the stronger claim "nothing advanced",
-   *  which then triggers a spurious over-return warning below. */
-  changeFloatUnavailable: boolean
   submitting: boolean
   error?: string | null
 }>()
@@ -41,24 +25,6 @@ const form = ref({
   machine_id: '' as string,
   description: '',
 })
-
-/** Vorgestrecktes Wechselgeld des gewählten Automaten. */
-const currentFloat = computed(() =>
-  form.value.machine_id
-    ? floatBalanceForMachine(props.changeFloat, form.value.machine_id, props.cashBookId)
-    : 0,
-)
-
-/** Warnung, wenn mehr zurückgenommen wird als vorgestreckt wurde. Blockiert
- *  nicht — eine Buchung, die die Realität abbildet, wird nie verweigert.
- *  Unterdrückt, wenn der Bestand nicht geladen werden konnte — sonst würde
- *  eine unbekannte (nicht: null) Rücklage einen falschen Alarm auslösen. */
-const showNegativeWarning = computed(() =>
-  !props.changeFloatUnavailable
-  && form.value.direction === 'back_to_box'
-  && form.value.amount > 0
-  && form.value.amount > currentFloat.value + 0.001,
-)
 
 const canSubmit = computed(() =>
   form.value.amount > 0 && form.value.machine_id !== '',
@@ -123,13 +89,6 @@ function onSubmit() {
               {{ m.name || m.id.slice(0, 8) }}
             </option>
           </select>
-          <p v-if="form.machine_id && changeFloatUnavailable" class="mt-1 flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
-            <IconAlertTriangle class="size-3.5 shrink-0" />
-            {{ t('cashBook.changeFloatUnavailable') }}
-          </p>
-          <p v-else-if="form.machine_id" class="mt-1 text-xs text-muted-foreground">
-            {{ t('cashBook.totalChangeFloat') }}: {{ formatCurrency(currentFloat) }}
-          </p>
         </template>
       </div>
 
@@ -141,10 +100,6 @@ function onSubmit() {
           class="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
       </div>
-
-      <p v-if="showNegativeWarning" class="text-sm text-amber-600 dark:text-amber-400">
-        {{ t('cashBook.changeFloatNegativeWarning') }}
-      </p>
 
       <div>
         <label class="text-sm font-medium">{{ t('cashBook.description') }}</label>

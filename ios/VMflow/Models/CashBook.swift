@@ -163,50 +163,6 @@ struct CashBookMachineRef: Codable, Identifiable, Hashable {
     }
 }
 
-// MARK: - MachineChangeFloat (RPC payload)
-
-/// Vorgestrecktes Wechselgeld je (Automat, Barkasse) aus
-/// `get_machine_change_float`. Kein Tubenfüllstand — der ist von außen nicht
-/// ermittelbar. Diese Zahl ändert sich ausschließlich durch eigene Buchungen.
-///
-/// `machineId`/`machineName` sind beide `nil`, wenn der zugehörige Automat
-/// inzwischen gelöscht wurde (`cash_book_entries.machine_id` steht auf
-/// `ON DELETE SET NULL`) — die Zeile bleibt als nicht zuordenbarer
-/// Sammelposten sichtbar statt aus dem Bestand zu verschwinden (siehe
-/// Migration `20260807000700_change_float_orphans.sql`).
-struct MachineChangeFloat: Codable, Identifiable, Hashable {
-    /// Für eine echte Automaten-Zeile eindeutig über (Automat, Barkasse).
-    /// Für eine verwaiste Zeile (machineId == nil) fasst die RPC serverseitig
-    /// bereits alle gelöschten Automaten derselben Barkasse per
-    /// `GROUP BY e.machine_id, vm.name, e.cash_book_id` zu höchstens einer
-    /// Zeile zusammen — "orphaned-<cashBookId>" ist damit ebenfalls je
-    /// Barkasse eindeutig und kann nicht mit einer echten, UUID-basierten id
-    /// kollidieren (die immer mit einem UUID-String, nie mit dem Literal
-    /// "orphaned", beginnt). Stabil über Reloads hinweg, was SwiftUI-Listen-
-    /// Identität braucht — eine wackelige id würde Zeilen beim Neuladen
-    /// fälschlich vertauschen.
-    var id: String {
-        guard let machineId else { return "orphaned-\(cashBookId.uuidString)" }
-        return "\(machineId.uuidString)-\(cashBookId.uuidString)"
-    }
-    let machineId: UUID?
-    let machineName: String?
-    let cashBookId: UUID
-    let floatBalance: Double
-    /// Optional: neither client displays this field, and a decode failure on
-    /// a non-optional Date here would flip the whole card to the unavailable
-    /// state for an unrelated reason.
-    let lastChangeAt: Date?
-
-    enum CodingKeys: String, CodingKey {
-        case machineId = "machine_id"
-        case machineName = "machine_name"
-        case cashBookId = "cash_book_id"
-        case floatBalance = "float_balance"
-        case lastChangeAt = "last_change_at"
-    }
-}
-
 // MARK: - ChangeFloatDirection
 
 /// Richtung einer Wechselgeldbuchung aus Sicht der Barkasse. Die Oberfläche

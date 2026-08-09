@@ -97,36 +97,11 @@ paths:
     delete:
       summary: Delete a machine
       tags: [Machines]
-      description: |
-        Deleting a machine does not delete its cash-book `change_float`
-        entries — `machine_id` on those rows is set to `null`
-        (`ON DELETE SET NULL`). If the machine still has a non-zero advanced
-        change float, the response includes a `warning` and `float_balance`
-        field. The delete is never blocked by this check.
       parameters:
         - $ref: '#/components/parameters/resourceId'
       responses:
-        '200':
-          description: |
-            Deleted. Body is only present (with `warning`/`float_balance`)
-            when the machine had a non-zero advanced change float;
-            otherwise the underlying `204 No Content` is passed through.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                    format: uuid
-                  deleted:
-                    type: boolean
-                  warning:
-                    type: string
-                    description: German-language warning that the change float is no longer attributable to this machine.
-                  float_balance:
-                    type: number
-                    description: Advanced change float (EUR) the machine still carried at delete time.
+        '204':
+          description: Deleted
         '404':
           $ref: '#/components/responses/NotFound'
 

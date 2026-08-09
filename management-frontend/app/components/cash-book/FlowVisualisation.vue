@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { IconArrowDown, IconBuildingBank } from '@tabler/icons-vue'
-import type { CashBookEntry, MachineChangeFloat, TheoreticalCash } from '@/composables/useCashBook'
+import type { CashBookEntry, TheoreticalCash } from '@/composables/useCashBook'
 
 const props = defineProps<{
   theoreticalCash: TheoreticalCash | null
@@ -8,9 +8,6 @@ const props = defineProps<{
   lastEntryAt: string | null
   lastBankDeposit: CashBookEntry | null
   bankDepositThreshold: number
-  changeFloat: MachineChangeFloat[]
-  cashBookId: string
-  changeFloatUnavailable: boolean
 }>()
 
 const emit = defineEmits<{
@@ -94,13 +91,5 @@ const ringClass = 'ring-2 ring-amber-400/60 dark:ring-amber-500/60 animate-pulse
       </div>
       <div></div>
     </div>
-
-    <!-- Wechselgeld ist eine Seitentasche der Kasse, kein Kettenglied —
-         daher eine eigene Karte unter der Kette statt einer vierten Spalte. -->
-    <CashBookStationChangeFloat
-      :change-float="changeFloat"
-      :cash-book-id="cashBookId"
-      :unavailable="changeFloatUnavailable"
-    />
   </div>
 </template>

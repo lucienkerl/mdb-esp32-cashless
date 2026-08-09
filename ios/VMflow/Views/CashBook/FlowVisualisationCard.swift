@@ -3,16 +3,10 @@ import SwiftUI
 /// Three-station vertical flow: In Automaten → In der Kasse → Letzte Bankeinzahlung.
 /// Used on both the full Cash Book screen and the dashboard tile (with `compact = true`).
 struct FlowVisualisationCard: View {
-    @EnvironmentObject var cashBookVM: CashBookViewModel
     let theoreticalCash: TheoreticalCash?
     let currentBalance: Double
     let lastBankDeposit: CashBookEntry?
     let bankDepositThreshold: Double
-    /// `get_machine_change_float` returns rows for every cash book of the
-    /// company — the card must only reflect the Barkasse it is displayed on,
-    /// otherwise its total silently disagrees with the PWA PDF export (which
-    /// is scoped to the selected cash book).
-    let cashBookId: UUID
     /// When true, render the three station rows but suppress the action buttons.
     let compact: Bool
     let onWithdraw: (() -> Void)?
@@ -23,7 +17,6 @@ struct FlowVisualisationCard: View {
         currentBalance: Double,
         lastBankDeposit: CashBookEntry?,
         bankDepositThreshold: Double,
-        cashBookId: UUID,
         compact: Bool = false,
         onWithdraw: (() -> Void)? = nil,
         onDeposit: (() -> Void)? = nil
@@ -32,7 +25,6 @@ struct FlowVisualisationCard: View {
         self.currentBalance = currentBalance
         self.lastBankDeposit = lastBankDeposit
         self.bankDepositThreshold = bankDepositThreshold
-        self.cashBookId = cashBookId
         self.compact = compact
         self.onWithdraw = onWithdraw
         self.onDeposit = onDeposit
@@ -90,9 +82,6 @@ struct FlowVisualisationCard: View {
                 amount: lastBankDeposit.map { abs($0.amount) },
                 subtitle: lastDepositSubtitle
             )
-
-            // Wechselgeld ist eine Seitentasche der Kasse, kein Kettenglied.
-            changeFloatSection
         }
     }
 
@@ -166,93 +155,6 @@ struct FlowVisualisationCard: View {
             arrow()
         }
         .disabled(action == nil)
-    }
-
-    @ViewBuilder
-    private var changeFloatSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Label("cash_book_change_float_station", systemImage: "circle.grid.2x2")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                // No total while the balance couldn't be loaded — showing 0
-                // there would read as "nothing advanced", which is a
-                // different, stronger claim than "we don't know".
-                if !cashBookVM.changeFloatUnavailable {
-                    Text(changeFloatForThisBook.reduce(0) { $0 + $1.floatBalance },
-                         format: .currency(code: "EUR"))
-                        .font(.headline.monospacedDigit())
-                }
-            }
-
-            if cashBookVM.changeFloatUnavailable {
-                Label("cash_book_change_float_unavailable", systemImage: "exclamationmark.triangle")
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
-            } else if changeFloatForThisBook.isEmpty {
-                Text("cash_book_change_float_empty")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            } else {
-                ForEach(changeFloatByMachine) { row in
-                    HStack {
-                        Text(row.name)
-                        Spacer()
-                        Text(row.balance, format: .currency(code: "EUR"))
-                            .monospacedDigit()
-                    }
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .padding(.top, 8)
-    }
-
-    /// One row per machine, summed across cash books — `MachineChangeFloat.id`
-    /// is per (machine, cash book) row, so a machine that moved between cash
-    /// books would otherwise show up twice and can't key a `ForEach` safely.
-    /// Keyed on `machineId` rather than `machineName`, which has no
-    /// uniqueness constraint and could misattribute a balance on re-sort.
-    /// `id` is a `String` (not `UUID`) so the orphaned bucket — which has no
-    /// machine id at all — can key the same `ForEach` as real machine rows.
-    private struct MachineFloatRow: Identifiable {
-        let id: String
-        let name: String
-        let balance: Double
-    }
-
-    /// Sentinel key for rows with `machineId == nil` (Automat gelöscht) —
-    /// real machine ids are UUID strings and can never collide with this.
-    private static let orphanedKey = "__orphaned__"
-
-    /// `cashBookVM.changeFloat` holds rows for every cash book of the company —
-    /// scope to the Barkasse this card represents so the total matches the
-    /// PDF/entries the surrounding screen is showing.
-    private var changeFloatForThisBook: [MachineChangeFloat] {
-        cashBookVM.changeFloat.filter { $0.cashBookId == cashBookId }
-    }
-
-    /// Rows without a `machineId` (Automat inzwischen gelöscht) are grouped
-    /// under `orphanedKey` into their own row instead of being dropped or
-    /// merged into a real machine — the money they represent must stay
-    /// visible and attributable to "not assignable", not silently vanish or
-    /// misattribute to the wrong machine.
-    private var changeFloatByMachine: [MachineFloatRow] {
-        var byId: [String: (name: String, balance: Double)] = [:]
-        for row in changeFloatForThisBook {
-            let key = row.machineId?.uuidString ?? Self.orphanedKey
-            let defaultName = row.machineId == nil
-                ? NSLocalizedString("cash_book_change_float_orphaned", comment: "")
-                : (row.machineName ?? "—")
-            var existing = byId[key] ?? (name: defaultName, balance: 0)
-            existing.balance += row.floatBalance
-            byId[key] = existing
-        }
-        return byId
-            .map { MachineFloatRow(id: $0.key, name: $0.value.name, balance: $0.value.balance) }
-            .sorted { $0.balance > $1.balance }
     }
 
     // MARK: - Subtitle composition

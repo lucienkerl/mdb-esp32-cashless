@@ -23,30 +23,10 @@ struct ChangeFloatSheet: View {
         Double(amountText.replacingOccurrences(of: ",", with: ".")) ?? 0
     }
 
-    /// Picker source. Deliberately `CashBookMachineRef` (live `vendingMachine`
-    /// rows currently assigned to this Barkasse), never `MachineChangeFloat`
-    /// rows from `cashBookVM.changeFloat` — a booking can only target a
-    /// machine that still exists. This also means the orphaned bucket row
-    /// (`machineId == nil`, surfaced by `get_machine_change_float` for a
-    /// deleted machine's stranded float) can never appear here as a bookable
-    /// target.
+    /// Picker source: live `vendingMachine` rows currently assigned to this
+    /// Barkasse — a booking can only target a machine that still exists.
     private var assignedMachines: [CashBookMachineRef] {
         cashBookVM.assignedMachines(for: cashBook.id)
-    }
-
-    private var currentFloat: Double {
-        guard let id = selectedMachineId else { return 0 }
-        return cashBookVM.floatBalance(for: id, cashBookId: cashBook.id)
-    }
-
-    /// Warnt, wenn mehr zurückgenommen wird als vorgestreckt wurde. Blockiert
-    /// nicht — eine Buchung, die die Realität abbildet, wird nie verweigert.
-    /// Unterdrückt, wenn der Bestand nicht geladen werden konnte — sonst
-    /// würde eine unbekannte (nicht: null) Rücklage einen falschen Alarm
-    /// auslösen, weil `currentFloat` in diesem Fall auf 0 zurückfällt.
-    private var showsNegativeWarning: Bool {
-        !cashBookVM.changeFloatUnavailable
-            && direction == .backToBox && amount > 0 && amount > currentFloat + 0.001
     }
 
     private var canSubmit: Bool {
@@ -81,27 +61,6 @@ struct ChangeFloatSheet: View {
                             }
                         }
                         .labelsHidden()
-
-                        if selectedMachineId != nil {
-                            // "We don't know" (RPC failed) must never render
-                            // as "0,00 €" (a stronger claim — "nothing was
-                            // advanced") — mirrors FlowVisualisationCard and
-                            // the PWA's ChangeFloatModal.
-                            if cashBookVM.changeFloatUnavailable {
-                                Label("cash_book_change_float_unavailable", systemImage: "exclamationmark.triangle")
-                                    .font(.caption)
-                                    .foregroundStyle(.orange)
-                            } else {
-                                LabeledContent {
-                                    Text(currentFloat, format: .currency(code: "EUR"))
-                                        .monospacedDigit()
-                                } label: {
-                                    Text("cash_book_total_change_float")
-                                }
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            }
-                        }
                     }
                 }
 
@@ -110,14 +69,6 @@ struct ChangeFloatSheet: View {
                         .keyboardType(.decimalPad)
                         .multilineTextAlignment(.trailing)
                         .font(.body.monospacedDigit())
-                }
-
-                if showsNegativeWarning {
-                    Section {
-                        Text("cash_book_change_float_negative_warning")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                    }
                 }
 
                 Section("cash_book_description") {

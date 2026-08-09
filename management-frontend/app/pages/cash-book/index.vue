@@ -15,8 +15,6 @@ const {
   selectedCashBook,
   entries,
   theoreticalCash,
-  changeFloat,
-  changeFloatUnavailable,
   loading,
   entriesLoading,
   allMachines,
@@ -28,7 +26,6 @@ const {
   recordWithdrawal,
   reverseEntry,
   fetchTheoreticalCash,
-  fetchChangeFloat,
   fetchAllMachines,
   assignMachine,
   unassignMachine,
@@ -104,7 +101,6 @@ async function loadCashBookData() {
   await Promise.all([
     fetchEntries(id, dateRange.value),
     fetchTheoreticalCash(id),
-    fetchChangeFloat(),
   ])
 
   const { data: allEntries } = await (useSupabaseClient() as any)
@@ -287,7 +283,6 @@ async function onChangeFloatSubmit(payload: { amount: number; machineId: string;
       description: payload.description || null,
       machine_id: payload.machineId,
     })
-    await fetchChangeFloat()
     showChangeFloatModal.value = false
   } catch (err: any) {
     errorMessage.value = err.message
@@ -534,9 +529,6 @@ async function exportPdf() {
         :last-entry-at="theoreticalCash?.last_entry_at ?? null"
         :last-bank-deposit="lastBankDeposit"
         :bank-deposit-threshold="selectedCashBook.bank_deposit_threshold ?? 500"
-        :change-float="changeFloat"
-        :cash-book-id="selectedCashBook.id"
-        :change-float-unavailable="changeFloatUnavailable"
         @withdraw="openWithdrawal"
         @deposit="openBankDeposit"
       />
@@ -633,9 +625,6 @@ async function exportPdf() {
     <CashBookChangeFloatModal
       v-model:open="showChangeFloatModal"
       :assigned-machines="assignedMachines"
-      :change-float="changeFloat"
-      :cash-book-id="selectedCashBook?.id ?? ''"
-      :change-float-unavailable="changeFloatUnavailable"
       :submitting="changeFloatSubmitting"
       :error="errorMessage"
       @submit="onChangeFloatSubmit"
