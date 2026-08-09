@@ -73,6 +73,8 @@ struct RootView: View {
 // MARK: - Launch Screen
 
 struct LaunchScreenView: View {
+    @EnvironmentObject var auth: AuthService
+
     var body: some View {
         VStack(spacing: 16) {
             Image("AppLogo")
@@ -83,7 +85,24 @@ struct LaunchScreenView: View {
                 .font(.largeTitle.bold())
             ProgressView()
                 .padding(.top, 8)
+
+            if auth.sessionRestoreTimedOut {
+                VStack(spacing: 12) {
+                    Text("launch_screen_timeout_message")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                    Button(String(localized: "launch_screen_timeout_cancel")) {
+                        auth.cancelSessionRestore()
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(.top, 24)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
         }
+        .animation(.easeInOut(duration: 0.3), value: auth.sessionRestoreTimedOut)
     }
 }
 

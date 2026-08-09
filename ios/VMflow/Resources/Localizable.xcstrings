@@ -1,6 +1,64 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "launch_screen_timeout_cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abbrechen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuler"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuleren"
+          }
+        }
+      }
+    },
+    "launch_screen_timeout_message": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Server antwortet nicht. Auf dem nächsten Bildschirm kannst du einen anderen Server wählen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server isn't responding. You can switch servers on the next screen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le serveur ne répond pas. Vous pourrez changer de serveur sur l'écran suivant."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De server reageert niet. Je kunt op het volgende scherm een andere server kiezen."
+          }
+        }
+      }
+    },
     " · ": {
       "localizations": {
         "fr": {

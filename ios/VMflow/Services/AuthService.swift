@@ -12,6 +12,12 @@ final class AuthService: ObservableObject {
     @Published var role: OrganizationRole?
     @Published var error: String?
 
+    /// Set 5 seconds into a session restore that hasn't resolved yet (e.g. the
+    /// configured server is unreachable). The launch screen uses this to offer
+    /// a way out to the server picker — it does NOT stop the restore attempt,
+    /// which may still succeed.
+    @Published private(set) var sessionRestoreTimedOut = false
+
     /// Signed-in user's profile, mirrored from the auth session so the UI can
     /// show and edit the name that ends up in refill/activity logs.
     @Published var firstName = ""
@@ -31,14 +37,28 @@ final class AuthService: ObservableObject {
     private var client: SupabaseClient { SupabaseService.shared.client }
     private var authStateTask: Task<Void, Never>?
 
+    /// Write guard for the in-flight session-restore path. Set by
+    /// `cancelSessionRestore()`; checked by every write `checkSession()`
+    /// would otherwise make so a `client.auth.session` call that resolves
+    /// after the user has bailed to the login screen can't yank them back
+    /// out mid-typing. Scoped to session restore only — `login()` never
+    /// consults it, so a deliberate sign-in afterwards works normally.
+    private var restoreCancelled = false
+
     init() {
         startAuthListener()
     }
 
     /// (Re)start the auth state change listener on the current Supabase client.
-    /// Called on init and after server reconfiguration.
+    /// Called on init and after server reconfiguration. Resets the
+    /// session-restore write guard and timeout flag so a fresh restore
+    /// attempt (e.g. after picking a different server) starts clean and the
+    /// "server not responding" button doesn't linger from the previous
+    /// attempt.
     func restartAuthListener() {
         authStateTask?.cancel()
+        restoreCancelled = false
+        sessionRestoreTimedOut = false
         startAuthListener()
     }
 
@@ -75,19 +95,52 @@ final class AuthService: ObservableObject {
     // MARK: - Session
 
     /// Check for an existing session on app launch.
+    ///
+    /// Starts a 5-second side timer: if the restore is still in flight when
+    /// it fires, it flips `sessionRestoreTimedOut` and nothing else — the
+    /// spinner keeps running because the connection may still succeed. Every
+    /// write below checks `restoreCancelled` first so a session result that
+    /// arrives after the user has cancelled out to the login screen can't
+    /// silently reinstate them.
     func checkSession() async {
         isLoading = true
+
+        let timeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard let self, !Task.isCancelled, !self.restoreCancelled else { return }
+            self.sessionRestoreTimedOut = true
+        }
+        defer { timeoutTask.cancel() }
+
         do {
             let session = try await client.auth.session
+            guard !restoreCancelled else { return }
             isAuthenticated = true
             _ = session
             await fetchOrganization()
+            guard !restoreCancelled else { return }
             await loadProfile()
+            guard !restoreCancelled else { return }
             Task { await self.syncLocaleToServer() }
         } catch {
+            guard !restoreCancelled else { return }
             isAuthenticated = false
         }
+        guard !restoreCancelled else { return }
         isLoading = false
+    }
+
+    /// Called from the launch screen's "server not responding" offer. Bails
+    /// the user out to the ordinary login screen (which carries the server
+    /// picker) without waiting for the in-flight `client.auth.session` call
+    /// to resolve. That call keeps running in the background — the guard
+    /// above ensures its eventual result (or the auth listener's handling of
+    /// it) writes nothing once `restoreCancelled` is set here.
+    func cancelSessionRestore() {
+        authStateTask?.cancel()
+        isAuthenticated = false
+        isLoading = false
+        restoreCancelled = true
     }
 
     // MARK: - Login
