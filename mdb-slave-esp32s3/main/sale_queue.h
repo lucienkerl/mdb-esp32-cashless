@@ -105,3 +105,13 @@ uint32_t sale_queue_last_seq(void);
  * growing roughly in lockstep with last_seq.
  */
 uint32_t sale_queue_fast_path_count(void);
+
+/*
+ * True when the device currently has a usable wall clock, i.e. sales are
+ * being stamped with real vend times instead of occurred_at=0 +
+ * time_uncertain. Surfaced via MDB diagnostics: a device reporting false
+ * here has never reached an NTP server since its last power cycle, so its
+ * sales carry server receive times and are eligible for the backend's
+ * brownout duplicate suppression.
+ */
+bool sale_queue_clock_ok(void);

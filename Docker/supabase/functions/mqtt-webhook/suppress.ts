@@ -20,6 +20,12 @@ export const REBOOT_CORRELATION_FORWARD_MS = 60_000;
 export interface SuppressCandidate {
   id: string;
   createdAtMs: number;
+  /**
+   * `sales.time_uncertain` of the already-stored row. A candidate that is
+   * itself time_uncertain is never a valid suppression target — see
+   * `decideSuppress`.
+   */
+  timeUncertain: boolean;
 }
 
 /**
@@ -29,11 +35,27 @@ export interface SuppressCandidate {
  * Returns the matched existing sale's id (to store as matched_sale_id) or
  * null to insert normally.
  *
- * Safety: only `time_uncertain` sales are ever suppressed — a normal sale
- * (synced clock) is always inserted, even if an identical recent sale exists.
- * Among time_uncertain sales, suppress when a same-key candidate (the caller
- * pre-filters by embedded_id/item_number/item_price/channel) falls within
- * ±windowMs of the incoming created_at.
+ * Safety, two independent gates:
+ *
+ *  1. Only `time_uncertain` sales are ever suppressed — a normal sale
+ *     (synced clock) is always inserted, even if an identical recent sale
+ *     exists.
+ *
+ *  2. The matched *candidate* must NOT itself be time_uncertain. A brownout
+ *     re-report is by definition preceded by an original that the device
+ *     recorded while it still had a working clock; the pair is therefore
+ *     always (certain original, uncertain re-report). Two adjacent
+ *     time_uncertain rows mean something else entirely: the device has no
+ *     clock at all right now and is draining its offline NVS queue. Every
+ *     sale in such a drain arrives within seconds of its siblings — not
+ *     because they are duplicates, but because the webhook stamps them all
+ *     with its own receive time (the payload carries occurred_at=0). Without
+ *     this gate a machine that buffered six identical vends during an outage
+ *     had five of them auto-removed the moment it reconnected.
+ *
+ * Among the remaining candidates (the caller pre-filters by
+ * embedded_id/item_number/item_price/channel), suppress when one falls
+ * within ±windowMs of the incoming created_at.
  */
 export function decideSuppress(
   incoming: { timeUncertain: boolean; createdAtMs: number },
@@ -42,6 +64,7 @@ export function decideSuppress(
 ): string | null {
   if (!incoming.timeUncertain) return null;
   for (const c of candidates) {
+    if (c.timeUncertain) continue;
     if (Math.abs(c.createdAtMs - incoming.createdAtMs) <= windowMs) return c.id;
   }
   return null;

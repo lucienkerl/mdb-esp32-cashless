@@ -432,7 +432,7 @@ Deno.serve(async (req) => {
         const incomingMs = Date.parse(saleTime);
         const { data: candRows } = await adminClient
           .from('sales')
-          .select('id, created_at, product_id')
+          .select('id, created_at, product_id, time_uncertain')
           .eq('embedded_id', embedded.id)
           .eq('item_number', itemNumber)
           .eq('item_price', salePrice)
@@ -442,7 +442,11 @@ Deno.serve(async (req) => {
           .order('created_at', { ascending: false })
           .limit(20);  // bounded: same-key sales within ±30s are at most a handful
         const candidates: SuppressCandidate[] = (candRows ?? []).map(
-          (r: { id: string; created_at: string; product_id: string | null }) => ({ id: r.id, createdAtMs: Date.parse(r.created_at) }),
+          (r: { id: string; created_at: string; product_id: string | null; time_uncertain: boolean | null }) => ({
+            id: r.id,
+            createdAtMs: Date.parse(r.created_at),
+            timeUncertain: r.time_uncertain === true,
+          }),
         );
         const matchedId = decideSuppress({ timeUncertain, createdAtMs: incomingMs }, candidates, SUPPRESS_WINDOW_MS);
         if (matchedId) {
@@ -464,25 +468,48 @@ Deno.serve(async (req) => {
           // No nearby reboot → genuine repeat purchase; fall through to the
           // normal sales insert below instead of auto-removing it.
           if (rebootCorroborates(restartMs, incomingMs)) {
-            const matchedRow = (candRows ?? []).find((r) => r.id === matchedId);
-            const { error: suppressErr } = await adminClient.from('suppressed_sales').insert([{
-              embedded_id: embedded.id,
-              item_number: itemNumber,
-              item_price: salePrice,
-              channel,
-              sale_seq: saleSeq,
-              // raw device timestamp, NOT saleTime (which is server time here)
-              device_created_at: timestampUnsigned > 0 ? new Date(timestampUnsigned * 1000).toISOString() : null,
-              received_at: new Date().toISOString(),
-              matched_sale_id: matchedId,
-              reason: 'time_uncertain_duplicate',
-              product_id: matchedRow?.product_id ?? null,
-            }]);
-            if (!suppressErr) {
-              return new Response(JSON.stringify({ ok: true, suppressed: true }), { status: 200 });
+            // One original, one re-report. The VMC re-delivers an
+            // unacknowledged CASH_SALE exactly once, so a second incoming
+            // sale matching an original that already has a suppressed
+            // sibling is a genuine repeat purchase, not another re-report.
+            // Without this the third, fourth, ... identical sale in a burst
+            // would all collapse onto the same surviving row.
+            const { data: alreadySuppressed } = await adminClient
+              .from('suppressed_sales')
+              .select('id')
+              .eq('matched_sale_id', matchedId)
+              .limit(1);
+
+            if (alreadySuppressed && alreadySuppressed.length > 0) {
+              console.log(
+                `suppress skipped: sale ${matchedId} already has a suppressed re-report ` +
+                `(device=${embedded.id} item=${itemNumber} price=${salePrice} seq=${saleSeq}) — inserting normally`,
+              );
+            } else {
+              const matchedRow = (candRows ?? []).find((r) => r.id === matchedId);
+              const { error: suppressErr } = await adminClient.from('suppressed_sales').insert([{
+                embedded_id: embedded.id,
+                item_number: itemNumber,
+                item_price: salePrice,
+                channel,
+                sale_seq: saleSeq,
+                // raw device timestamp, NOT saleTime (which is server time here)
+                device_created_at: timestampUnsigned > 0 ? new Date(timestampUnsigned * 1000).toISOString() : null,
+                received_at: new Date().toISOString(),
+                matched_sale_id: matchedId,
+                reason: 'time_uncertain_duplicate',
+                product_id: matchedRow?.product_id ?? null,
+              }]);
+              if (!suppressErr) {
+                console.log(
+                  `suppressed brownout re-report: device=${embedded.id} item=${itemNumber} ` +
+                  `price=${salePrice} channel=${channel} seq=${saleSeq} matched=${matchedId}`,
+                );
+                return new Response(JSON.stringify({ ok: true, suppressed: true }), { status: 200 });
+              }
+              console.error('suppressed_sales insert failed; falling through to normal sales insert:', suppressErr);
+              // fall through to the existing sales insert below — never drop a real sale silently
             }
-            console.error('suppressed_sales insert failed; falling through to normal sales insert:', suppressErr);
-            // fall through to the existing sales insert below — never drop a real sale silently
           }
         }
       }

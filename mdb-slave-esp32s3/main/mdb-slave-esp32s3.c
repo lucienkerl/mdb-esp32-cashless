@@ -1857,13 +1857,14 @@ static void publish_mdb_diag(void) {
 
     char msg[448];
     snprintf(msg, sizeof(msg),
-        "{\"state\":\"%s\",\"addr\":\"0x%02X\",\"polls\":%lu,\"chkErr\":%lu,\"lastCmd\":\"%s\",\"vmcLevel\":%u,\"saleQueue\":{\"pending\":%lu,\"overflow\":%lu,\"lastSeq\":%lu,\"fastPath\":%lu}}",
+        "{\"state\":\"%s\",\"addr\":\"0x%02X\",\"polls\":%lu,\"chkErr\":%lu,\"lastCmd\":\"%s\",\"vmcLevel\":%u,\"clockOk\":%s,\"saleQueue\":{\"pending\":%lu,\"overflow\":%lu,\"lastSeq\":%lu,\"fastPath\":%lu}}",
         machine_state_name(machine_state),
         cashless_device_address,
         mdb_poll_count,
         mdb_checksum_errors,
         mdb_last_cmd,
         vmc_feature_level,
+        sale_queue_clock_ok() ? "true" : "false",
         (unsigned long) sale_queue_pending_count(),
         (unsigned long) sale_queue_overflow_count(),
         (unsigned long) sale_queue_last_seq(),

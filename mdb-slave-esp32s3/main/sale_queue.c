@@ -6,7 +6,6 @@
 
 #include <string.h>
 #include <esp_log.h>
-#include <esp_sntp.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
@@ -142,6 +141,33 @@ void sale_queue_init(void) {
 // Forward declaration — the definition lives further down alongside the
 // drain task so the fast path in sale_queue_enqueue can call it.
 static void build_v2_payload(const sale_record_t *rec, uint8_t *payload);
+
+// True when the device has a usable wall clock, i.e. the vend timestamp we
+// stamp into the payload is real calendar time rather than seconds-since-boot.
+//
+// Deliberately NOT sntp_get_sync_status(): that status is one-shot. ESP-IDF
+// returns SNTP_SYNC_STATUS_COMPLETED exactly once per successful sync and
+// resets itself to SNTP_SYNC_STATUS_RESET in the same call
+// (esp-idf/components/lwip/apps/sntp/sntp.c). With the configured
+// CONFIG_LWIP_SNTP_UPDATE_DELAY of one hour, and this being the only caller
+// in the firmware, polling it per sale reported "synced" for at most ONE sale
+// per hour and "unsynced" for every other sale -- on a device whose clock had
+// been correct for weeks. Every one of those sales was published with
+// occurred_at=0 + time_uncertain=1, which (a) replaced the real vend time with
+// the server receive time and (b) fed each sale into the backend's
+// time_uncertain-gated brownout duplicate suppression.
+//
+// The wall clock itself is the durable signal: once any source has set a
+// plausible time it stays plausible, and it survives a soft restart via the
+// RTC. A device that has genuinely lost its clock -- a power cut or a
+// brownout, which is exactly the condition the backend's duplicate
+// suppression is meant to detect -- comes back with seconds-since-boot and
+// falls below the threshold.
+#define CLOCK_PLAUSIBLE_AFTER 1672531200  // 2023-01-01T00:00:00Z
+
+static bool clock_is_usable(void) {
+    return time(NULL) >= (time_t)CLOCK_PLAUSIBLE_AFTER;
+}
 
 // Caller must hold s_lock. Allocates a fresh sale_seq, lazily committing a
 // new reservation chunk to NVS when the current reservation is exhausted.
@@ -308,15 +334,11 @@ bool sale_queue_enqueue(uint8_t cmd, uint16_t item_price, uint16_t item_number) 
         return false;
     }
 
-    // SNTP clock sync: if never locked we record occurred_at=0 + flag, the
-    // webhook substitutes server receive time rather than rejecting.
-    sntp_sync_status_t sync = sntp_get_sync_status();
-    bool time_ok = (sync == SNTP_SYNC_STATUS_COMPLETED);
+    // Clock sync: if the device has no usable wall clock we record
+    // occurred_at=0 + the time_uncertain flag, and the webhook substitutes
+    // its own receive time rather than rejecting the sale.
+    bool time_ok = clock_is_usable();
     time_t now_sec = time_ok ? time(NULL) : 0;
-    if (time_ok && now_sec < 1672531200) { // plausible unix time ≥ 2023-01-01
-        time_ok = false;
-        now_sec = 0;
-    }
 
     uint32_t seq = alloc_seq_locked();
     if (seq == 0) {
@@ -530,6 +552,10 @@ uint32_t sale_queue_last_seq(void) {
 
 uint32_t sale_queue_fast_path_count(void) {
     return s_fast_path_count;
+}
+
+bool sale_queue_clock_ok(void) {
+    return clock_is_usable();
 }
 
 static void sale_queue_publish_task(void *arg) {
