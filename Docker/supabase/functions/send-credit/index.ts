@@ -131,6 +131,19 @@ Deno.serve(async (req) => {
 
     await mqttPublish(`/${embeddedData.company}/${embeddedData.id}/credit`, payload);
 
+    // A manually pushed amount replaces whatever the machine was holding, so
+    // any open RFID card session goes with it — otherwise the vend this pays
+    // for would be charged back to whoever tapped their card last.
+    // Best-effort: never fail a delivered credit over bookkeeping.
+    try {
+      await adminClient.rpc('card_session_close', {
+        p_embedded_id: embeddedData.id,
+        p_reason: 'credit_replaced',
+      })
+    } catch (sessionErr) {
+      console.error('card_session_close failed:', sessionErr)
+    }
+
     // NOTE: No sale is recorded here. The actual sale is created when the
     // device reports it via the MQTT 'sale' topic → mqtt-webhook function.
     // Credit sent ≠ sale completed.

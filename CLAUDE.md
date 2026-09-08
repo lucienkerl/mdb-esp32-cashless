@@ -32,6 +32,7 @@ Single main file `main/mdb-slave-esp32s3.c` runs these concurrent FreeRTOS tasks
 - `bleprph_host_task` – NimBLE BLE peripheral (in `nimble.c`) for legacy device config and vend approvals
 - MQTT client over WiFi for credit delivery and sales publishing
 - Telemetry reader on UART1 (GPIO43 TX, GPIO44 RX) for DEX/DDCMP data
+- `rfid_reader_task` – serial RFID card reader (F02DC) on UART0, RX = the pulse input (GPIO13), 9600 8N1
 
 **MDB State machine**: `INACTIVE → DISABLED → ENABLED → IDLE → VEND → IDLE`
 
@@ -44,7 +45,23 @@ cycle and then stays silent, which satisfies both.
 
 **Security**: MQTT and BLE payloads use XOR obfuscation with an 18-byte `passkey` plus a ±8 second timestamp window to prevent replay attacks.
 
-**MQTT topics**: `/{company_id}/{device_id}/{event}` where events are: `sale`, `status`, `paxcounter`, `dex`, `mdb-log`, `credit`, `ota`, `config`
+**MQTT topics**: `/{company_id}/{device_id}/{event}` where events are: `sale`, `status`, `paxcounter`, `dex`, `mdb-log`, `card`, `credit`, `ota`, `config`
+
+**RFID card reader (`rfid_reader.c` / `rfid_reader.h`)**: serial reader
+(F02DC and compatibles) on the **pulse input** — no hardware change, the pin
+is routed through the GPIO matrix to UART0 (free because the console is on
+USB-Serial-JTAG; UART1 is DEX, UART2 the modem). Frames are
+`0x02 | LEN | TYPE | DATA… | XOR | 0x03`, parsed delimiter-driven and
+validated by the XOR byte rather than by trusting `LEN` (vendors disagree
+about what it counts). Readers repeat the serial while the card sits on the
+antenna, so repeats within `CONFIG_RFID_DEDUP_MS` (default 5 s) are dropped
+and each repeat slides the window — **one presentation is one backend
+request**. A card that could not be reported clears the dedup memory so the
+customer can simply present it again. Counters (`ok`/`bad`/`cards`/`dup`)
+ride along in the `/mdb-log` diagnostics payload. Card presentations are
+published to `/{company}/{device}/card` as a variable-length payload
+(cmd `0x25`, see `card_payload_encode`) because the 19-byte sale payload has
+no room for a UID. Full write-up: `docs/integrations/rfid-card-reader.md`.
 
 **NVS namespace `vmflow`** keys:
 - `company_id` – UUID from companies table
@@ -167,7 +184,7 @@ docker compose down -v --remove-orphans
 
 ### MQTT Forwarder
 
-`Docker/mqtt/forwarder/main.ts` is a Deno service that subscribes to MQTT topics `/+/+/sale`, `/+/+/status`, `/+/+/paxcounter`, `/+/+/mdb-log` and forwards raw payloads (base64-encoded) to the `mqtt-webhook` Supabase edge function via HTTP POST with webhook secret authentication. The `mqtt-webhook` function decrypts XOR payloads, validates checksum + timestamp (±8s), and writes to Supabase tables. The `mdb-log` topic carries plaintext JSON diagnostics (no XOR encryption).
+`Docker/mqtt/forwarder/main.ts` is a Deno service that subscribes to MQTT topics `/+/+/sale`, `/+/+/status`, `/+/+/paxcounter`, `/+/+/mdb-log`, `/+/+/card` and forwards raw payloads (base64-encoded) to the `mqtt-webhook` Supabase edge function via HTTP POST with webhook secret authentication. The `mqtt-webhook` function decrypts XOR payloads, validates checksum + timestamp (±8s), and writes to Supabase tables. The `mdb-log` topic carries plaintext JSON diagnostics (no XOR encryption).
 
 ### Supabase Local Development
 
@@ -212,6 +229,9 @@ Tables:
 - `machine_product_offerings` – per-`(machine_id, product_id)` offering history for the Analysis tab: `offered_since` timestamp tracks how long a product has been offered in a machine **independent of which slot(s) it occupies**. Maintained by an AFTER trigger on `machine_trays` (`maintain_machine_product_offerings`): moving a product between slots keeps the offering open; only removing it from every slot closes it (a later re-add starts a fresh trial). Used so the "testing" grace period survives slot moves.
 - `poster_layouts` – saved poster configuration per motif: which QR source sits in which slot, the operator's own link, overridden headlines/labels, and the content blocks. `machine_id IS NULL` is the company default, a set `machine_id` overrides it for one machine (partial unique indexes enforce one row each). Read by every member, written by admins.
 - `api_keys` – API keys for external integrations: `company_id`, `key_hash`, `key_prefix`, `name`
+- `card_accounts` – prepaid RFID card balances: `name`, `balance` (**EUR**), `is_active`, `last_seen_at`. Resolved by the card serial being **contained in `name`**, so `04A1B2C3` can be renamed to `Jane Doe (04A1B2C3)` without breaking the card; an unknown card auto-creates an account at 0
+- `card_account_transactions` – append-only ledger behind `card_accounts.balance` (`topup` / `vend` / `adjustment` / `refund`); `UNIQUE(sale_id)` makes a webhook replay charge a vend exactly once
+- `card_sessions` – which card account currently holds a device's credit (one open per device, 15 min TTL); how an incoming cashless sale is mapped back to an account
 - `warehouses` – warehouse locations per company
 - `product_barcodes` – barcode-to-product mapping for scanning
 - `warehouse_stock_batches` – FIFO stock batches with expiry tracking
@@ -231,6 +251,10 @@ Key RPC functions:
 - `delete_sale_and_restore_stock(sale_id)` – manual sale deletion with stock restoration
 - `insert_manual_sale(machine_id, item_number, price, channel, created_at)` – manual sale insertion
 - `deduct_warehouse_stock_fifo(...)` – FIFO warehouse stock deduction for refills
+- `card_account_resolve(company_id, card_uid)` – find (or auto-create) the card account whose name contains the serial; service role only
+- `card_session_open(...)` / `card_session_close(embedded_id, reason)` – open/supersede the device's card session; every non-card credit path (`send-credit`, Stripe, the app via `deliverCredit`) closes it so a paid vend is never charged to whoever tapped last
+- `card_account_charge_vend(embedded_id, amount, sale_id)` – subtract a completed cashless sale from the open session's account; no-op when the device has no live session
+- `card_account_topup(account_id, amount, description)` – operator-facing signed balance change (admins only), always writing a ledger row
 
 ### Supabase Storage
 
@@ -255,7 +279,7 @@ All functions use `verify_jwt = false` in `config.toml` (workaround for ES256 `C
 | `claim-device` | none | Called by firmware; validates code, creates `embeddeds` row, returns `{company_id, device_id, passkey, mqtt_host, mqtt_port}` |
 | `send-credit` | yes | Encrypt + publish credit to device MQTT topic |
 | `request-credit` | yes | Related credit request flow |
-| `mqtt-webhook` | webhook secret | Receives forwarded MQTT payloads, decrypts + validates + writes to DB |
+| `mqtt-webhook` | webhook secret | Receives forwarded MQTT payloads, decrypts + validates + writes to DB; on `card` resolves the card account and delivers its balance as credit, on a cashless `sale` charges it back |
 | `trigger-ota` | admin | Publishes OTA firmware URL to device MQTT topic |
 | `import-products` | admin | Bulk import products from Nayax Excel export |
 | `register-push` | yes | Register browser push notification subscription |
@@ -335,6 +359,7 @@ Public routes (no auth check): `/auth/login`, `/auth/register`, `/onboarding/*`
 - `useNotifications()` – browser push notification registration and management via `register-push` edge function
 - `useWarehouse()` – CRUD for warehouses, stock batches (FIFO), transactions, barcode lookups, min-stock alerts; `deductStock()` calls `deduct_warehouse_stock_fifo` DB function for refill operations
 - `useMdbLog()` – fetches MDB diagnostics history from `mdb_log` table with realtime subscription
+- `useCardAccounts()` – CRUD for prepaid RFID card accounts plus `adjustBalance()` (via the `card_account_topup` RPC, so the ledger always matches) and the per-account transaction history. Exports the unit-tested `extractCardSerials`/`keepsCardSerials` helpers the rename warning uses — dropping the serial from a name orphans the physical card
 - `useActivityLog()` – activity/audit log composable
 
 **Refill & insights:**
@@ -382,6 +407,7 @@ Public routes (no auth check): `/auth/login`, `/auth/register`, `/onboarding/*`
 - `/history` – Activity/audit log
 - `/devices` – Admin device management: registered embedded devices table, register new device with provisioning code + QR, pending tokens, delete device
 - `/firmware` – Firmware version management: upload .bin files + import from GitHub releases, deploy OTA to devices, delete versions
+- `/card-accounts` – prepaid RFID card accounts: balances, last use, block/unblock, top-up and correction (both ledgered), per-account history. Admin-only for writes; every member can read
 - `/api-keys` – API key management: create/revoke keys for external integrations
 - `/members` – Active members table + pending invitations (admin only); invite modal calls `invite-member`
 - `/settings` – Application settings (incl. Anthropic API key for AI insights, velocity days config)
@@ -413,4 +439,9 @@ npx vitest run          # run all tests
 npx vitest run --watch  # watch mode
 ```
 
-Edge function tests (Deno): `Docker/supabase/functions/mqtt-webhook/mdb-log.test.ts`
+Firmware: the F02DC frame parser is pure byte-stream logic and has a host-side
+test that needs no board — `mdb-slave-esp32s3/test/rfid/run.sh` compiles
+`main/rfid_reader.c` against a few ESP-IDF stubs and drives the state machine
+byte by byte (framing, XOR validation, duplicate suppression, resync).
+
+Edge function tests (Deno): `Docker/supabase/functions/mqtt-webhook/*.test.ts` (`mdb-log`, `suppress`, `slot-offset`, `stock-urgency`, `card-payload`), run with `deno test` from that directory

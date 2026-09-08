@@ -15,6 +15,7 @@ function errMessage(err: unknown): string {
 // Topics: /{company_id}/{device_id}/{event}
 // Leading / creates empty first level, so pattern is /+/+/{event}
 // `/dex` is included so DEX audit snapshots reach the reconciliation pipeline.
+// `/card` carries RFID card presentations from the reader on the pulse input.
 const topics = [
   "/+/+/sale",
   "/+/+/status",
@@ -22,6 +23,7 @@ const topics = [
   "/+/+/mdb-log",
   "/+/+/restart",
   "/+/+/dex",
+  "/+/+/card",
 ];
 
 // Topic prefixes that we deliberately drop without forwarding.
