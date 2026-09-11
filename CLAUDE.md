@@ -31,7 +31,7 @@ Single main file `main/mdb-slave-esp32s3.c` runs these concurrent FreeRTOS tasks
 - `mdb_cashless_loop` – MDB protocol handler on UART2 (GPIO4 RX, GPIO5 TX, 9600 baud, 9-bit mode)
 - `bleprph_host_task` – NimBLE BLE peripheral (in `nimble.c`) for legacy device config and vend approvals
 - MQTT client over WiFi for credit delivery and sales publishing
-- Telemetry reader on UART1 (GPIO43 TX, GPIO44 RX) for DEX/DDCMP data
+- Telemetry reader on UART1 (GPIO9 TX, GPIO8 RX — `PIN_DEX_TX`/`PIN_DEX_RX`, configured unconditionally at boot) for DEX/DDCMP data
 - `rfid_reader_task` – serial RFID card reader (F02DC) on UART0, RX = the pulse input (GPIO13), 9600 8N1
 
 **MDB State machine**: `INACTIVE → DISABLED → ENABLED → IDLE → VEND → IDLE`

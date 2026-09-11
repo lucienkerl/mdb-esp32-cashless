@@ -50,8 +50,30 @@ Two electrical caveats on GPIO 13, both because R27 hangs off it:
 
 Any free GPIO does the job just as well, and without the transistor:
 set *RFID card reader → RX GPIO* in `idf.py menuconfig`
-(`CONFIG_RFID_RX_GPIO`). On `mdb-slave-esp32s3`, `io1`, `io2` and `io6` are
-unused and sit on the same J4 header.
+(`CONFIG_RFID_RX_GPIO`). On `mdb-slave-esp32s3` the free ones are `io1`,
+`io2` and `io6` — each connects to nothing but its J4 header pin, and none
+is a strapping pin (those are GPIO 0/3/45/46 on the ESP32-S3). Pick
+whichever is convenient; GND sits at both ends of the header's right column.
+
+The pins on that header that are **not** free:
+
+| Pin | Used by |
+|-----|---------|
+| `io4` / `io5` | MDB bus RX / TX |
+| `io8` / `io9` | DEX telemetry — UART1 RX / TX, configured at boot |
+| `io10` / `io11` | I²C |
+| `io12` | buzzer |
+| `io7` | thermistor (ADC) |
+| `io14` / `io17` / `io18` | SIM7080G PWRKEY / RX / TX |
+| `io21` | MDB LED |
+| `u0txd` / `u0rxd` | UART0's default pads |
+
+`io9` is the one to avoid outright: it is an output driven by UART1's
+transmitter, so a reader wired there shorts two push-pull drivers against
+each other. `io8` is an input and would *appear* to work — the GPIO matrix
+happily feeds one pin to two peripherals — but then DEX bytes land in the
+card parser and card frames in the DEX parser (both are 9600 8N1), and
+whatever is plugged into the DEX port drives the same wire as the reader.
 
 UART allocation on the slave board — UART1 carries DEX telemetry, UART2 the
 SIM7080G modem, and **UART0 is free** because the console runs over
