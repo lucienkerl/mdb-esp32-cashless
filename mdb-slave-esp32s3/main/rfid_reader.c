@@ -6,6 +6,7 @@
 
 #include "rfid_reader.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include <sdkconfig.h>
@@ -38,6 +39,9 @@
 #define RFID_READ_CHUNK     32
 /* An idle line this long means the frame in flight will never complete. */
 #define RFID_IDLE_MS        100
+/* How much of an unparseable burst to show, and how often to show one. */
+#define RFID_BURST_DUMP_BYTES   24
+#define RFID_DUMP_COOLDOWN_US   ((int64_t) 10 * 1000 * 1000)
 
 static rfid_card_cb_t   s_cb;
 static void            *s_ctx;
@@ -54,6 +58,17 @@ static uint32_t         s_frames_ok;
 static uint32_t         s_frames_bad;
 static uint32_t         s_cards_reported;
 static uint32_t         s_cards_deduped;
+static uint32_t         s_rx_bytes;
+
+/* A reader that talks a different dialect (ASCII output, another baud rate,
+ * an inverted line) produces bytes that never contain a valid frame, and
+ * without this the counters cannot tell that apart from a dead line: bytes
+ * arriving before the first 0x02 are discarded silently. So keep the head
+ * of whatever the line said and dump it once the burst is over. */
+static uint8_t          s_burst[RFID_BURST_DUMP_BYTES];
+static size_t           s_burst_len;      /* captured for the dump          */
+static uint32_t         s_burst_seen;     /* bytes since the last good frame */
+static int64_t          s_last_dump_us;
 
 static void rfid_hex(const uint8_t *src, size_t len, char *dst) {
     static const char digits[] = "0123456789ABCDEF";
@@ -117,6 +132,8 @@ static bool rfid_try_complete(void) {
     rfid_hex(card.uid, uid_len, card.uid_hex);
 
     s_frames_ok++;
+    s_burst_len  = 0;   /* the line makes sense; nothing to report */
+    s_burst_seen = 0;
     rfid_dispatch(&card);
     return true;
 }
@@ -128,6 +145,10 @@ static void rfid_reset_frame(void) {
 }
 
 static void rfid_feed(uint8_t b) {
+
+    s_rx_bytes++;
+    s_burst_seen++;
+    if (s_burst_len < sizeof(s_burst)) s_burst[s_burst_len++] = b;
 
     if (!s_collecting) {
         if (b == RFID_STX) {
@@ -161,6 +182,44 @@ static void rfid_feed(uint8_t b) {
     }
 }
 
+/*
+ * The line has gone quiet. Anything half-collected is never completing, and
+ * a burst that produced no frame at all is worth showing: it is the only
+ * way to tell "the reader is mute" from "the reader speaks another dialect"
+ * without a logic analyser. Rate-limited, because a mismatched reader would
+ * otherwise log on every card.
+ */
+static void rfid_idle(void) {
+
+    if (s_collecting) {
+        s_frames_bad++;
+        rfid_reset_frame();
+    }
+
+    if (s_burst_seen == 0) return;
+
+    int64_t now = esp_timer_get_time();
+    if (s_last_dump_us == 0 || (now - s_last_dump_us) >= RFID_DUMP_COOLDOWN_US) {
+        s_last_dump_us = now;
+
+        char hex[sizeof(s_burst) * 3 + 1];
+        size_t k = 0;
+        for (size_t i = 0; i < s_burst_len; i++) {
+            if (i) hex[k++] = ' ';
+            k += (size_t) snprintf(hex + k, sizeof(hex) - k, "%02X", s_burst[i]);
+        }
+        hex[k] = '\0';
+
+        ESP_LOGW(TAG, "%lu bytes, no valid frame: %s%s — check baud rate, RFID_INVERT_RX "
+                      "and the reader's frame format",
+                 (unsigned long) s_burst_seen, hex,
+                 s_burst_seen > s_burst_len ? " ..." : "");
+    }
+
+    s_burst_len  = 0;
+    s_burst_seen = 0;
+}
+
 static void rfid_reader_task(void *arg) {
 
     (void) arg;
@@ -175,11 +234,9 @@ static void rfid_reader_task(void *arg) {
             continue;
         }
 
-        /* Line went idle mid-frame: the rest is never coming. */
-        if (s_collecting) {
-            s_frames_bad++;
-            rfid_reset_frame();
-        }
+        /* Line went idle: drop a half-frame, and say what was on the wire
+         * if none of it parsed. */
+        rfid_idle();
     }
 }
 
@@ -252,6 +309,7 @@ uint32_t rfid_frames_ok(void)         { return s_frames_ok; }
 uint32_t rfid_frames_bad(void)        { return s_frames_bad; }
 uint32_t rfid_cards_reported(void)    { return s_cards_reported; }
 uint32_t rfid_cards_deduped(void)     { return s_cards_deduped; }
+uint32_t rfid_rx_bytes(void)          { return s_rx_bytes; }
 
 #else  /* !CONFIG_RFID_READER_ENABLE */
 
@@ -267,5 +325,6 @@ uint32_t rfid_frames_ok(void)         { return 0; }
 uint32_t rfid_frames_bad(void)        { return 0; }
 uint32_t rfid_cards_reported(void)    { return 0; }
 uint32_t rfid_cards_deduped(void)     { return 0; }
+uint32_t rfid_rx_bytes(void)          { return 0; }
 
 #endif /* CONFIG_RFID_READER_ENABLE */

@@ -2056,11 +2056,12 @@ static void publish_mdb_diag(void) {
      * one keep the pre-RFID payload byte for byte. */
     if (rfid_reader_is_running() && n > 0 && n < (int) sizeof(msg)) {
         n += snprintf(msg + n, sizeof(msg) - n,
-            ",\"rfid\":{\"ok\":%lu,\"bad\":%lu,\"cards\":%lu,\"dup\":%lu}",
+            ",\"rfid\":{\"ok\":%lu,\"bad\":%lu,\"cards\":%lu,\"dup\":%lu,\"rx\":%lu}",
             (unsigned long) rfid_frames_ok(),
             (unsigned long) rfid_frames_bad(),
             (unsigned long) rfid_cards_reported(),
-            (unsigned long) rfid_cards_deduped());
+            (unsigned long) rfid_cards_deduped(),
+            (unsigned long) rfid_rx_bytes());
     }
 
     if (n > 0 && n < (int) sizeof(msg) - 1) {

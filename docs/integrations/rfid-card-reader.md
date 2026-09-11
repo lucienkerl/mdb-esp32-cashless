@@ -1,25 +1,57 @@
-# RFID card reader on the pulse input (F02DC)
+# RFID card reader (F02DC)
 
 Prepaid card payment for a machine that already has the VMflow cashless
-board in it. A serial RFID reader is wired to the board's **pulse input**;
-presenting a card hands the machine the balance of that card's account as
-MDB credit, and whatever the customer buys is deducted again.
+board in it. A serial RFID reader is wired to the board's pulse pin
+(GPIO 13, `PIN_PULSE_1`); presenting a card hands the machine the balance of
+that card's account as MDB credit, and whatever the customer buys is
+deducted again.
 
-No hardware change: the pulse input (GPIO 13, `PIN_PULSE_1`) is routed
-through the ESP32-S3 GPIO matrix to a spare UART receiver.
+No added silicon: GPIO 13 is routed through the ESP32-S3 GPIO matrix to a
+spare UART receiver. But the reader does **not** go on the Pulse connector —
+read the wiring section before soldering anything.
 
 ---
 
 ## Wiring
 
+**Not the Pulse connector.** On both PCBs — `J3` on `mdb-slave-esp32s3`,
+`J7` on `mdb-slave-esp32s3-sim7080g` — the three-pin Pulse connector is a
+pulse *output*: GND, `vin`, and the collector of Q7, an MMBT3904 whose base
+GPIO 13 drives through R27 (4k7). A reader's TX wired there talks to a
+transistor collector and nothing else; the SoC never sees a byte and the
+`rx` counter below stays at 0 for ever.
+
+The reader's TX has to reach GPIO 13 itself:
+
+| Board | Where GPIO 13 is reachable |
+|-------|----------------------------|
+| `mdb-slave-esp32s3` | `io13` on the J4 2×11 expansion header, between `io12` and `io14` |
+| `mdb-slave-esp32s3-sim7080g` | not broken out — the GPIO-13 side of the R27 pad, or a free pin |
+
 | Reader | Board |
 |--------|-------|
-| TX (data out) | pulse input, GPIO 13 |
-| GND | GND |
-| VCC | 5 V / 12 V per the reader's own spec |
+| TX (data out) | `io13` on the expansion header (**not** the Pulse connector) |
+| GND | GND — on the header, or the Pulse connector's GND pin |
+| VCC | 5 V / 12 V per the reader's own spec; the header carries `+3V3` and `vin` |
 
 The reader only talks; nothing is ever sent to it, so its RX line can stay
 unconnected.
+
+Two electrical caveats on GPIO 13, both because R27 hangs off it:
+
+- The reader's output must be **push-pull**, not open-collector. The pin's
+  internal pull-up cannot hold the line high by itself: through R27 into
+  Q7's base-emitter drop, an undriven line parks around 0.9 V, which the
+  UART reads as a permanent low — a break condition, not an idle line. A
+  push-pull driver overcomes it easily; R27 costs it about half a
+  milliamp.
+- A **5 V** reader needs a divider. R27 is in series with the transistor
+  base, not with the pin — it loads GPIO 13, it does not protect it.
+
+Any free GPIO does the job just as well, and without the transistor:
+set *RFID card reader → RX GPIO* in `idf.py menuconfig`
+(`CONFIG_RFID_RX_GPIO`). On `mdb-slave-esp32s3`, `io1`, `io2` and `io6` are
+unused and sit on the same J4 header.
 
 UART allocation on the slave board — UART1 carries DEX telemetry, UART2 the
 SIM7080G modem, and **UART0 is free** because the console runs over
@@ -173,14 +205,36 @@ The MDB diagnostics payload (`/mdb-log`, visible on the machine's Device
 Health tab) gains an `rfid` block once a reader is attached:
 
 ```json
-"rfid": { "ok": 128, "bad": 0, "cards": 37, "dup": 412 }
+"rfid": { "ok": 128, "bad": 0, "cards": 37, "dup": 412, "rx": 5312 }
 ```
 
 `ok` framed reads, `bad` frames dropped (line noise, a partial frame, an
 overlong burst), `cards` presentations forwarded to the backend, `dup`
-repeats suppressed. A healthy reader shows `dup` far above `cards` and `bad`
-near zero. A `bad` count climbing in step with `ok` usually means a baud or
-polarity mismatch — try `RFID_INVERT_RX`.
+repeats suppressed, `rx` raw bytes read off the line. A healthy reader shows
+`dup` far above `cards` and `bad` near zero. The machine's MDB diagnostics
+card in the management app shows the same numbers, so a reader can be
+checked without a serial cable at the machine.
+
+`rx` is the one that separates the two ways a reader goes quiet, because
+bytes arriving before the first `0x02` are discarded without touching any
+other counter:
+
+| Counters | Meaning |
+|----------|---------|
+| `rx` stays 0 while a card is presented | The reader is not talking to the board at all: wiring, power, or the wrong GPIO |
+| `rx` climbs, `ok` stays 0 | The reader talks a dialect the parser rejects: baud rate, inverted line, or a different frame format |
+| `bad` climbs in step with `ok` | Marginal signal — a baud or polarity mismatch; try `RFID_INVERT_RX` |
+
+In the second case the firmware also logs the bytes themselves, once every
+10 s so a mismatched reader cannot flood the console:
+
+```
+W rfid: 12 bytes, no valid frame: 30 30 30 34 41 31 42 32 43 33 0D 0A — check baud rate, ...
+```
+
+That example is an ASCII-output reader (`0004A1B2C3\r\n`) rather than the
+binary framing this driver expects — visible at a glance, which is the
+point.
 
 ---
 
@@ -224,11 +278,24 @@ touches `node:http` any more.
 
 ### Other things that bite after a deploy
 
+- **The reader is on the Pulse connector.** That connector is an output (see
+  Wiring); nothing wired to it can ever reach the SoC. `rx` at 0 in the
+  diagnostics while a card is presented is exactly this symptom.
 - **The broker never learned about `/card`.** `Docker/mqtt/config/acl` grants
-  `vmflow` write on `/+/+/card`; mosquitto only reads it at startup, so an
-  installation updated in place needs `docker compose restart broker`.
-  Without it the device publishes into a void and the broker logs an ACL
-  denial.
+  `vmflow` write on `/+/+/card`, but mosquitto reads that file only at
+  startup, so an installation updated in place is still enforcing the ACL it
+  booted with: `docker compose kill -s HUP broker` re-reads it without
+  dropping a client (a restart works too).
+
+  This failure is **silent on both ends**. The broker ACKs the denied QoS 1
+  publish and drops it, so the device logs a successful publish, and at the
+  default log level the broker says nothing either — `mosquitto_sub` on the
+  topic simply stays empty. To see it, uncomment `log_type all` in
+  `Docker/mqtt/config/mosquitto.conf`, reload, and watch for:
+
+  ```
+  Denied PUBLISH from <client-id> (d0, q1, r0, m1, '/co/dev/card', ... (13 bytes))
+  ```
 - **The forwarder never subscribed to `/card`.** The topic list lives in the
   forwarder image; `docker compose up -d --build forwarder` after an update.
 - **The migration is not applied.** No `card_accounts` table means the

@@ -36,6 +36,8 @@ static void reset_state(void) {
     s_collecting = false; s_frame_len = 0;
     s_last_uid[0] = '\0'; s_last_uid_us = 0;
     s_frames_ok = s_frames_bad = s_cards_reported = s_cards_deduped = 0;
+    s_rx_bytes = 0;
+    s_burst_len = 0; s_burst_seen = 0; s_last_dump_us = 0;
     cb_calls = 0; g_fake_time_us = 1000000;
 }
 
@@ -190,6 +192,28 @@ int main(void) {
     feed_bytes(two, a + b);
     assert(cb_calls == 2);
 
-    printf("rfid parser: all 18 scenarios passed\n");
+    /* 18. every byte on the line is counted, frame or not — the counter
+     * that separates "reader is mute" from "reader speaks another dialect" */
+    reset_state();
+    const uint8_t ascii[] = "0004A1B2C3\r\n";   /* an ASCII-output reader */
+    feed_bytes(ascii, sizeof(ascii) - 1);
+    assert(rfid_rx_bytes() == sizeof(ascii) - 1);
+    assert(cb_calls == 0 && rfid_frames_ok() == 0);
+    assert(rfid_frames_bad() == 0);              /* no STX, so no frame to spoil */
+    rfid_idle();                                 /* the burst gets reported once */
+    assert(rfid_frames_bad() == 0);
+    assert(s_burst_seen == 0);                   /* and is not reported twice */
+
+    /* 19. a frame cut short is counted bad when the line goes quiet, and
+     * the next complete frame still parses */
+    reset_state();
+    n = build(buf, 0x07, 0x02, uid4, 4);
+    feed_bytes(buf, n - 2);                      /* stop before XOR + ETX */
+    rfid_idle();
+    assert(rfid_frames_bad() == 1 && cb_calls == 0);
+    feed_bytes(buf, n);
+    assert(cb_calls == 1 && rfid_rx_bytes() == (uint32_t) (n - 2 + n));
+
+    printf("rfid parser: all 20 scenarios passed\n");
     return 0;
 }

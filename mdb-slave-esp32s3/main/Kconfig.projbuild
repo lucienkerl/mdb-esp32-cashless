@@ -114,7 +114,15 @@ menu "RFID card reader"
         depends on RFID_READER_ENABLE
         default 13
         help
-            GPIO 13 is PIN_PULSE_1 on the production PCB.
+            GPIO 13 is PIN_PULSE_1 on the production PCB, broken out as
+            io13 on the J4 expansion header.
+
+            Wire the reader to that header pin, NOT to the three-pin Pulse
+            connector: the connector is an output (it carries the collector
+            of Q7, whose base GPIO 13 drives through R27), so nothing on it
+            can reach the SoC. The reader's output must also be push-pull —
+            R27 parks an undriven line near 0.9 V. Any free GPIO (io1, io2,
+            io6 on the slave board) avoids both issues.
 
     config RFID_BAUD
         int "Baud rate"

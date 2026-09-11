@@ -2126,6 +2126,37 @@ async function handleAddSale() {
                       <p class="mt-1 text-sm font-mono truncate">{{ machine.embeddeds.mdb_diagnostics.lastCmd }}</p>
                     </div>
                   </div>
+                  <!-- RFID reader: the firmware only sends this block once a reader
+                       is attached, so boards without one look exactly as before. -->
+                  <div v-if="machine.embeddeds.mdb_diagnostics.rfid" class="mt-4 border-t pt-3">
+                    <p class="text-xs text-muted-foreground uppercase tracking-wide">{{ t('machineDetail.rfidReader') }}</p>
+                    <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                      <span>{{ t('machineDetail.rfidCards') }}: <span class="font-medium">{{ machine.embeddeds.mdb_diagnostics.rfid.cards ?? 0 }}</span></span>
+                      <span>{{ t('machineDetail.rfidFrames') }}: <span class="font-medium">{{ machine.embeddeds.mdb_diagnostics.rfid.ok ?? 0 }}</span></span>
+                      <span :class="machine.embeddeds.mdb_diagnostics.rfid.bad ? 'text-red-500' : ''">
+                        {{ t('machineDetail.rfidBad') }}: <span class="font-medium">{{ machine.embeddeds.mdb_diagnostics.rfid.bad ?? 0 }}</span>
+                      </span>
+                      <span>{{ t('machineDetail.rfidRepeats') }}: <span class="font-medium">{{ machine.embeddeds.mdb_diagnostics.rfid.dup ?? 0 }}</span></span>
+                      <span v-if="machine.embeddeds.mdb_diagnostics.rfid.rx != null">
+                        {{ t('machineDetail.rfidBytes') }}: <span class="font-medium">{{ machine.embeddeds.mdb_diagnostics.rfid.rx }}</span>
+                      </span>
+                    </div>
+                    <!-- The two failure modes a counter can actually tell apart:
+                         a silent line, and a line that talks another dialect. -->
+                    <p
+                      v-if="machine.embeddeds.mdb_diagnostics.rfid.rx === 0"
+                      class="mt-2 text-xs text-amber-600 dark:text-amber-500"
+                    >
+                      {{ t('machineDetail.rfidNoBytes') }}
+                    </p>
+                    <p
+                      v-else-if="machine.embeddeds.mdb_diagnostics.rfid.rx > 0 && !machine.embeddeds.mdb_diagnostics.rfid.ok"
+                      class="mt-2 text-xs text-amber-600 dark:text-amber-500"
+                    >
+                      {{ t('machineDetail.rfidNoFrames') }}
+                    </p>
+                  </div>
+
                   <p class="mt-3 text-xs text-muted-foreground">
                     Updated {{ timeAgo(machine.embeddeds.mdb_diagnostics.updated_at, t) }}
                   </p>

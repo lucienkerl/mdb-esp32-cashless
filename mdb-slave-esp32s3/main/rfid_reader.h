@@ -1,10 +1,18 @@
 /*
  * rfid_reader.h — serial RFID card reader (F02DC and compatibles)
  *
- * The F02DC is wired to the board's *pulse input* (PIN_PULSE_1 / GPIO 13).
- * No hardware change is needed: the pin is routed through the GPIO matrix
- * to a spare UART receiver, so the reader's TX line is simply read as
- * 9600 8N1 serial data.
+ * The F02DC's TX line is read as 9600 8N1 serial data on the board's pulse
+ * pin (PIN_PULSE_1 / GPIO 13), routed through the GPIO matrix to a spare
+ * UART receiver — no added hardware.
+ *
+ * Mind where that wire goes: the three-pin *Pulse connector* is an output
+ * (GND, vin, and the collector of Q7, whose base GPIO 13 drives through the
+ * 4k7 R27), so a reader wired there is talking to a transistor, not to the
+ * SoC. The reader belongs on GPIO 13 itself — `io13` on the J4 expansion
+ * header of mdb-slave-esp32s3 — and its output has to be push-pull, because
+ * R27 into Q7's base parks an undriven line near 0.9 V, below the logic
+ * high the UART needs. Any free pin avoids all of that: CONFIG_RFID_RX_GPIO.
+ * See docs/integrations/rfid-card-reader.md.
  *
  * UART allocation on this board:
  *   UART0 — free (the console runs over USB-Serial-JTAG, see sdkconfig)
@@ -80,3 +88,8 @@ uint32_t rfid_frames_ok(void);
 uint32_t rfid_frames_bad(void);
 uint32_t rfid_cards_reported(void);
 uint32_t rfid_cards_deduped(void);
+/* Raw bytes read off the line. Zero while a card is being presented means
+ * the reader is not talking to us at all (wiring, power, baud), as opposed
+ * to talking in a dialect the parser rejects — which shows up as bytes
+ * counted here with rfid_frames_ok() stuck at zero. */
+uint32_t rfid_rx_bytes(void);
