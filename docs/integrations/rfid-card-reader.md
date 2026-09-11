@@ -181,3 +181,56 @@ overlong burst), `cards` presentations forwarded to the backend, `dup`
 repeats suppressed. A healthy reader shows `dup` far above `cards` and `bad`
 near zero. A `bad` count climbing in step with `ok` usually means a baud or
 polarity mismatch — try `RFID_INVERT_RX`.
+
+---
+
+## Troubleshooting
+
+The chain is device → broker → forwarder → `mqtt-webhook` → database →
+broker → device. Bisect it in that order; each stage leaves its own trace.
+
+| Stage | How to see it | What "working" looks like |
+|-------|---------------|---------------------------|
+| Reader → firmware | `idf.py monitor`, or the `rfid` counters in `/mdb-log` | `cards` goes up once per presentation |
+| Firmware → broker | `mosquitto_sub -t '/+/+/card' -u admin -P "$MQTT_ADMIN_PASS"` | one message per presentation |
+| Broker → forwarder | `docker compose logs -f forwarder` | a line for the `/card` topic |
+| Forwarder → webhook | `docker compose logs -f functions` | no 4xx/5xx for `mqtt-webhook` |
+| Webhook → database | `card_accounts` in Studio | a row named after the serial, `last_seen_at` fresh |
+| Webhook → device | `mosquitto_sub -t '/+/+/credit' -u admin -P "$MQTT_ADMIN_PASS"` | a 19-byte message right after the card read |
+
+A row appearing in `card_accounts` while nothing shows up on `/credit`
+narrows the fault to the last hop: the webhook resolved the card and opened
+the session, then failed to publish. The function returns 500, so the
+forwarder parks the message in its DLQ and retries it — the same card read
+comes back every few minutes until the publish works or the entry ages out.
+
+### `Not implemented: ClientRequest.options.createConnection`
+
+This one in the `functions` log is that last hop failing, and it takes
+`send-credit`, `trigger-ota` and `send-device-config` down with the card
+flow — everything that publishes MQTT from an edge function.
+
+It came from `npm:mqtt`. The library only uses a native WebSocket when it
+detects a *browser* (`window.document`); in Deno it takes its Node path,
+which builds the WebSocket upgrade with the `ws` package, and `ws` sets
+`options.createConnection` on the request. Older Deno builds — including the
+one inside the pinned `supabase/edge-runtime` image — do not implement that
+option and throw before a single byte reaches the broker.
+
+`_shared/mqtt-publish.ts` therefore speaks MQTT 3.1.1 over a native
+`WebSocket` itself (CONNECT / PUBLISH / PUBACK / DISCONNECT, about a hundred
+lines, covered by `mqtt-publish.test.ts`). Nothing in the edge functions
+touches `node:http` any more.
+
+### Other things that bite after a deploy
+
+- **The broker never learned about `/card`.** `Docker/mqtt/config/acl` grants
+  `vmflow` write on `/+/+/card`; mosquitto only reads it at startup, so an
+  installation updated in place needs `docker compose restart broker`.
+  Without it the device publishes into a void and the broker logs an ACL
+  denial.
+- **The forwarder never subscribed to `/card`.** The topic list lives in the
+  forwarder image; `docker compose up -d --build forwarder` after an update.
+- **The migration is not applied.** No `card_accounts` table means the
+  webhook 500s on `card_account_resolve`. `Docker/update.sh` applies pending
+  migrations.

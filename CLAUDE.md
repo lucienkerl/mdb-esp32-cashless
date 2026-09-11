@@ -313,7 +313,7 @@ When adding a new env var that the frontend or edge functions need in production
 **Edge function config**: Each edge function needs a `[functions.<name>]` section in `config.toml` with `import_map` pointing to its `deno.json` file. The self-hosted edge runtime reads secrets from `[edge_runtime.secrets]`.
 
 **Shared modules** (`Docker/supabase/functions/_shared/`):
-- `mqtt-publish.ts` – reusable MQTT publish helper (connects to broker, publishes, disconnects)
+- `mqtt-publish.ts` – reusable MQTT publish helper (connects to broker, publishes, disconnects). Speaks MQTT 3.1.1 over a **native WebSocket** rather than `npm:mqtt`: the library's Node path builds the upgrade with `ws`, which sets `options.createConnection`, and the edge runtime's node compatibility layer does not implement that — every publish died with `Not implemented: ClientRequest.options.createConnection`. Unit + stub-broker tests in `mqtt-publish.test.ts`
 - `web-push.ts` – web push notification sender
 
 ---
@@ -444,4 +444,4 @@ test that needs no board — `mdb-slave-esp32s3/test/rfid/run.sh` compiles
 `main/rfid_reader.c` against a few ESP-IDF stubs and drives the state machine
 byte by byte (framing, XOR validation, duplicate suppression, resync).
 
-Edge function tests (Deno): `Docker/supabase/functions/mqtt-webhook/*.test.ts` (`mdb-log`, `suppress`, `slot-offset`, `stock-urgency`, `card-payload`), run with `deno test` from that directory
+Edge function tests (Deno): `Docker/supabase/functions/mqtt-webhook/*.test.ts` (`mdb-log`, `suppress`, `slot-offset`, `stock-urgency`, `card-payload`) and `Docker/supabase/functions/_shared/*.test.ts` (`notification-i18n`, `mqtt-publish` — the latter drives the publisher against an in-process stub broker), run with `deno test -A` from the respective directory
