@@ -36,6 +36,7 @@
 #include "sale_queue.h"
 #include "network.h"
 #include "rfid_reader.h"
+#include "scale_factor.h"
 
 #include "esp_system.h"
 #include "esp_http_client.h"
@@ -64,10 +65,6 @@
 
 #define ADC_UNIT_THERMISTOR     ADC_UNIT_1
 #define ADC_CHANNEL_THERMISTOR  ADC_CHANNEL_6   // Define the ADC unit, channel, and attenuation (NTC Thermistor)
-
-// Functions for scale factor conversion
-#define TO_SCALE_FACTOR(p, scale_to, dec_to) (p / scale_to / pow(10, -(dec_to) ))               // Converts to scale factor
-#define FROM_SCALE_FACTOR(p, scale_from, dec_from) (p * scale_from * pow(10, -(dec_from) ))     // Converts from scale factor
 
 #define ACK 	0x00  // Acknowledgment / Checksum correct
 #define RET 	0xAA  // Retransmit previously sent data. Only VMC can send this

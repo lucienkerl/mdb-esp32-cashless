@@ -174,6 +174,13 @@ Decoder: `Docker/supabase/functions/mqtt-webhook/card-payload.ts`
    credit field's uint16 of scaled cents; above it the amount would wrap
    around. A blocked (`is_active = false`) or empty account gets 0, which
    the firmware reads as "cancel the session".
+
+   The amount is converted to cents with `eurToScaleUnits` (backend) and
+   `TO_SCALE_FACTOR` (firmware), both of which **round**. They used to
+   truncate, on both sides, and the two losses compounded: a balance of 8.20
+   was put on the wire as 819 and read back as 818, so the machine displayed
+   8.18. If a machine ever shows a cent less than the account holds, that
+   conversion is the first place to look.
 4. `card_session_open` records which account is holding the machine's credit.
    Only one session per device is open at a time.
 5. The vend arrives on the `/sale` topic as a normal **cashless** sale.

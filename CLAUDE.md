@@ -45,6 +45,18 @@ cycle and then stays silent, which satisfies both.
 
 **Security**: MQTT and BLE payloads use XOR obfuscation with an 18-byte `passkey` plus a ±8 second timestamp window to prevent replay attacks.
 
+**Money arithmetic (`scale_factor.h`)**: MDB carries prices as integers in
+scale-factor units (a cent at the configured scale 1 / 2 decimals). The
+conversion goes through `pow(10, -dec)`, which is not exactly representable,
+so the round trip lands just *below* the integer it should hit — 8.20 becomes
+819.9999999999999 — and assigning that to an integer truncates. `TO_SCALE_FACTOR`
+therefore rounds (`llround`); `FROM_SCALE_FACTOR` stays a plain double because
+its result is a currency amount that callers print. The backend does the same
+on its side (`functions/_shared/scale.ts`). Both truncating forms were live
+once and compounded: a card balance of 8.20 reached the machine as 8.18.
+Regression tests: `mdb-slave-esp32s3/test/scale/run.sh` and
+`functions/_shared/scale.test.ts`.
+
 **MQTT topics**: `/{company_id}/{device_id}/{event}` where events are: `sale`, `status`, `paxcounter`, `dex`, `mdb-log`, `card`, `credit`, `ota`, `config`
 
 **RFID card reader (`rfid_reader.c` / `rfid_reader.h`)**: serial reader
@@ -322,6 +334,7 @@ When adding a new env var that the frontend or edge functions need in production
 
 **Shared modules** (`Docker/supabase/functions/_shared/`):
 - `mqtt-publish.ts` – reusable MQTT publish helper (connects to broker, publishes, disconnects). Speaks MQTT 3.1.1 over a **native WebSocket** rather than `npm:mqtt`: the library's Node path builds the upgrade with `ws`, which sets `options.createConnection`, and the edge runtime's node compatibility layer does not implement that — every publish died with `Not implemented: ClientRequest.options.createConnection`. Unit + stub-broker tests in `mqtt-publish.test.ts`
+- `scale.ts` – EUR ↔ MDB scale-factor units. Use `eurToScaleUnits()` for anything going onto the wire; never `amount / Math.pow(10, -2)`, which lands below the integer and gets truncated (see the money-arithmetic note in the firmware section)
 - `web-push.ts` – web push notification sender
 
 ---
@@ -447,9 +460,11 @@ npx vitest run          # run all tests
 npx vitest run --watch  # watch mode
 ```
 
-Firmware: the F02DC frame parser is pure byte-stream logic and has a host-side
-test that needs no board — `mdb-slave-esp32s3/test/rfid/run.sh` compiles
-`main/rfid_reader.c` against a few ESP-IDF stubs and drives the state machine
-byte by byte (framing, XOR validation, duplicate suppression, resync).
+Firmware host-side tests need no board and compile the real sources:
+- `mdb-slave-esp32s3/test/rfid/run.sh` — the F02DC frame parser
+  (`main/rfid_reader.c` against a few ESP-IDF stubs): framing, XOR validation,
+  duplicate suppression, resync.
+- `mdb-slave-esp32s3/test/scale/run.sh` — `main/scale_factor.h`: every credit
+  and price value over the whole uint16 MDB range converts exactly.
 
-Edge function tests (Deno): `Docker/supabase/functions/mqtt-webhook/*.test.ts` (`mdb-log`, `suppress`, `slot-offset`, `stock-urgency`, `card-payload`) and `Docker/supabase/functions/_shared/*.test.ts` (`notification-i18n`, `mqtt-publish` — the latter drives the publisher against an in-process stub broker), run with `deno test -A` from the respective directory
+Edge function tests (Deno): `Docker/supabase/functions/mqtt-webhook/*.test.ts` (`mdb-log`, `suppress`, `slot-offset`, `stock-urgency`, `card-payload`) and `Docker/supabase/functions/_shared/*.test.ts` (`notification-i18n`, `scale`, `mqtt-publish` — the last drives the publisher against an in-process stub broker), run with `deno test -A` from the respective directory

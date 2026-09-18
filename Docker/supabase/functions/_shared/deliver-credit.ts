@@ -4,10 +4,7 @@
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { mqttPublish } from './mqtt-publish.ts'
-
-function toScaleFactor(p: number, x: number, y: number): number {
-  return p / x / Math.pow(10, -y)
-}
+import { eurToScaleUnits } from './scale.ts'
 
 /**
  * Deliver credit to a vending machine via MQTT.
@@ -33,7 +30,7 @@ export async function deliverCredit(
   const payload = new Uint8Array(19)
   crypto.getRandomValues(payload)
 
-  const itemPrice = toScaleFactor(amountEur, 1, 2)
+  const itemPrice = eurToScaleUnits(amountEur)
   const timestampSec = Math.floor(Date.now() / 1000)
 
   payload[0] = 0x20                            // cmd: credit
