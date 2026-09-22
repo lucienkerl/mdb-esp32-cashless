@@ -2615,7 +2615,7 @@ async function handleAddSale() {
               >
                 <option value="" disabled>{{ t('machineDetail.selectADevice') }}</option>
                 <option v-for="d in availableDevices" :key="d.id" :value="d.id">
-                  {{ d.mac_address ?? 'Unknown MAC' }} — subdomain {{ d.subdomain }} ({{ d.status }}{{ d.firmware_version ? `, v${d.firmware_version}` : '' }})
+                  {{ d.name ? d.name + ' — ' : '' }}{{ d.mac_address ?? 'Unknown MAC' }} — subdomain {{ d.subdomain }} ({{ d.status }}{{ d.firmware_version ? `, v${d.firmware_version}` : '' }})
                 </option>
               </select>
               <p v-if="availableDevices.length === 0" class="text-xs text-muted-foreground">{{ t('machineDetail.noUnassignedDevices') }}</p>

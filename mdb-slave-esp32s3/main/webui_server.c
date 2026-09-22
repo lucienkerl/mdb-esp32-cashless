@@ -16,6 +16,7 @@
 #include "network.h"
 #include "modem.h"
 #include "provision.h"
+#include "restart.h"
 
 #define TAG "webui"
 
@@ -59,6 +60,12 @@ static void dns_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_ad
 static esp_err_t index_get_handler(httpd_req_t *req) {
     const size_t html_len = index_html_end - index_html_start;
     httpd_resp_set_type(req, "text/html");
+    /* The page is re-embedded into the firmware binary on every build (no
+     * separate filesystem/data partition to reflash), so an OTA update can
+     * change its content while the URL stays "/" — without this header a
+     * phone that already cached the portal page from a previous firmware
+     * version keeps showing the stale one after an update. */
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_send(req, (const char *)index_html_start, html_len);
     return ESP_OK;
 }
@@ -122,6 +129,16 @@ static esp_err_t system_info_get_handler(httpd_req_t *req) {
 
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "variant", modem_present ? "cellular" : "wifi");
+
+    /* Uplink switch (Option A): only offered once this board has ever
+     * confirmed modem hardware (network_has_cellular_hw persists across
+     * the "currently running in WiFi mode, probe skipped" case, where
+     * modem_present above would otherwise read false and hide the
+     * switch on a board that's plainly capable of it). */
+    cJSON *usw = cJSON_AddObjectToObject(root, "uplink_switch");
+    cJSON_AddBoolToObject(usw, "available", network_has_cellular_hw());
+    cJSON_AddStringToObject(usw, "preference",
+                             network_get_uplink_preference() ? "wifi" : "cellular");
 
     /* Wizard state mapping. SOFTAP_ONLY needs special handling because it
      * means different things on the two variants.
@@ -320,6 +337,60 @@ static esp_err_t wifi_configure_handler(httpd_req_t *req) {
 
     if (err == ESP_ERR_NOT_SUPPORTED) return send_err_json(req, "WiFi not configurable on cellular board");
     if (err != ESP_OK)                return send_err_json(req, esp_err_to_name(err));
+    return send_ok(req);
+}
+
+/* Fire-and-forget: give the HTTP response time to flush before rebooting,
+ * same trick provision_claim_task's callers rely on implicitly (there the
+ * restart happens deep inside an async task; here the handler itself
+ * would otherwise reboot before httpd finishes writing the reply). */
+static void uplink_pref_restart_task(void *arg) {
+    vTaskDelay(pdMS_TO_TICKS(300));
+    tracked_restart("uplink_pref");
+}
+
+/* POST /api/v1/uplink/prefer  body: {prefer: "wifi"|"cellular", ssid?, password?}
+ *
+ * Option A uplink switch — WiFi *instead of* cellular, never both. Only
+ * meaningful on a board that has ever confirmed modem hardware present
+ * (network_has_cellular_hw); rejected otherwise. Switching to "wifi"
+ * accepts optional ssid/password in the same request so the very next
+ * boot can connect immediately — no second SoftAP round-trip needed.
+ * Always reboots on success (network_init() only branches at boot). */
+static esp_err_t uplink_prefer_handler(httpd_req_t *req) {
+    char buf[512];
+    if (recv_json_body(req, buf, sizeof(buf)) != ESP_OK) return ESP_OK;
+
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) return send_err_json(req, "invalid JSON");
+
+    cJSON *jprefer = cJSON_GetObjectItem(root, "prefer");
+    if (!jprefer || !cJSON_IsString(jprefer)) {
+        cJSON_Delete(root);
+        return send_err_json(req, "prefer required (\"wifi\" or \"cellular\")");
+    }
+    bool prefer_wifi;
+    if (strcmp(jprefer->valuestring, "wifi") == 0) {
+        prefer_wifi = true;
+    } else if (strcmp(jprefer->valuestring, "cellular") == 0) {
+        prefer_wifi = false;
+    } else {
+        cJSON_Delete(root);
+        return send_err_json(req, "prefer must be \"wifi\" or \"cellular\"");
+    }
+
+    cJSON *jssid = cJSON_GetObjectItem(root, "ssid");
+    cJSON *jpass = cJSON_GetObjectItem(root, "password");
+    const char *ssid = (jssid && cJSON_IsString(jssid)) ? jssid->valuestring : NULL;
+    const char *pass = (jpass && cJSON_IsString(jpass)) ? jpass->valuestring : "";
+
+    esp_err_t err = network_set_uplink_preference(prefer_wifi, ssid, pass);
+    cJSON_Delete(root);
+
+    if (err == ESP_ERR_NOT_SUPPORTED) return send_err_json(req, "no cellular hardware confirmed on this device");
+    if (err != ESP_OK)                return send_err_json(req, esp_err_to_name(err));
+
+    xTaskCreate(uplink_pref_restart_task, "uplink_restart", 3072, NULL, 5, NULL);
     return send_ok(req);
 }
 
@@ -537,6 +608,7 @@ void start_rest_server(void) {
         { .uri = "/api/v1/wifi/scan",          .method = HTTP_GET,  .handler = wifi_scan_get_handler      },
         { .uri = "/api/v1/cellular/configure", .method = HTTP_POST, .handler = cellular_configure_handler },
         { .uri = "/api/v1/wifi/configure",     .method = HTTP_POST, .handler = wifi_configure_handler     },
+        { .uri = "/api/v1/uplink/prefer",      .method = HTTP_POST, .handler = uplink_prefer_handler      },
         { .uri = "/api/v1/claim",              .method = HTTP_POST, .handler = claim_handler              },
 
         /* OS captive-portal probe paths.

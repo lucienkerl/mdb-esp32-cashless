@@ -18,7 +18,6 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
-#include <driver/i2c_master.h>
 
 #define TAG "modem"
 
@@ -27,38 +26,29 @@
 #define NVS_KEY_PIN     "sim_pin"
 #define NVS_KEY_MODE    "lte_mode"
 
-/* LilyGo T-SIM7080G-S3 standard pinout, confirmed by user 2026-04-27.
- * The earlier 18/17/14 defines were inherited from Leonardo's custom-PCB
- * attempt (commit d3f8b05) and crashed during uart_driver_install on
- * actual hardware because they don't match anything on a real LilyGo.
+/* Leonardo's custom mdb-slave-esp32s3-sim7080g PCB, confirmed against the
+ * KiCad schematic (kicad/mdb-slave-esp32s3-sim7080g/) 2026-09-14: GPIO17
+ * -> R3 -> U2 pin2 (UART1_RXD), GPIO18 -> R2 -> U2 pin1 (UART1_TXD), GPIO14
+ * -> R6 -> Q2 (inverting transistor) -> U2 pin39 (PWRKEY).
  *
- * LilyGo T-SIM7080G-S3 (verified by user):
- *   PWRKEY:  GPIO 41   active-LOW direct (no transistor inversion)
- *   MODEM_TX (ESP→SIM): GPIO 5
- *   MODEM_RX (SIM→ESP): GPIO 4
- *   RI:      GPIO 3   (not used in P1)
- *   DTR:     GPIO 42  (not used in P1)
- *
- * NOTE: GPIO 4 and 5 alias PIN_MDB_RX/PIN_MDB_TX in mdb-slave-esp32s3.c.
- * On the LilyGo the MDB hardware is absent so the alias is harmless —
- * MDB code sets these as inputs at boot (idle high-Z), which doesn't
- * conflict with the modem's later UART matrix re-routing. On a future
- * board variant with BOTH MDB and the modem, these defines must move
- * into Kconfig and the two functions must use different pins. */
-#define MODEM_PIN_RX    GPIO_NUM_4    /* SIM7080G TX → ESP RX */
-#define MODEM_PIN_TX    GPIO_NUM_5    /* ESP TX → SIM7080G RX */
-#define MODEM_PIN_PWR   GPIO_NUM_41   /* PWRKEY active-LOW direct */
+ * A short-lived LilyGo T-SIM7080G-S3 devboard used GPIO 4/5/41 instead
+ * (no longer in use — production is Leonardo's PCB). Those pins also
+ * aliased PIN_MDB_RX/PIN_MDB_TX, which doesn't apply here either since
+ * this board has its own MDB UART pins separate from the modem's. */
+#define MODEM_PIN_RX    GPIO_NUM_18   /* SIM7080G TX → ESP RX */
+#define MODEM_PIN_TX    GPIO_NUM_17   /* ESP TX → SIM7080G RX */
+#define MODEM_PIN_PWR   GPIO_NUM_14   /* PWRKEY via inverting transistor Q2 */
 #define MODEM_UART_PORT UART_NUM_2
 #define MODEM_BAUD      115200
 
-/* PWRKEY polarity: true if the LilyGo board uses an inverting transistor
- * between ESP GPIO 41 and the SIM7080G PWRKEY pin (GPIO high → transistor
+/* PWRKEY polarity: true if the board uses an inverting transistor between
+ * the ESP GPIO and the SIM7080G PWRKEY pin (GPIO high → transistor
  * conducts → PWRKEY low = "press"). false if wired direct.
  *
- * Verified empirically against LilyGo's reference Arduino sketch which
- * does LOW → HIGH (1s) → LOW. That matches an inverting transistor:
- * ESP idles LOW, drives HIGH for 1s to assert PWRKEY low, then back.
- * Hence INVERTED = 1 for the LilyGo T-SIM7080G boards. */
+ * Leonardo's PCB drives PWRKEY through Q2, wired the same way as the
+ * LilyGo reference design this constant was originally verified against:
+ * ESP idles LOW, drives HIGH for the press duration to assert PWRKEY low,
+ * then back. Hence INVERTED = 1. */
 #define MODEM_PWRKEY_INVERTED 1
 
 static esp_modem_dce_t  *s_dce  = NULL;
@@ -237,137 +227,6 @@ bool modem_probe(void) {
     return args.result;
 }
 
-/* === AXP2101 PMU power-up =============================================
- *
- * The LilyGo T-SIM7080G-S3 board has an AXP2101 power management IC that
- * gates the SIM7080G's main VBAT (DC3 channel, 3.0V) and the level-
- * conversion supply (BLDO1 channel, 3.3V) — both addressed via I2C.
- * Without these channels enabled the modem has zero power, ignores
- * PWRKEY pulses, and never responds on UART.
- *
- * Discovered by reading LilyGo's official ATDebug.ino reference sketch
- * (github.com/Xinyuan-LilyGO/LilyGo-T-SIM7080G/examples/ATDebug). Pin
- * candidates we tried earlier (GPIO 12/47/48 driven HIGH) were all
- * misses because there's no plain GPIO POWERON — it's I2C all the way.
- *
- * Register addresses come from XPowersLib/AXP2101Constants.h. We do
- * the bare-minimum sequence here in C without pulling the C++ library:
- *   1. Verify chip ID at 0x03 → 0x4A
- *   2. Set DC3 voltage (0x84) to 3000 mV (code 102)
- *   3. Enable DC3 (0x80, set bit 2) → modem main power
- *   4. Set BLDO1 voltage (0x96) to 3300 mV (code 28)
- *   5. Enable BLDO1 (0x90, set bit 4) → level-conversion supply
- *
- * If the AXP2101 isn't present (production WiFi-only PCB) the I2C probe
- * fails with ESP_ERR_TIMEOUT; we log and continue so the modem probe
- * sequence still runs (it'll bail out at AT-sync, just like before).
- */
-#define AXP2101_I2C_PORT       I2C_NUM_1
-#define AXP2101_I2C_SDA        GPIO_NUM_15
-#define AXP2101_I2C_SCL        GPIO_NUM_7
-#define AXP2101_SLAVE_ADDR     0x34
-#define AXP2101_REG_CHIP_ID    0x03
-#define AXP2101_CHIP_ID_VAL    0x4A
-#define AXP2101_REG_DC_ONOFF   0x80
-#define AXP2101_REG_DC3_VOL    0x84
-#define AXP2101_REG_LDO_ONOFF0 0x90
-#define AXP2101_REG_BLDO1_VOL  0x96
-
-static i2c_master_bus_handle_t s_axp_bus = NULL;
-static i2c_master_dev_handle_t s_axp_dev = NULL;
-
-static esp_err_t axp_read_reg(uint8_t reg, uint8_t *out) {
-    return i2c_master_transmit_receive(s_axp_dev, &reg, 1, out, 1, pdMS_TO_TICKS(100));
-}
-
-static esp_err_t axp_write_reg(uint8_t reg, uint8_t val) {
-    uint8_t buf[2] = { reg, val };
-    return i2c_master_transmit(s_axp_dev, buf, sizeof(buf), pdMS_TO_TICKS(100));
-}
-
-/* Read-modify-write: clear `clear_mask`, set bits in `set_mask`. */
-static esp_err_t axp_rmw_reg(uint8_t reg, uint8_t clear_mask, uint8_t set_mask) {
-    uint8_t v;
-    esp_err_t err = axp_read_reg(reg, &v);
-    if (err != ESP_OK) return err;
-    v = (v & ~clear_mask) | set_mask;
-    return axp_write_reg(reg, v);
-}
-
-/* Returns ESP_OK if AXP2101 was found and the modem rails were enabled.
- * Returns the I2C error otherwise. Idempotent — safe to call multiple
- * times in case the modem probe escalates. */
-static esp_err_t modem_enable_pmu_rails(void) {
-    if (!s_axp_bus) {
-        i2c_master_bus_config_t bus_cfg = {
-            .clk_source        = I2C_CLK_SRC_DEFAULT,
-            .i2c_port          = AXP2101_I2C_PORT,
-            .scl_io_num        = AXP2101_I2C_SCL,
-            .sda_io_num        = AXP2101_I2C_SDA,
-            .glitch_ignore_cnt = 7,
-            .flags             = { .enable_internal_pullup = true },
-        };
-        esp_err_t err = i2c_new_master_bus(&bus_cfg, &s_axp_bus);
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "PMU: i2c_new_master_bus failed: %s", esp_err_to_name(err));
-            return err;
-        }
-
-        i2c_device_config_t dev_cfg = {
-            .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-            .device_address  = AXP2101_SLAVE_ADDR,
-            .scl_speed_hz    = 100000,
-        };
-        err = i2c_master_bus_add_device(s_axp_bus, &dev_cfg, &s_axp_dev);
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "PMU: bus_add_device failed: %s", esp_err_to_name(err));
-            i2c_del_master_bus(s_axp_bus);
-            s_axp_bus = NULL;
-            return err;
-        }
-    }
-
-    uint8_t chip_id;
-    esp_err_t err = axp_read_reg(AXP2101_REG_CHIP_ID, &chip_id);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "PMU: chip ID read failed (%s) — likely no AXP2101 on this board",
-                 esp_err_to_name(err));
-        return err;
-    }
-    if (chip_id != AXP2101_CHIP_ID_VAL) {
-        ESP_LOGW(TAG, "PMU: unexpected chip ID 0x%02X (expected 0x%02X)",
-                 chip_id, AXP2101_CHIP_ID_VAL);
-        return ESP_ERR_INVALID_RESPONSE;
-    }
-    ESP_LOGI(TAG, "PMU: AXP2101 detected (chip ID 0x%02X)", chip_id);
-
-    /* DC3 voltage = 3000 mV. AXP2101 DC3 voltage encoding has three ranges;
-     * 1.6-3.4V at 100mV step starts at code 88. So 3000mV = 88 + 14 = 102. */
-    uint8_t dc3_code = 102;
-    err = axp_rmw_reg(AXP2101_REG_DC3_VOL, 0x7F, dc3_code & 0x7F);
-    if (err != ESP_OK) { ESP_LOGE(TAG, "PMU: set DC3 voltage failed: %s", esp_err_to_name(err)); return err; }
-
-    /* Enable DC3 (bit 2 of register 0x80) — modem main power */
-    err = axp_rmw_reg(AXP2101_REG_DC_ONOFF, 0, 0x04);
-    if (err != ESP_OK) { ESP_LOGE(TAG, "PMU: enable DC3 failed: %s", esp_err_to_name(err)); return err; }
-    ESP_LOGI(TAG, "PMU: DC3 enabled at 3000 mV (modem main power)");
-
-    /* BLDO1 voltage = 3300 mV. BLDO1 range 500-3500 mV at 100mV step,
-     * code = (mV - 500) / 100. So 3300 → (3300-500)/100 = 28. */
-    uint8_t bldo1_code = 28;
-    err = axp_rmw_reg(AXP2101_REG_BLDO1_VOL, 0x1F, bldo1_code & 0x1F);
-    if (err != ESP_OK) { ESP_LOGE(TAG, "PMU: set BLDO1 voltage failed: %s", esp_err_to_name(err)); return err; }
-
-    /* Enable BLDO1 (bit 4 of register 0x90) — level conversion supply */
-    err = axp_rmw_reg(AXP2101_REG_LDO_ONOFF0, 0, 0x10);
-    if (err != ESP_OK) { ESP_LOGE(TAG, "PMU: enable BLDO1 failed: %s", esp_err_to_name(err)); return err; }
-    ESP_LOGI(TAG, "PMU: BLDO1 enabled at 3300 mV (level-conversion supply)");
-
-    /* Give the rails a moment to stabilise before the modem probes. */
-    vTaskDelay(pdMS_TO_TICKS(200));
-    return ESP_OK;
-}
-
 static bool modem_probe_body(void) {
     /* Status cache mutex — created lazily so callers from non-bring-up
      * contexts (e.g. /api/v1/system/info HTTP handler) can read the
@@ -383,15 +242,6 @@ static bool modem_probe_body(void) {
      * on first-use. */
     if (!s_modem_op_mtx) {
         s_modem_op_mtx = xSemaphoreCreateRecursiveMutex();
-    }
-
-    /* First enable modem power rails via the AXP2101 PMU. On a board
-     * without the PMU (production WiFi-only) this is a no-op + warning;
-     * on the LilyGo it's load-bearing. */
-    esp_err_t pmu_err = modem_enable_pmu_rails();
-    if (pmu_err != ESP_OK) {
-        ESP_LOGW(TAG, "PMU init failed: %s — continuing anyway (will bail on AT timeout)",
-                 esp_err_to_name(pmu_err));
     }
 
     /* Build the temporary DTE/DCE. */
@@ -431,14 +281,13 @@ static bool modem_probe_body(void) {
      *   (A) warm-COMMAND — modem is on, in AT command mode. Single sync
      *       responds in ~500 ms.
      *   (B) warm-DATA    — modem is on, stuck in PPP DATA mode from a
-     *       prior session (AXP2101 retains DC3 across ESP soft-reset, so
-     *       any reboot — claim restart, watchdog reboot, OTA — lands here).
-     *       Sync fails because AT bytes get eaten as PPP frames. Recovery:
-     *       PPP escape via "+++" sequence (~7 s for esp_modem's internal
-     *       3 retries).
-     *   (C) cold         — modem has no power. PMU just enabled DC3+BLDO1
-     *       ~200 ms ago, modem still needs a PWRKEY pulse + ~4-12 s boot
-     *       wait before AT works.
+     *       prior session (the modem stays powered across an ESP soft-
+     *       reset, so any reboot — claim restart, watchdog reboot, OTA —
+     *       lands here). Sync fails because AT bytes get eaten as PPP
+     *       frames. Recovery: PPP escape via "+++" sequence (~7 s for
+     *       esp_modem's internal 3 retries).
+     *   (C) cold         — modem has no power, needs a PWRKEY pulse +
+     *       ~4-12 s boot wait before AT works.
      *
      * Order matters because each path has a different cost on the wrong
      * state. Earlier (firmware dc9a2dc) we tried (B) by reordering to
@@ -459,39 +308,26 @@ static bool modem_probe_body(void) {
     esp_err_t ret = esp_modem_sync(s_dce);
     ESP_LOGI(TAG, "esp_modem_sync (warm-COMMAND probe): %s", esp_err_to_name(ret));
 
-    if (ret != ESP_OK && pmu_err == ESP_OK) {
+    if (ret != ESP_OK) {
         /* (B) Warm-DATA recovery — escape PPP via "+++". esp_modem's
          * set_mode(COMMAND) sends the escape, waits, retries up to 3x.
          * On a cold modem this still takes ~7 s (escape misses 3x) but
          * sets up the next path correctly.
          *
-         * Gated by `pmu_err == ESP_OK` (same logic as Path C below):
-         * if there's no AXP2101, this is a production WiFi-only board
-         * with no modem hardware. set_mode(COMMAND) on a non-existent
-         * modem would block esp_modem's lwIP-PPP teardown for ~24 s
-         * waiting for a NO CARRIER that never arrives — burning post-
-         * claim boot time and triggering "Haven't to connect to a
-         * suitable AP now" warnings from the WiFi driver while the
-         * radio waits idly. */
+         * No PMU on this board to short-circuit a WiFi-only PCB (no
+         * SIM7080G populated) — on that variant this just burns ~7 s
+         * against floating UART pins before falling through to (C). */
         esp_modem_set_mode(s_dce, ESP_MODEM_MODE_COMMAND);
         vTaskDelay(pdMS_TO_TICKS(500));
         ret = esp_modem_sync(s_dce);
         ESP_LOGI(TAG, "esp_modem_sync (after PPP escape): %s", esp_err_to_name(ret));
-    } else if (ret != ESP_OK && pmu_err != ESP_OK) {
-        ESP_LOGI(TAG, "skipping PPP-escape path (no PMU = no modem HW)");
     }
 
-    if (ret != ESP_OK && pmu_err == ESP_OK) {
+    if (ret != ESP_OK) {
         /* (C) Cold-boot path — PWRKEY pulse + poll for AT readiness up
          * to 15 s. Each sync attempt has its own ~500 ms internal
          * timeout, so worst-case we burn the full window before
-         * falling through.
-         *
-         * Gated by `pmu_err == ESP_OK`: if the AXP2101 PMU isn't
-         * present, this is a production WiFi-only board with no modem
-         * hardware at all — the PWRKEY GPIO + 15 s wait would just
-         * burn time pulsing nothing. PMU detection is the cleanest
-         * available WiFi-vs-cellular HW signal we have. */
+         * falling through. Same WiFi-only-PCB caveat as (B) above. */
         ESP_LOGI(TAG, "issuing PWRKEY pulse for cold-boot...");
         pwrkey_pulse();
         for (int i = 0; i < 15; i++) {
@@ -502,8 +338,6 @@ static bool modem_probe_body(void) {
                 break;
             }
         }
-    } else if (ret != ESP_OK && pmu_err != ESP_OK) {
-        ESP_LOGI(TAG, "skipping PWRKEY cold-boot path (no PMU = no modem HW)");
     }
 
     if (ret != ESP_OK) {
@@ -959,7 +793,7 @@ void modem_power_cycle(void) {
  *   L2    modem_soft_restart() ~12 s  — AT+CFUN=1,1 firmware reboot. Fixes
  *                                       almost all internal modem-firmware
  *                                       hangs without losing power.
- *   L3    modem_hard_reset()  ~15 s   — PMU DC3 cut + PWRKEY. Last resort
+ *   L3    modem_hard_reset()  ~15 s   — PWRKEY toggle-pair. Last resort
  *                                       short of factory reset; resets
  *                                       hardware unconditionally.
  *
@@ -1041,48 +875,27 @@ esp_err_t modem_soft_restart(void) {
     return ESP_OK;
 }
 
-/* L3: Hardware power cycle. PMU DC3 cut + re-enable + PWRKEY pulse. The
- * cleanest reset short of factory_reset — resets the modem hardware
- * unconditionally regardless of internal state.
- *
- * On boards without AXP2101 PMU, falls back to a PWRKEY toggle pair (two
- * pulses with a gap), which is the best we can do without power-gating. */
+/* L3: Hardware power cycle via a PWRKEY toggle pair. The cleanest reset
+ * short of factory_reset — resets the modem hardware unconditionally
+ * regardless of internal state. No PMU on this board to power-gate the
+ * modem, so this is the best we can do. */
 void modem_hard_reset(void) {
     /* Power-cycling the modem makes any prior DATA-mode binding moot —
      * clear the flag first so a watchdog tick during the boot wait
      * doesn't see "PPP up" and skip its AT-ping. */
     s_in_data_mode = false;
 
-    /* Try PMU-based DC3 cut first (LilyGo T-SIM7080G route). */
-    ESP_LOGW(TAG, "L3 recovery: cutting modem power via PMU DC3 for 5 s");
-    esp_err_t pmu_err = axp_rmw_reg(AXP2101_REG_DC_ONOFF, 0x04, 0);
-
-    if (pmu_err == ESP_OK) {
-        /* 5 s drain: 2 s wasn't enough — field log 2026-05-03 showed the
-         * modem still warm-cached after L3 cut, recovery ladder exhausted
-         * without actually power-cycling. Lilygo board caps + SIM7080G
-         * internal regulators hold the chip alive longer than expected. */
-        vTaskDelay(pdMS_TO_TICKS(5000));
-        ESP_LOGI(TAG, "L3 recovery: re-enabling DC3");
-        axp_rmw_reg(AXP2101_REG_DC_ONOFF, 0, 0x04);
-        vTaskDelay(pdMS_TO_TICKS(500));    /* power rails stabilise */
-        ESP_LOGI(TAG, "L3 recovery: firing PWRKEY pulse");
-        pwrkey_pulse();                    /* boot the modem */
-        ESP_LOGI(TAG, "L3 recovery: PWRKEY pulse done, modem booting");
-    } else {
-        /* No PMU. Fallback: PWRKEY pulse pair. First press toggles state
-         * (modem-on → off, modem-off → on); we wait through the modem's
-         * shutdown sequence (~3 s typical), then a second press to ensure
-         * we end up in the "on" state. Less reliable than PMU but better
-         * than a single pulse. */
-        ESP_LOGW(TAG, "L3 recovery: PMU not available, PWRKEY toggle-pair");
-        pwrkey_pulse();                    /* may turn off if was on */
-        vTaskDelay(pdMS_TO_TICKS(3000));   /* let modem complete shutdown */
-        pwrkey_pulse();                    /* turn on (if off) */
-    }
+    /* PWRKEY pulse pair. First press toggles state (modem-on → off,
+     * modem-off → on); we wait through the modem's shutdown sequence
+     * (~3 s typical), then a second press to ensure we end up in the
+     * "on" state. */
+    ESP_LOGW(TAG, "L3 recovery: PWRKEY toggle-pair");
+    pwrkey_pulse();                    /* may turn off if was on */
+    vTaskDelay(pdMS_TO_TICKS(3000));   /* let modem complete shutdown */
+    pwrkey_pulse();                    /* turn on (if off) */
 
     /* Poll for modem readiness instead of a fixed wait. SIM7080G boot
-     * after a PMU-DC3-cut + PWRKEY pulse takes typically 6-12 s, but
+     * after the PWRKEY toggle-pair takes typically 6-12 s, but
      * has been observed up to 18 s on cold cells (signal scan +
      * SIM-read on weak coverage). The previous fixed 8 s wait was
      * shorter than the typical case — every subsequent AT (modem_init's
@@ -1116,33 +929,16 @@ void modem_hard_reset(void) {
 
 /* Lightweight power-kick — fire-and-forget cycle for use just before
  * esp_restart(). No readiness polling: host is about to reboot anyway,
- * and modem_probe on the next boot does its own sync polling. Total
- * blocking time: ~1.5 s (DC3 cut + drain + re-enable + PWRKEY pulse). */
+ * and modem_probe on the next boot does its own sync polling.
+ *
+ * No PMU on this board, so this is a single PWRKEY toggle: it will turn
+ * the modem off if it was on. The next boot's modem_probe will warm-DATA
+ * -test then do its own PWRKEY if the modem ends up off. Not as clean as
+ * a true power cycle but non-blocking (~500 ms). */
 void modem_kick_for_host_reboot(void) {
     s_in_data_mode = false;
-
-    /* PMU DC3 cut. Best-effort: if PMU isn't accessible (non-LilyGo
-     * board), skip silently — caller is rebooting host either way. */
-    esp_err_t pmu_err = axp_rmw_reg(AXP2101_REG_DC_ONOFF, 0x04, 0);
-    if (pmu_err == ESP_OK) {
-        ESP_LOGW(TAG, "kick-reboot: DC3 cut (modem off)");
-        /* 3s cap drain: 1s wasn't enough — Lilygo board caps held the modem
-         * in a half-warm state across the cycle, causing 24 s of unresponsive
-         * AT after the next boot before a recovery PWRKEY pulse kicked in. */
-        vTaskDelay(pdMS_TO_TICKS(3000));
-        axp_rmw_reg(AXP2101_REG_DC_ONOFF, 0, 0x04);
-        vTaskDelay(pdMS_TO_TICKS(300));    /* power rails settle */
-        pwrkey_pulse();                    /* ~500 ms low pulse */
-        ESP_LOGI(TAG, "kick-reboot: PWRKEY fired, modem booting in parallel with host");
-    } else {
-        /* No PMU. PWRKEY-only fallback: a single pulse will toggle
-         * the modem (on→off if it was on). The next boot's
-         * modem_probe will warm-DATA-test then do its own PWRKEY if
-         * the modem ends up off. Not as clean as a true cycle but
-         * non-blocking. */
-        ESP_LOGW(TAG, "kick-reboot: no PMU, single PWRKEY toggle");
-        pwrkey_pulse();
-    }
+    ESP_LOGW(TAG, "kick-reboot: single PWRKEY toggle");
+    pwrkey_pulse();
 }
 
 /* Convert AT+CSQ raw value (0-31, 99 = unknown) to dBm. Per 3GPP 27.007:
@@ -1276,7 +1072,7 @@ static void modem_watchdog_task(void *arg) {
 
         if (s_consec_fails < WATCHDOG_FAIL_TO_POWER_CYCLE) continue;
 
-        /* Layer 2: hard-reset the modem (PMU DC3 cut + PWRKEY) and re-init.
+        /* Layer 2: hard-reset the modem (PWRKEY toggle-pair) and re-init.
          * Bounded by WATCHDOG_POWER_CYCLE_LIMIT so a dead chip doesn't burn
          * flash cycles forever — Layer 3 (mqtt_watchdog_cb) reboots the
          * device after another 5-10 minutes.

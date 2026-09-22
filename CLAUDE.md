@@ -36,6 +36,45 @@ Single main file `main/mdb-slave-esp32s3.c` runs these concurrent FreeRTOS tasks
 
 **MDB State machine**: `INACTIVE → DISABLED → ENABLED → IDLE → VEND → IDLE`
 
+**Status LED** (`vTaskBitEvent` in `mdb-slave-esp32s3.c`, one WS2812 on `PIN_MDB_LED`):
+periodic pattern engine (50ms tick), not just one-shot solid colors. `led_compute_state()`
+evaluates a fixed priority ladder each tick — the first matching rule wins. Brightness is one
+global knob, `LED_BRIGHTNESS_SCALE` (0-255), applied to every color including the boot
+self-test. Every boot starts with a ~750ms red/green/blue self-test flash (pure channels, via
+`led_set_scaled_pixel`) so a dead channel is visible immediately, before the states below apply.
+
+| # | State | Color(s) | Pattern |
+|---|---|---|---|
+| 1 | MDB checksum/bus error (last 3s) | Red | Fast blink |
+| 2 | OTA update in progress | Purple | Fast blink |
+| 3 | Vend in progress (`machine_state == VEND_STATE`) | White | Pulse |
+| 4 | Not installed, claim POST in flight | Yellow | Double-blink |
+| 5 | Not installed, last claim attempt failed | Orange | Slow blink |
+| 6 | Not installed, WiFi connecting / cellular registering | Yellow | Fast blink |
+| 7 | Not installed, `network_init()` not yet resolved (boot) | White | Pulse |
+| 8 | Not installed, SoftAP up waiting for input | Yellow | Slow blink |
+| 9 | Installed, MQTT up + reader enabled (both axes agree) | Green | Solid |
+| 10 | Installed, any other reader/MQTT combination (axes disagree) | Green/Red (MQTT) + Green/Blue (reader) | Alternate |
+
+State 10 is a deliberate two-axis signal, not a single collapsed color — answers "is it
+online" before "is MDB talking", the priority the device's user cares about. `led_compute_state`
+picks a **connectivity color** (green=MQTT up, red=down) and a **reader color** (green=MDB
+reader enabled, blue=idle/not enabled) independently; if they're the same color (state 9) it
+shows solid, otherwise it shows both via `LED_PATTERN_ALTERNATE`: connectivity color 250ms,
+reader color 500ms, 1000ms pause, repeat (40-tick cycle at the 50ms base). The pause is the
+landmark — whichever color follows a gap is always the connectivity one, so you don't need to
+catch the start of the cycle or judge relative durations to read it. (Old design showed one
+solid/blinking color per combination, e.g. a fully-online device with no VMC attached yet and a
+truly offline device both showed solid red — indistinguishable and misleading.)
+
+Inputs: `xLedEventGroup` bits (installed/reader-enabled/MQTT-up) plus plain globals owned by
+other subsystems — `machine_state`, `ota_in_progress`, `s_prov_claim_running`/`s_prov_claim_failed`
+(provisioning), `network_get_status()` (network.c). The task is spawned right after the LED
+strip driver init (before `network_init()`, which blocks for 1-20s on `modem_probe()`) so state
+7 above is actually reachable — otherwise the LED stays dark for that whole window. Stack is
+4096 (not 2048 — the pattern engine's `network_status_t` local plus the RMT call chain blew a
+2048 stack with a raw Guru Meditation crash, not a clean overflow message).
+
 **EXPANSION REQUEST ID** (`0x07`/`0x00`) is answered with the Level 1 30-byte
 Peripheral ID, built once at task start by `mdb_build_peripheral_id()`. Some
 VMCs reject it however it is formatted and only proceed once the reader goes
@@ -150,7 +189,31 @@ signal bars + operator + IP, and disables submit buttons during in-flight
 or registering states. The old combined `/api/v1/settings/set` endpoint
 was removed in P3.
 
-**Cellular recovery (P4 + post-milestone hardening)**: Multi-layer escalation. Layer 1 — `network.c::ppp_reconnect_task` retries `modem_disconnect`+`modem_connect` 3 times on `IP_EVENT_PPP_LOST_IP`, ~6 s total. Layer 1.5/1.6/2/3 — `cellular_bring_up_task` recovery ladder triggers on **either** IPCP timeout **or phantom-PPP** (TCP probe to 1.1.1.1:53 fails after PPP_GOT_IP). Steps: `modem_pdp_reset` (CGACT=0/1, ~5s) → `modem_rf_reset` (CFUN=0/1, ~10s) → `modem_soft_restart` (CFUN=1,1, ~12s) → `modem_hard_reset` (PMU DC3 cut + PWRKEY, ~15s, true reset). Each step is followed by `modem_connect` + reachability probe; only if probe succeeds is `UPLINK_UP` fired. Worst-case ~3-4 min ladder traversal before bailing OFFLINE; `offline_retry` timer (30s) re-spawns fresh `cellular_bring_up_task`. Layer 4 — `modem.c::modem_watchdog_task` (30 s tick) calls `modem_hard_reset` after 3 consecutive `AT` failures (bounded to 2 hard-resets before deferring to Layer 5). Layer 5 — `mqtt_watchdog_cb` hard-reboots after 10 min without MQTT. MQTT keepalive bumps to 180 s + network/reconnect timeouts to 30 s/20 s when uplink is cellular at `esp_mqtt_client_init` time. Known limitation: at MQTT-init time `network_init()` has not yet run, so `modem_present` is false and cellular boards still get the WiFi-tuned MQTT values on the first connection. The watchdog task is started exclusively from `cellular_bring_up_task` (after `modem_connect` succeeds), so WiFi-only boards never spawn it.
+**Uplink switch — WiFi instead of cellular (Option A)**: a modem-equipped board can be switched
+to run on WiFi instead of cellular, and back, via the captive portal — never both at once, and
+never live: `network_init()` only branches once at boot, so switching always reboots. Three new
+NVS keys in `vmflow`: `uplink_pref` (u8, 0=cellular/default, 1=wifi — read at the very top of
+`network_init()`, before `modem_probe()`; when set, the probe is skipped entirely and
+`s_user_committed_wifi` is set the same way `network_skip_modem_probe()` sets it for a live
+in-progress probe) and `has_modem` (u8, sticky — set the first time any boot's `modem_probe()`
+returns true, never cleared short of factory reset; needed because `modem_is_present()` reads
+false once already running in WiFi mode, so it can't by itself tell "genuinely WiFi-only
+hardware" from "a cellular board currently choosing not to use it"). `network.c` exposes
+`network_set_uplink_preference(prefer_wifi, ssid, password)` / `network_get_uplink_preference()`
+/ `network_has_cellular_hw()`. `webui_server.c`'s `POST /api/v1/uplink/prefer`
+`{prefer: "wifi"|"cellular", ssid?, password?}` calls it, saves WiFi credentials in the same
+request when switching to WiFi (so the next boot connects immediately, no second SoftAP
+round-trip), and reboots via `tracked_restart` (exposed through the new `restart.h`, mirroring
+`provision.h`'s pattern for reaching an `mdb-slave-esp32s3.c` function from `webui_server.c`).
+`GET /api/v1/system/info` gained `uplink_switch: {available, preference}`; the captive portal's
+"claimed" view (`webui/index.html`) renders a switch control keyed off `available`, not
+`variant` — same reasoning as `has_modem` above. Wasn't feasible to bolt on top of the existing
+either/or boot branch without changes: WiFi driver + both netifs already run in APSTA mode
+simultaneously with the modem at boot (this was already true before this feature — SoftAP has
+to survive `modem_probe()` glitch-free), so the actual gap was event-handler registration +
+auto-connect being withheld on the cellular branch, not missing hardware/driver init.
+
+**Cellular recovery (P4 + post-milestone hardening)**: Multi-layer escalation. Layer 1 — `network.c::ppp_reconnect_task` retries `modem_disconnect`+`modem_connect` 3 times on `IP_EVENT_PPP_LOST_IP`, ~6 s total. The `IP_EVENT_PPP_LOST_IP` handler sets `s_state = NETWORK_STATE_OFFLINE` before spawning the task — do not remove this: the task's own first move under `modem_op_lock` is "if `s_state` is already `CELLULAR_UP`, another recovery path beat us to it, bail out." Without the handler clearing state first, that guard is trivially true on every single LOST_IP (nothing else touches `s_state` in between), so the task always bailed immediately without ever reconnecting — confirmed live 2026-09-15, the only thing that still worked was the 10-minute Layer 5 hard-reboot. Fix is in and matches the field evidence, but the specific repro (PPP LOST_IP while the app keeps running, no reboot in between) has not been re-triggered live yet to directly confirm `ppp_reconnect_task` now actually reconnects — a same-day SIM pull/reinsert test only exercised the normal cold-boot `modem_probe` path (device happened to be power-cycling for an unrelated reason at that moment), which was never broken. Layer 1.5/1.6/2/3 — `cellular_bring_up_task` recovery ladder triggers on **either** IPCP timeout **or phantom-PPP** (TCP probe to 1.1.1.1:53 fails after PPP_GOT_IP). Steps: `modem_pdp_reset` (CGACT=0/1, ~5s) → `modem_rf_reset` (CFUN=0/1, ~10s) → `modem_soft_restart` (CFUN=1,1, ~12s) → `modem_hard_reset` (PWRKEY toggle-pair, ~15s, true reset). Each step is followed by `modem_connect` + reachability probe; only if probe succeeds is `UPLINK_UP` fired. Worst-case ~3-4 min ladder traversal before bailing OFFLINE; `offline_retry` timer (30s) re-spawns fresh `cellular_bring_up_task`. Layer 4 — `modem.c::modem_watchdog_task` (30 s tick) calls `modem_hard_reset` after 3 consecutive `AT` failures (bounded to 2 hard-resets before deferring to Layer 5). Layer 5 — `mqtt_watchdog_cb` hard-reboots after 10 min without MQTT. MQTT keepalive bumps to 180 s + network/reconnect timeouts to 30 s/20 s when uplink is cellular at `esp_mqtt_client_init` time. Known limitation: at MQTT-init time `network_init()` has not yet run, so `modem_present` is false and cellular boards still get the WiFi-tuned MQTT values on the first connection. The watchdog task is started exclusively from `cellular_bring_up_task` (after `modem_connect` succeeds), so WiFi-only boards never spawn it.
 
 **Phantom-PPP detection (post-milestone)**: SIM7080G has two parallel network stacks (host PPP + internal AT+CIP*/AT+CNACT*) sharing the same PDP context. Residue in the internal stack splits the PDP binding — IPCP completes and inbound flows (cached air-side state) but outbound silently drops at GTP. Field symptom: TLS cert downloads OK, ClientKeyExchange never reaches server, server FINs at 15s timeout. **Three-layer protection**: (1) `modem_init` proactively clears state via `AT+CIPSHUT` + `AT+CNACT=0,0` (best-effort, ignore errors); (2) `modem_connect` verifies PDP via `AT+CGCONTRDP=1` poll (5×1s) after `+CEREG: 1,5` — confirms data attach actually completed before entering DATA mode; (3) `network.c::probe_internet_tcp("1.1.1.1", 53, 5000ms)` runs after `PPP_GOT_IP_BIT` and BEFORE `UPLINK_UP` — failed probe triggers recovery ladder immediately instead of letting MQTT/claim waste minutes on a dead path. **Important**: never call `AT+CGACT=1,1` manually on LTE — the default bearer auto-activates with registration; manual call introduces the race that creates phantom-PPP in the first place. **Note**: `10.0.0.1` in `PPP GOT_IP` log is the SIMCom IPCP peer placeholder (normal), not a stub from a half-broken state.
 
@@ -159,8 +222,9 @@ was removed in P3.
 **Cellular driver (`modem.c` / `modem.h`)**: SIM7080G driver introduced
 in P1. Public API: `modem_probe`, `modem_init`, `modem_connect`,
 `modem_disconnect`, `modem_status`, `modem_power_cycle` (single PWRKEY
-pulse — cold-boot only), `modem_hard_reset` (true cycle: PMU DC3 cut +
-PWRKEY, used by recovery ladder), `modem_pdp_reset` / `modem_rf_reset`
+pulse — cold-boot only), `modem_hard_reset` (PWRKEY toggle-pair, used by
+recovery ladder — no PMU on the production board to power-gate the
+modem), `modem_pdp_reset` / `modem_rf_reset`
 / `modem_soft_restart` (intermediate recovery layers), plus NVS helpers
 `modem_nvs_load`/`modem_nvs_save` (promoted to the public API in P2).
 All callers now go through `network.c` — no part of `app_main` touches
@@ -239,7 +303,7 @@ Tables:
 - `companies` – organisations; has `anthropic_api_key` (nullable) for AI insights, `velocity_days` (default 30) for sales velocity calculation
 - `organization_members` – `(company_id, user_id, role)` where role ∈ `{admin, viewer}`
 - `invitations` – email-scoped invite tokens with expiry
-- `embeddeds` – registered devices: `subdomain` (bigint, auto-increment), `mac_address`, `passkey`, `status`, `mdb_diagnostics` (jsonb), `vmc_level` (int)
+- `embeddeds` – registered devices: `subdomain` (bigint, auto-increment), `mac_address`, `name` (nullable text, admin-assigned label), `passkey`, `status`, `mdb_diagnostics` (jsonb), `vmc_level` (int)
 - `sales` – vend events: `embedded_id`, `item_price` (**EUR, not cents**), `item_number`, `channel`, `lat`, `lng`, `machine_id`; has `REPLICA IDENTITY FULL` for realtime delete events
 - `paxcounter` – foot traffic: `embedded_id`, `count`
 - `device_provisioning` – one-time provisioning codes: `short_code`, `expires_at`, `used_at`, `embedded_id`

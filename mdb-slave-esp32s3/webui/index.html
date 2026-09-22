@@ -274,24 +274,36 @@
     return (
       '<div class="panel center">' +
         '<div class="spinner"></div>' +
-        '<h2 style="margin-top:14px">Detecting mobile modem…</h2>' +
-        '<p class="muted" style="margin-top:6px">Checking whether this device has a SIM card. Usually takes a few seconds.</p>' +
-        '<button id="skip_probe_btn" type="button" class="ghost" style="margin-top:18px" ' +
-                'onclick="skipProbe()">No SIM — set up via WiFi</button>' +
+        '<h2 style="margin-top:14px">Checking for a mobile connection…</h2>' +
+        '<p class="muted" style="margin-top:6px">Usually takes a few seconds.</p>' +
+        '<p class="muted" style="margin-top:14px;font-size:12px">Prefer WiFi instead — no SIM, or you\'d just rather not use mobile data?</p>' +
+        '<button id="skip_probe_btn" type="button" class="ghost" style="margin-top:8px" ' +
+                'onclick="skipProbe()">Set up with WiFi instead</button>' +
+        '<div class="err-banner" style="margin-top:10px"></div>' +
       '</div>'
     );
   }
 
-  /* Called from the "No SIM — set up via WiFi" button in viewProbing. */
+  /* Called from the "Set up with WiFi instead" button in viewProbing. Works
+   * even when this board does have cellular hardware — network_skip_modem_
+   * probe() on the device deliberately discards a positive probe result
+   * once the user has committed to WiFi here, so this is a genuine
+   * cellular-vs-WiFi choice, not just a fallback for boards without a SIM.
+   *
+   * Errors shown via the inline .err-banner, not alert() — captive-portal
+   * WebViews (iOS Captive Network Assistant, Android's "Sign in to
+   * network" popup) silently no-op alert()/confirm()/prompt() in many
+   * versions, so an alert() here would just vanish, leaving the re-
+   * enabled button with no visible explanation. */
   window.skipProbe = function() {
     var btn = el("skip_probe_btn");
-    if (btn) { btn.disabled = true; btn.textContent = "Skipping…"; }
+    if (btn) { btn.disabled = true; btn.textContent = "Switching…"; }
     fetch("/api/v1/system/skip-probe", { method: "POST" })
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
       .then(function (res) {
         if (!res.ok) {
-          if (btn) { btn.disabled = false; btn.textContent = "No SIM — set up via WiFi"; }
-          alert("Could not skip detection: " + (res.body && res.body.error ? res.body.error : "unknown error"));
+          if (btn) { btn.disabled = false; btn.textContent = "Set up with WiFi instead"; }
+          setError(".panel", "Could not switch to WiFi: " + (res.body && res.body.error ? res.body.error : "unknown error"));
           return;
         }
         /* Server-side flag is now set; next /system/info poll will
@@ -299,8 +311,8 @@
          * router will switch us to wifi_and_claim. */
       })
       .catch(function () {
-        if (btn) { btn.disabled = false; btn.textContent = "No SIM — set up via WiFi"; }
-        alert("Network error while skipping detection.");
+        if (btn) { btn.disabled = false; btn.textContent = "Set up with WiFi instead"; }
+        setError(".panel", "Network error while switching to WiFi.");
       });
   };
 
@@ -327,6 +339,7 @@
           '<div class="err-banner"></div>' +
           '<button type="submit">Connect</button>' +
         '</form>' +
+        '<div id="uplink_switch" style="margin-top:14px;text-align:left"></div>' +
       '</div>'
     );
   }
@@ -366,6 +379,7 @@
           '<div class="err-banner"></div>' +
           '<button type="submit">Connect WiFi + register</button>' +
         '</form>' +
+        '<div id="uplink_switch" style="margin-top:14px;text-align:left"></div>' +
       '</div>'
     );
   }
@@ -408,6 +422,7 @@
         '<div class="info-banner" id="claim_progress" style="display:none">' +
           '<span class="spinner sm"></span><span id="claim_progress_text">Request sent…</span>' +
         '</div>' +
+        '<div id="uplink_switch" style="margin-top:14px;text-align:left"></div>' +
       '</div>'
     );
   }
@@ -426,8 +441,194 @@
         '</div>' +
         '<div id="claimed_diag" style="margin-top:18px;text-align:left"></div>' +
         '<button type="button" id="diag_copy" class="ghost" style="margin-top:10px">Copy diagnostics</button>' +
+        '<div id="uplink_switch" style="margin-top:18px;text-align:left"></div>' +
       '</div>'
     );
+  }
+
+  /* ---------- Uplink switch (Option A: WiFi instead of cellular) ----------
+   *
+   * Only rendered when /system/info's uplink_switch.available is true —
+   * i.e. this board has, at some point, confirmed modem hardware present
+   * (server-side network_has_cellular_hw(), NOT the current boot's
+   * variant, which reads "wifi" once already switched — see the
+   * uplink_switch.available comment on the server side for why those
+   * two are different checks). Renders whichever direction is currently
+   * NOT active: a cellular-mode device gets "switch to WiFi" (with an
+   * SSID/password mini-form), a WiFi-mode device gets "switch back to
+   * cellular" (no form, cellular config is already saved from before). */
+  var uplinkWifiFormOpen = false;
+  var uplinkCellularConfirmOpen = false;
+  /* Tracks the last DOM state we actually rendered, so a poll response
+   * that doesn't change the *mode* (still "cellular", still the open
+   * form, etc.) skips the innerHTML rebuild entirely — /system/info is
+   * polled every ~2s and includes a constantly-ticking uptime, so
+   * without this guard the form would rebuild (and wipe whatever the
+   * user just typed into ssid/password) on nearly every poll. Once a
+   * switch is submitted successfully we freeze on "switching" and
+   * never rebuild again — the device is rebooting, further polls are
+   * either stale pre-reboot state or this page failing to reach it. */
+  var uplinkSwitchMode = null;
+
+  function renderUplinkSwitch(info) {
+    var box = el("uplink_switch");
+    if (!box) return;
+    if (uplinkSwitchMode === "switching") return;
+
+    var usw = info.uplink_switch || { available: false, preference: "cellular" };
+    if (!usw.available) {
+      if (uplinkSwitchMode !== "hidden") { uplinkSwitchMode = "hidden"; box.innerHTML = ""; }
+      return;
+    }
+
+    var onWifi = (usw.preference === "wifi");
+    var wantMode = onWifi
+      ? (uplinkCellularConfirmOpen ? "cellular_confirm" : "wifi")
+      : (uplinkWifiFormOpen ? "wifi_form" : "cellular");
+    if (wantMode === uplinkSwitchMode) return;   /* nothing actually changed — leave the DOM alone */
+    uplinkSwitchMode = wantMode;
+
+    if (!onWifi && !uplinkWifiFormOpen) {
+      box.innerHTML =
+        '<div class="info-banner" style="text-align:left">' +
+          '<strong>Uplink:</strong> Cellular' +
+          '<div class="muted" style="font-size:12px;margin-top:4px">' +
+            'This device can also run on WiFi instead, if you\'d rather not use mobile data.' +
+          '</div>' +
+          '<button type="button" id="uplink_to_wifi_btn" class="ghost" style="margin-top:10px">Switch to WiFi…</button>' +
+        '</div>';
+    } else if (!onWifi && uplinkWifiFormOpen) {
+      box.innerHTML =
+        '<div class="panel" id="form_uplink_wifi" style="text-align:left;padding:14px">' +
+          '<strong>Switch to WiFi</strong>' +
+          '<p class="muted" style="font-size:12px;margin:4px 0 10px">' +
+            'The device will reboot and use this network instead of the mobile connection. ' +
+            'You can switch back to cellular anytime from this same screen.' +
+          '</p>' +
+          '<div class="wifi-header-row">' +
+            '<label class="first">WiFi network</label>' +
+            '<button type="button" class="scan-btn" id="scan_btn">Scan</button>' +
+          '</div>' +
+          '<div id="wifi_list" class="wifi-list"></div>' +
+          '<input id="i_ssid" placeholder="Enter SSID manually or pick from list" autocapitalize="none" autocorrect="off">' +
+          '<label style="margin-top:8px">Password</label>' +
+          '<input id="i_pwd" type="password" placeholder="leave empty for open networks">' +
+          '<div class="err-banner"></div>' +
+          '<div style="margin-top:10px;display:flex;gap:8px">' +
+            '<button type="button" id="uplink_wifi_submit" >Switch &amp; reboot</button>' +
+            '<button type="button" id="uplink_wifi_cancel" class="ghost">Cancel</button>' +
+          '</div>' +
+        '</div>';
+    } else if (onWifi && !uplinkCellularConfirmOpen) {
+      box.innerHTML =
+        '<div class="info-banner" style="text-align:left">' +
+          '<strong>Uplink:</strong> WiFi (by your choice)' +
+          '<div class="muted" style="font-size:12px;margin-top:4px">' +
+            'Cellular hardware is present but not in use.' +
+          '</div>' +
+          '<button type="button" id="uplink_to_cellular_btn" class="ghost" style="margin-top:10px">Switch back to cellular…</button>' +
+        '</div>';
+    } else {
+      /* Inline confirm instead of window.confirm() — captive-portal
+       * WebViews (iOS Captive Network Assistant, Android's "Sign in to
+       * network" popup) silently no-op alert()/confirm()/prompt() in
+       * many versions, which made the old confirm()-gated button do
+       * nothing at all when tapped from inside one. */
+      box.innerHTML =
+        '<div class="info-banner" id="form_uplink_cellular_confirm" style="text-align:left">' +
+          '<strong>Switch back to cellular and reboot now?</strong>' +
+          '<div class="err-banner" style="margin-top:6px"></div>' +
+          '<div style="margin-top:10px;display:flex;gap:8px">' +
+            '<button type="button" id="uplink_cellular_confirm">Yes, switch</button>' +
+            '<button type="button" id="uplink_cellular_cancel" class="ghost">Cancel</button>' +
+          '</div>' +
+        '</div>';
+    }
+
+    /* Wire buttons every render (innerHTML above just replaced them). */
+    var toWifiBtn = el("uplink_to_wifi_btn");
+    if (toWifiBtn) toWifiBtn.onclick = function () {
+      uplinkWifiFormOpen = true;
+      renderUplinkSwitch(lastInfo);
+    };
+
+    var cancelBtn = el("uplink_wifi_cancel");
+    if (cancelBtn) cancelBtn.onclick = function () {
+      uplinkWifiFormOpen = false;
+      renderUplinkSwitch(lastInfo);
+    };
+
+    /* Same scan UI as the setup wizard's WiFi step (renderWifiList/
+     * refreshWifiScan target the shared #wifi_list / #scan_btn / #i_ssid
+     * ids by design, so this reuses them as-is). Kick off a scan as soon
+     * as the form appears, same as viewWifiAndClaim does on mount. */
+    var scanBtn = el("scan_btn");
+    if (scanBtn) {
+      scanBtn.onclick = refreshWifiScan;
+      refreshWifiScan();
+    }
+
+    var submitBtn = el("uplink_wifi_submit");
+    if (submitBtn) submitBtn.onclick = function () {
+      var ssid = (el("i_ssid").value || "").trim();
+      var pass = el("i_pwd").value || "";
+      if (!ssid) {
+        setError("#form_uplink_wifi", "Network name is required.");
+        return;
+      }
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Switching…";
+      postJson("/api/v1/uplink/prefer", { prefer: "wifi", ssid: ssid, password: pass })
+        .then(function (j) {
+          if (j && j.ok) {
+            uplinkSwitchMode = "switching";
+            box.innerHTML = '<div class="info-banner"><span class="spinner sm"></span> ' +
+              'Rebooting onto WiFi — reconnect to <b>' + escapeHtml(ssid) + '</b> if this page ' +
+              'doesn\'t come back within a minute.</div>';
+          } else {
+            setError("#form_uplink_wifi", (j && j.error) || "Failed to switch.");
+            submitBtn.disabled = false;
+            submitBtn.textContent = "Switch & reboot";
+          }
+        })
+        .catch(function () {
+          setError("#form_uplink_wifi", "Network error.");
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Switch & reboot";
+        });
+    };
+
+    var toCellularBtn = el("uplink_to_cellular_btn");
+    if (toCellularBtn) toCellularBtn.onclick = function () {
+      uplinkCellularConfirmOpen = true;
+      renderUplinkSwitch(lastInfo);
+    };
+
+    var cellularCancelBtn = el("uplink_cellular_cancel");
+    if (cellularCancelBtn) cellularCancelBtn.onclick = function () {
+      uplinkCellularConfirmOpen = false;
+      renderUplinkSwitch(lastInfo);
+    };
+
+    var cellularConfirmBtn = el("uplink_cellular_confirm");
+    if (cellularConfirmBtn) cellularConfirmBtn.onclick = function () {
+      cellularConfirmBtn.disabled = true;
+      cellularConfirmBtn.textContent = "Switching…";
+      postJson("/api/v1/uplink/prefer", { prefer: "cellular" }).then(function (j) {
+        if (j && j.ok) {
+          uplinkSwitchMode = "switching";
+          box.innerHTML = '<div class="info-banner"><span class="spinner sm"></span> Rebooting onto cellular…</div>';
+        } else {
+          cellularConfirmBtn.disabled = false;
+          cellularConfirmBtn.textContent = "Yes, switch";
+          setError("#form_uplink_cellular_confirm", (j && j.error) || "Failed to switch.");
+        }
+      }).catch(function () {
+        cellularConfirmBtn.disabled = false;
+        cellularConfirmBtn.textContent = "Yes, switch";
+        setError("#form_uplink_cellular_confirm", "Network error.");
+      });
+    };
   }
 
   /* Shown right after a successful claim, while the device is rebooting
@@ -864,8 +1065,32 @@
      * accurate. */
     if (currentView === "claimed") {
       renderClaimedDiagnostics(info);
+      renderUplinkSwitch(info);
     } else if (currentView === "claimed_connecting") {
       renderClaimedConnecting(info);
+    } else if (currentView === "cellular_config") {
+      /* Same control as the post-claim "claimed" view — pre-claim, this is
+       * the only reliably reachable place to switch to WiFi: the
+       * viewProbing() skip button only exists during the probe itself,
+       * which frequently resolves in well under a second (warm modem),
+       * so a real phone's first /system/info poll often never sees it. */
+      renderUplinkSwitch(info);
+    } else if (currentView === "wifi_and_claim") {
+      /* Mirror image of the cellular_config case above: got here either
+       * via the probing-screen skip button or the uplink-preference
+       * reboot, and needs a way back to cellular without a factory
+       * reset. Renders the "switch back to cellular" branch — onWifi is
+       * always true by the time this view is reachable. */
+      renderUplinkSwitch(info);
+    } else if (currentView === "claim") {
+      /* Reached once the uplink is actually up (WIFI_UP or CELLULAR_UP,
+       * pre-claim) — a third landing spot distinct from both forms
+       * above, and the last one that was still missing the switch.
+       * renderUplinkSwitch reads usw.preference itself, so the same
+       * call correctly offers "switch to WiFi" or "switch back to
+       * cellular" depending on which uplink actually got the device
+       * here. */
+      renderUplinkSwitch(info);
     }
   }
 

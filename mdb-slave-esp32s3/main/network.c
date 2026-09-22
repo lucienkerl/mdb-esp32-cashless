@@ -37,6 +37,7 @@
 #include <esp_netif_net_stack.h>
 #include <esp_timer.h>
 #include <lwip/netif.h>
+#include <nvs.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -188,8 +189,11 @@ static void wifi_reconnect_timer_cb(void *arg) {
 
 /* Forward declarations — wifi_branch_init_sta is used by both
  * network_init's WiFi branch and network_skip_modem_probe; the latter
- * sits below network_init in the file. */
+ * sits below network_init in the file. network_mark_cellular_hw_present
+ * is used by network_init itself but defined near the other uplink-
+ * preference helpers, below. */
 static void wifi_branch_init_sta(void);
+static void network_mark_cellular_hw_present(void);
 
 static void network_wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
 
@@ -701,6 +705,21 @@ static void network_ppp_event_handler(void *arg, esp_event_base_t event_base,
             xEventGroupClearBits(s_ppp_event_group, PPP_GOT_IP_BIT);
         }
         if (s_state == NETWORK_STATE_CELLULAR_UP) {
+            /* Mark the link down BEFORE spawning the reconnect task, not
+             * after. ppp_reconnect_task's own first move, once it holds
+             * modem_op_lock, is "if s_state is already CELLULAR_UP, some
+             * other recovery path must have beaten us to it — bail out
+             * without tearing down a freshly-restored link." That check
+             * is only meaningful if losing IP actually left s_state
+             * somewhere other than CELLULAR_UP; leaving it untouched here
+             * made the guard trivially true on every single LOST_IP,
+             * so the task always exited immediately without ever
+             * attempting a reconnect. Confirmed live (2026-09-15 field
+             * log): PPP dropped, "state already CELLULAR_UP after lock —
+             * skipping" fired instantly, and the device stayed offline
+             * until the 10-minute MQTT watchdog hard-reboot forced a
+             * fresh boot — the only path that still worked. */
+            s_state = NETWORK_STATE_OFFLINE;
             /* Layer 1: spawn a reconnect task. We do this in a task
              * because modem_disconnect/modem_connect can take seconds,
              * and the event handler must not block. */
@@ -770,18 +789,33 @@ void network_init(void) {
     s_state = NETWORK_STATE_SOFTAP_ONLY;
     network_start_softap();
 
-    ESP_LOGI(TAG, "network_init: probing modem...");
-    bool modem_present = modem_probe();
-    s_probe_complete = true;
-    ESP_LOGI(TAG, "modem_probe → %s", modem_present ? "true" : "false");
-
-    /* User can dismiss the probe wait via /api/v1/system/skip-probe;
-     * if they did, we honour their commitment to WiFi mode regardless
-     * of what the probe actually found. */
-    if (s_user_committed_wifi && modem_present) {
-        ESP_LOGW(TAG, "user committed to WiFi mode during probe — "
-                      "ignoring modem-detected result, taking WiFi branch");
+    /* Persisted uplink preference (network_set_uplink_preference) takes
+     * effect here, before modem_probe even runs. A modem-equipped board
+     * that has been switched to WiFi mode skips the ~1-20s probe
+     * entirely — same commitment network_skip_modem_probe() makes for a
+     * live in-progress probe, just decided ahead of time from NVS
+     * instead of a captive-portal button click. */
+    bool modem_present;
+    if (network_get_uplink_preference()) {
+        ESP_LOGI(TAG, "network_init: uplink preference is WiFi — skipping modem probe");
+        s_user_committed_wifi = true;
         modem_present = false;
+        s_probe_complete = true;
+    } else {
+        ESP_LOGI(TAG, "network_init: probing modem...");
+        modem_present = modem_probe();
+        s_probe_complete = true;
+        ESP_LOGI(TAG, "modem_probe → %s", modem_present ? "true" : "false");
+        if (modem_present) network_mark_cellular_hw_present();
+
+        /* User can dismiss the probe wait via /api/v1/system/skip-probe;
+         * if they did, we honour their commitment to WiFi mode regardless
+         * of what the probe actually found. */
+        if (s_user_committed_wifi && modem_present) {
+            ESP_LOGW(TAG, "user committed to WiFi mode during probe — "
+                          "ignoring modem-detected result, taking WiFi branch");
+            modem_present = false;
+        }
     }
 
     if (modem_present) {
@@ -935,6 +969,83 @@ esp_err_t network_cellular_configure(const char *apn, const char *pin, modem_lte
     /* Spawn the bring-up task — same one network_init uses. */
     xTaskCreate(cellular_bring_up_task, "cell_up", 4096, NULL, 4, NULL);
     return ESP_OK;
+}
+
+/* === Uplink preference (Option A: WiFi instead of cellular) ===========
+ *
+ * Three NVS keys in the "vmflow" namespace, all plain u8 (0/1):
+ *   uplink_pref  — 0 (default/unset) = cellular, 1 = WiFi. Consulted once,
+ *                  at the very top of network_init(), before modem_probe.
+ *   has_modem    — 1 once any boot's modem_probe() has ever returned true.
+ *                  Sticky — never cleared short of a factory reset. Lets
+ *                  the captive portal offer the switch even while a boot
+ *                  is currently running in WiFi mode (where modem_probe
+ *                  was skipped and modem_is_present() reads false). */
+static void network_mark_cellular_hw_present(void) {
+    nvs_handle_t h;
+    if (nvs_open("vmflow", NVS_READWRITE, &h) != ESP_OK) return;
+    uint8_t v = 0;
+    nvs_get_u8(h, "has_modem", &v);
+    if (v != 1) {
+        nvs_set_u8(h, "has_modem", 1);
+        nvs_commit(h);
+    }
+    nvs_close(h);
+}
+
+bool network_has_cellular_hw(void) {
+    nvs_handle_t h;
+    if (nvs_open("vmflow", NVS_READONLY, &h) != ESP_OK) return false;
+    uint8_t v = 0;
+    nvs_get_u8(h, "has_modem", &v);
+    nvs_close(h);
+    return v == 1;
+}
+
+bool network_get_uplink_preference(void) {
+    nvs_handle_t h;
+    if (nvs_open("vmflow", NVS_READONLY, &h) != ESP_OK) return false;
+    uint8_t v = 0;
+    nvs_get_u8(h, "uplink_pref", &v);
+    nvs_close(h);
+    return v == 1;
+}
+
+esp_err_t network_set_uplink_preference(bool prefer_wifi, const char *ssid, const char *password) {
+    if (!network_has_cellular_hw()) {
+        ESP_LOGW(TAG, "set_uplink_preference: no confirmed modem on this board — refusing");
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    /* Save WiFi credentials first (if given) so a failure here doesn't
+     * leave the preference flipped with no way to actually connect.
+     * esp_wifi_set_config works any time after esp_wifi_init, which
+     * network_init() already ran unconditionally at boot — no gate
+     * needed here the way network_wifi_configure() has one, since this
+     * IS the authorised "switch to WiFi" entry point. */
+    if (prefer_wifi && ssid && strlen(ssid) > 0) {
+        wifi_config_t cfg = {0};
+        esp_wifi_get_config(WIFI_IF_STA, &cfg);
+        strncpy((char *)cfg.sta.ssid,     ssid,               sizeof(cfg.sta.ssid)     - 1);
+        strncpy((char *)cfg.sta.password, password ? password : "", sizeof(cfg.sta.password) - 1);
+        esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &cfg);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "set_uplink_preference: esp_wifi_set_config failed: %s", esp_err_to_name(err));
+            return err;
+        }
+    }
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open("vmflow", NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    nvs_set_u8(h, "uplink_pref", prefer_wifi ? 1 : 0);
+    err = nvs_commit(h);
+    nvs_close(h);
+    if (err == ESP_OK) {
+        ESP_LOGW(TAG, "set_uplink_preference: now prefers %s (takes effect on next boot)",
+                 prefer_wifi ? "WiFi" : "cellular");
+    }
+    return err;
 }
 
 esp_err_t network_wifi_configure(const char *ssid, const char *password) {

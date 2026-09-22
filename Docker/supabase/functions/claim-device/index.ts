@@ -135,6 +135,7 @@ Deno.serve(async (req) => {
         passkey,
         softap_password: softapPassword,
         status: 'offline',
+        name: token.name ?? null,
       })
       .select('id, subdomain')
       .single()

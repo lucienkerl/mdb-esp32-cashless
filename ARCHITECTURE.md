@@ -65,6 +65,10 @@ MDB cashless peripheral that sits inside a vending machine.
 
 **State machine:** `INACTIVE -> DISABLED -> ENABLED -> IDLE -> VEND -> IDLE`
 
+**Status LED:** one WS2812, 12-state priority ladder (color + blink pattern per state — fault,
+OTA, vend, provisioning sub-states, installed/reader/MQTT matrix). Full table in `CLAUDE.md`
+under "Status LED".
+
 **Provisioning flow:**
 1. No WiFi credentials -> SoftAP + captive portal (`webui/index.html`)
 2. User enters SSID, password, provisioning code, server URL

@@ -58,9 +58,6 @@
 #define PIN_MDB_LED             GPIO_NUM_21
 #define PIN_DEX_RX              GPIO_NUM_8
 #define PIN_DEX_TX              GPIO_NUM_9
-#define PIN_SIM7080G_RX         GPIO_NUM_18
-#define PIN_SIM7080G_TX         GPIO_NUM_17
-#define PIN_SIM7080G_PWR        GPIO_NUM_14
 #define PIN_BUZZER_PWR          GPIO_NUM_12
 
 #define ADC_UNIT_THERMISTOR     ADC_UNIT_1
@@ -92,6 +89,15 @@ EventGroupHandle_t xLedEventGroup;
 bool mqtt_started = false;
 static bool sntp_started = false;
 static bool ota_in_progress = false;
+
+/* Single-flight guard so concurrent /api/v1/claim submits + boot-time
+ * re-spawn don't run two tasks against the same NVS state. */
+static volatile bool s_prov_claim_running = false;
+
+/* Set on any terminal claim failure (bad code, server reject, exhausted
+ * retries), cleared when a fresh claim attempt starts. Read-only outside
+ * provision_claim_task — drives the LED's "claim failed" indicator. */
+static volatile bool s_prov_claim_failed = false;
 SemaphoreHandle_t mqtt_publish_mutex = NULL;
 static esp_timer_handle_t mqtt_watchdog_timer = NULL;
 static TickType_t mqtt_last_connected_tick = 0;
@@ -230,7 +236,7 @@ static bool restart_info_published = false;
 // burns 3-4 minutes. modem_kick_for_host_reboot is fire-and-forget
 // (~1.5 s blocking), then ESP32 reboot proceeds in parallel with the
 // modem's own boot.
-static void tracked_restart(const char *reason) {
+void tracked_restart(const char *reason) {
     nvs_handle_t h;
     if (nvs_open("vmflow", NVS_READWRITE, &h) == ESP_OK) {
         nvs_set_str(h, "restart_reason", reason);
@@ -273,6 +279,17 @@ static uint32_t mdb_checksum_errors = 0;
 static const char *mdb_last_cmd = "none";
 static machine_state_t mdb_prev_state = INACTIVE_STATE;
 static void publish_mdb_diag(void); // forward declaration
+
+// LED fault indicator: holds the "fault" LED state for a few seconds after
+// each checksum error so a single glitch is visible without needing a
+// sustained error rate. Read by vTaskBitEvent, written only here.
+#define LED_FAULT_HOLD_US  (3 * 1000000LL)
+static volatile int64_t s_led_fault_until_us = 0;
+
+static inline void mdb_note_checksum_error(void) {
+    mdb_checksum_errors++;
+    s_led_fault_until_us = esp_timer_get_time() + LED_FAULT_HOLD_US;
+}
 
 // Thread-safe MQTT publish wrapper — protects esp_mqtt_client_publish()
 // which is called from multiple FreeRTOS tasks (MDB, BLE, timers, sale drain).
@@ -576,7 +593,7 @@ void vTaskMdbEvent(void *pvParameters) {
 
 				case RESET: {
 
-                    if (read_9(NULL) != checksum) { mdb_checksum_errors++; mdb_drain_bus(); continue; }
+                    if (read_9(NULL) != checksum) { mdb_note_checksum_error(); mdb_drain_bus(); continue; }
 
                     // Reset during VEND_STATE is interpreted as VEND_SUCCESS
 
@@ -618,7 +635,7 @@ void vTaskMdbEvent(void *pvParameters) {
 						(void) vmcRowsOnDisplay;
 						(void) vmcColumnsOnDisplay;
 
-                        if (read_9(NULL) != checksum) { mdb_checksum_errors++; mdb_drain_bus(); continue; }
+                        if (read_9(NULL) != checksum) { mdb_note_checksum_error(); mdb_drain_bus(); continue; }
 
 						// Only trust vmcFeatureLevel after the checksum has verified — otherwise
 						// a bit-flipped byte could persistently set a wrong level until the next
@@ -659,7 +676,7 @@ void vTaskMdbEvent(void *pvParameters) {
 						(void) maxPrice;
 						(void) minPrice;
 
-                        if (read_9(NULL) != checksum) { mdb_checksum_errors++; mdb_drain_bus(); continue; }
+                        if (read_9(NULL) != checksum) { mdb_note_checksum_error(); mdb_drain_bus(); continue; }
 
 						mdb_last_cmd = "SETUP:MAX_MIN_PRICES";
 						ESP_LOGI( TAG, "MAX_MIN_PRICES");
@@ -677,7 +694,7 @@ void vTaskMdbEvent(void *pvParameters) {
 				}
 				case POLL: {
 
-				    if (read_9(NULL) != checksum) { mdb_checksum_errors++; mdb_drain_bus(); continue; }
+				    if (read_9(NULL) != checksum) { mdb_note_checksum_error(); mdb_drain_bus(); continue; }
 
 					mdb_poll_count++;
 
@@ -843,7 +860,7 @@ void vTaskMdbEvent(void *pvParameters) {
 						itemPrice = (read_9(&checksum) << 8) | read_9(&checksum);
 						itemNumber = (read_9(&checksum) << 8) | read_9(&checksum);
 
-                        if (read_9(NULL) != checksum) { mdb_checksum_errors++; mdb_drain_bus(); continue; }
+                        if (read_9(NULL) != checksum) { mdb_note_checksum_error(); mdb_drain_bus(); continue; }
 
 						machine_state = VEND_STATE;
 						mdb_last_cmd = "VEND_REQUEST";
@@ -868,7 +885,7 @@ void vTaskMdbEvent(void *pvParameters) {
 						break;
 					}
 					case VEND_CANCEL: {
-                        if (read_9(NULL) != checksum) { mdb_checksum_errors++; mdb_drain_bus(); continue; }
+                        if (read_9(NULL) != checksum) { mdb_note_checksum_error(); mdb_drain_bus(); continue; }
 
 						mdb_last_cmd = "VEND_CANCEL";
 						vend_denied_todo = true;
@@ -878,7 +895,7 @@ void vTaskMdbEvent(void *pvParameters) {
 
 						itemNumber = (read_9(&checksum) << 8) | read_9(&checksum);
 
-                        if (read_9(NULL) != checksum) { mdb_checksum_errors++; mdb_drain_bus(); continue; }
+                        if (read_9(NULL) != checksum) { mdb_note_checksum_error(); mdb_drain_bus(); continue; }
 
 						mdb_last_cmd = "VEND_SUCCESS";
 
@@ -939,7 +956,7 @@ void vTaskMdbEvent(void *pvParameters) {
 						break;
 					}
 					case VEND_FAILURE: {
-                        if (read_9(NULL) != checksum) { mdb_checksum_errors++; mdb_drain_bus(); continue; }
+                        if (read_9(NULL) != checksum) { mdb_note_checksum_error(); mdb_drain_bus(); continue; }
 
 						mdb_last_cmd = "VEND_FAILURE";
 
@@ -958,7 +975,7 @@ void vTaskMdbEvent(void *pvParameters) {
 						break;
 					}
 					case SESSION_COMPLETE: {
-                        if (read_9(NULL) != checksum) { mdb_checksum_errors++; mdb_drain_bus(); continue; }
+                        if (read_9(NULL) != checksum) { mdb_note_checksum_error(); mdb_drain_bus(); continue; }
 
 						mdb_last_cmd = "SESSION_COMPLETE";
 						session_end_todo = true;
@@ -977,7 +994,7 @@ void vTaskMdbEvent(void *pvParameters) {
 						uint16_t itemPrice = (read_9(&checksum) << 8) | read_9(&checksum);
 						uint16_t itemNumber = (read_9(&checksum) << 8) | read_9(&checksum);
 
-						if (read_9(NULL) != checksum) { mdb_checksum_errors++; mdb_drain_bus(); continue; }
+						if (read_9(NULL) != checksum) { mdb_note_checksum_error(); mdb_drain_bus(); continue; }
 
 						mdb_last_cmd = "CASH_SALE";
 
@@ -1007,7 +1024,7 @@ void vTaskMdbEvent(void *pvParameters) {
 				case READER: {
 					switch (read_9(&checksum)) {
 					case READER_DISABLE: {
-                        if (read_9(NULL) != checksum) { mdb_checksum_errors++; mdb_drain_bus(); continue; }
+                        if (read_9(NULL) != checksum) { mdb_note_checksum_error(); mdb_drain_bus(); continue; }
 
 						machine_state = DISABLED_STATE;
 						mdb_last_cmd = "READER_DISABLE";
@@ -1018,7 +1035,7 @@ void vTaskMdbEvent(void *pvParameters) {
 						break;
 					}
 					case READER_ENABLE: {
-                        if (read_9(NULL) != checksum) { mdb_checksum_errors++; mdb_drain_bus(); continue; }
+                        if (read_9(NULL) != checksum) { mdb_note_checksum_error(); mdb_drain_bus(); continue; }
 
 						machine_state = ENABLED_STATE;
 						mdb_last_cmd = "READER_ENABLE";
@@ -1028,7 +1045,7 @@ void vTaskMdbEvent(void *pvParameters) {
 						break;
 					}
 					case READER_CANCEL: {
-                        if (read_9(NULL) != checksum) { mdb_checksum_errors++; mdb_drain_bus(); continue; }
+                        if (read_9(NULL) != checksum) { mdb_note_checksum_error(); mdb_drain_bus(); continue; }
 
 						mdb_last_cmd = "READER_CANCEL";
 						mdb_payload[ 0 ] = 0x08; // Canceled
@@ -1059,7 +1076,7 @@ void vTaskMdbEvent(void *pvParameters) {
 						for (uint8_t x = 0; x < 29; x++) read_9(&checksum);
 
 						if (read_9(NULL) != checksum) {
-							mdb_checksum_errors++;
+							mdb_note_checksum_error();
 							ESP_LOGW(TAG, "EXPANSION:REQUEST_ID checksum FAIL");
 							mdb_drain_bus();
 							continue;
@@ -1084,7 +1101,7 @@ void vTaskMdbEvent(void *pvParameters) {
 						for (uint8_t x = 0; x < 4; x++) read_9(&checksum);
 
 						if (read_9(NULL) != checksum) {
-							mdb_checksum_errors++;
+							mdb_note_checksum_error();
 							ESP_LOGW(TAG, "EXPANSION:OPT_FEATURE checksum FAIL");
 							mdb_drain_bus();
 							continue;
@@ -1846,28 +1863,234 @@ static void requestTelemetryData(void *arg) {
 	}
 }
 
-void vTaskBitEvent(void *pvParameters) {
+/* === LED pattern engine ================================================
+ *
+ * vTaskBitEvent recomputes the target (color, pattern) every LED_TICK_MS
+ * and renders one frame. Priority is evaluated top-to-bottom in
+ * led_compute_state — the first matching rule wins. Inputs are the
+ * xLedEventGroup bits (installed/reader/internet) plus a handful of plain
+ * globals owned by other subsystems (machine_state, ota_in_progress,
+ * s_prov_claim_running/failed, network_get_status) — all read-only here.
+ *
+ * See docs — this table is also documented in CLAUDE.md. */
+#define LED_TICK_MS             50
+#define LED_BLINK_SLOW_TICKS    10   // 500ms on / 500ms off (~1 Hz)
+#define LED_BLINK_FAST_TICKS    4    // 200ms on / 200ms off (~2.5 Hz)
 
-    while(1){
-        EventBits_t uxBits = xEventGroupWaitBits(xLedEventGroup, BIT_EVT_TRIGGER, pdTRUE, pdFALSE, portMAX_DELAY );
+typedef enum {
+    LED_PATTERN_SOLID,
+    LED_PATTERN_BLINK_SLOW,
+    LED_PATTERN_BLINK_FAST,
+    LED_PATTERN_DOUBLE_BLINK,   // blink-blink-pause, 12-tick cycle
+    LED_PATTERN_PULSE,          // triangular breathe, 20-tick (2s) cycle
+    LED_PATTERN_ALTERNATE,      // 500ms A, 500ms B, 1000ms pause — 40-tick cycle
+} led_pattern_t;
 
-        if ((uxBits & MASK_EVT_INSTALLED) != MASK_EVT_INSTALLED) {
-            led_strip_set_pixel(led_strip, 0, 80, 60, 0);   // Not installed := YELLOW
-        } else if ((uxBits & BIT_EVT_MDB) && (uxBits & BIT_EVT_INTERNET)) {
-            led_strip_set_pixel(led_strip, 0, 10, 80, 10);  // MDB & Internet := GREEN
-        } else if (uxBits & BIT_EVT_MDB) {
-            led_strip_set_pixel(led_strip, 0, 5, 15, 80);   // Only MDB := BLUE
-        } else {
-            led_strip_set_pixel(led_strip, 0, 80, 5, 5);    // Inactive/Disabled := RED
+typedef struct { uint8_t r, g, b; } led_color_t;
+
+// Single global brightness knob (0-255) applied to every pixel write —
+// self-test included — so the whole indicator can be dimmed/brightened in
+// one place without re-tuning every color constant individually.
+#define LED_BRIGHTNESS_SCALE   70   // ~27%
+
+static inline void led_set_scaled_pixel(uint8_t r, uint8_t g, uint8_t b) {
+    led_strip_set_pixel(led_strip, 0,
+                         (r * LED_BRIGHTNESS_SCALE) / 255,
+                         (g * LED_BRIGHTNESS_SCALE) / 255,
+                         (b * LED_BRIGHTNESS_SCALE) / 255);
+}
+
+static const led_color_t LED_COLOR_GREEN  = {  0, 80,  0 };
+static const led_color_t LED_COLOR_BLUE   = {  0,  0, 80 };
+static const led_color_t LED_COLOR_RED    = { 80,  0,  0 };
+static const led_color_t LED_COLOR_YELLOW = { 80, 60,  0 };
+static const led_color_t LED_COLOR_ORANGE = { 80, 30,  0 };
+static const led_color_t LED_COLOR_WHITE  = { 40, 40, 40 };
+static const led_color_t LED_COLOR_PURPLE = { 50,  0, 60 };
+
+// Outputs two colors: for every state except the "installed" matrix at the
+// bottom, out_a == out_b (a single steady color/blink). The installed
+// matrix deliberately splits into two independent signals — see below.
+static void led_compute_state(led_color_t *out_a, led_color_t *out_b, led_pattern_t *out_pattern) {
+    EventBits_t bits = xEventGroupGetBits(xLedEventGroup);
+    bool installed = (bits & MASK_EVT_INSTALLED) == MASK_EVT_INSTALLED;
+    bool mdb_en    = bits & BIT_EVT_MDB;
+    bool net_up    = bits & BIT_EVT_INTERNET;
+
+    // 1. MDB bus/checksum fault — highest priority, safety-relevant.
+    if (esp_timer_get_time() < s_led_fault_until_us) {
+        *out_a = *out_b = LED_COLOR_RED; *out_pattern = LED_PATTERN_BLINK_FAST;
+        return;
+    }
+    // 2. OTA update in flight.
+    if (ota_in_progress) {
+        *out_a = *out_b = LED_COLOR_PURPLE; *out_pattern = LED_PATTERN_BLINK_FAST;
+        return;
+    }
+    // 3. Vend in progress — overlays whatever the steady-state color is.
+    if (machine_state == VEND_STATE) {
+        *out_a = *out_b = LED_COLOR_WHITE; *out_pattern = LED_PATTERN_PULSE;
+        return;
+    }
+    // 4. Not installed yet — provisioning sub-states.
+    if (!installed) {
+        if (s_prov_claim_running) {
+            *out_a = *out_b = LED_COLOR_YELLOW; *out_pattern = LED_PATTERN_DOUBLE_BLINK;
+            return;
         }
+        if (s_prov_claim_failed) {
+            *out_a = *out_b = LED_COLOR_ORANGE; *out_pattern = LED_PATTERN_BLINK_SLOW;
+            return;
+        }
+        network_status_t st;
+        network_get_status(&st);
+        if (st.state == NETWORK_STATE_WIFI_CONNECTING ||
+            st.state == NETWORK_STATE_CELLULAR_REGISTERING) {
+            *out_a = *out_b = LED_COLOR_YELLOW; *out_pattern = LED_PATTERN_BLINK_FAST;
+            return;
+        }
+        if (st.state == NETWORK_STATE_BOOTING) {
+            // network_init() hasn't reported in yet — covers the boot
+            // window before the modem/WiFi probe resolves.
+            *out_a = *out_b = LED_COLOR_WHITE; *out_pattern = LED_PATTERN_PULSE;
+            return;
+        }
+        // SoftAP up waiting for input, or uplink up but claim not yet
+        // attempted/pending.
+        *out_a = *out_b = LED_COLOR_YELLOW; *out_pattern = LED_PATTERN_BLINK_SLOW;
+        return;
+    }
+
+    // 5. Installed — two independent axes, answered in priority order:
+    //    "is it online" first, "is MDB talking" second. Each axis gets
+    //    its own color; when they agree we show one steady color (the
+    //    calm, unambiguous case), when they disagree we alternate
+    //    between them so both answers stay visible instead of collapsing
+    //    into a single, potentially misleading color (e.g. a perfectly
+    //    online device with no VMC attached yet used to show the same
+    //    solid red as a device that's actually offline).
+    led_color_t connectivity = net_up ? LED_COLOR_GREEN : LED_COLOR_RED;
+    led_color_t mdb_status   = mdb_en ? LED_COLOR_GREEN : LED_COLOR_BLUE;
+
+    if (connectivity.r == mdb_status.r && connectivity.g == mdb_status.g &&
+        connectivity.b == mdb_status.b) {
+        *out_a = *out_b = connectivity;   // both axes agree (both GREEN) — steady
+        *out_pattern = LED_PATTERN_SOLID;
+    } else {
+        *out_a = connectivity;   // shown first
+        *out_b = mdb_status;     // shown second
+        *out_pattern = LED_PATTERN_ALTERNATE;
+    }
+}
+
+// Renders one frame of `pattern` (colors `a`/`b`) at animation step `tick`
+// (one per LED_TICK_MS since the pattern last changed). `b` is only used
+// by LED_PATTERN_ALTERNATE; every other pattern shows `a` alone.
+static void led_render_frame(const led_color_t *a, const led_color_t *b,
+                              led_pattern_t pattern, uint32_t tick) {
+    bool on = true;
+    uint32_t scale = 255;         // out of 255 — PULSE only
+    const led_color_t *shown = a; // which color this frame shows
+
+    switch (pattern) {
+        case LED_PATTERN_SOLID:
+            on = true;
+            break;
+        case LED_PATTERN_BLINK_SLOW:
+            on = (tick % (2 * LED_BLINK_SLOW_TICKS)) < LED_BLINK_SLOW_TICKS;
+            break;
+        case LED_PATTERN_BLINK_FAST:
+            on = (tick % (2 * LED_BLINK_FAST_TICKS)) < LED_BLINK_FAST_TICKS;
+            break;
+        case LED_PATTERN_DOUBLE_BLINK: {
+            uint32_t phase = tick % 24;
+            on = (phase < 4) || (phase >= 8 && phase < 12);
+            break;
+        }
+        case LED_PATTERN_PULSE: {
+            uint32_t phase = tick % 40;
+            uint32_t level = (phase < 20) ? phase : (40 - phase);   // 0..20..0
+            scale = 38 + (level * (255 - 38)) / 20;                 // ~15%..100%
+            on = true;
+            break;
+        }
+        case LED_PATTERN_ALTERNATE: {
+            // 500ms color a, 500ms color b, 1000ms pause — the pause is the
+            // landmark: whenever there's a gap, the NEXT color you see is
+            // always a (connectivity). No need to catch the exact start of
+            // the cycle or judge relative durations, just wait for the gap.
+            uint32_t phase = tick % 40;
+            if (phase < 10)      { on = true;  shown = a; }
+            else if (phase < 20) { on = true;  shown = b; }
+            else                 { on = false; }
+            break;
+        }
+    }
+
+    if (!on) {
+        led_strip_set_pixel(led_strip, 0, 0, 0, 0);
+    } else if (pattern == LED_PATTERN_PULSE) {
+        led_set_scaled_pixel((shown->r * scale) / 255, (shown->g * scale) / 255, (shown->b * scale) / 255);
+    } else {
+        led_set_scaled_pixel(shown->r, shown->g, shown->b);
+    }
+    led_strip_refresh(led_strip);
+}
+
+void vTaskBitEvent(void *pvParameters) {
+    // Boot self-test: flash pure red/green/blue so a dead channel or bad
+    // solder joint is visible immediately at every boot, instead of only
+    // showing up later as a subtly-wrong color in some pattern state.
+    static const led_color_t LED_SELFTEST[3] = {
+        { 80,  0,  0 },
+        {  0, 80,  0 },
+        {  0,  0, 80 },
+    };
+    for (int i = 0; i < 3; i++) {
+        led_set_scaled_pixel(LED_SELFTEST[i].r, LED_SELFTEST[i].g, LED_SELFTEST[i].b);
         led_strip_refresh(led_strip);
+        vTaskDelay(pdMS_TO_TICKS(250));
+    }
+    led_strip_set_pixel(led_strip, 0, 0, 0, 0);
+    led_strip_refresh(led_strip);
 
-        if(uxBits & BIT_EVT_BUZZER){
+    uint32_t tick = 0;
+    led_pattern_t prev_pattern = (led_pattern_t)-1;   // force first-frame render
+    led_color_t prev_a = { 0xFF, 0xFF, 0xFF };        // won't match any real color first time
+    led_color_t prev_b = { 0xFF, 0xFF, 0xFF };
 
+    while (1) {
+        // Woken either by BIT_EVT_TRIGGER (a state change happened — repaint
+        // immediately) or by the LED_TICK_MS timeout (animation tick for
+        // whatever blink/pulse pattern is currently showing).
+        EventBits_t uxBits = xEventGroupWaitBits(xLedEventGroup, BIT_EVT_TRIGGER, pdTRUE, pdFALSE,
+                                                  pdMS_TO_TICKS(LED_TICK_MS));
+
+        led_color_t color_a, color_b;
+        led_pattern_t pattern;
+        led_compute_state(&color_a, &color_b, &pattern);
+
+        if (pattern != prev_pattern ||
+            color_a.r != prev_a.r || color_a.g != prev_a.g || color_a.b != prev_a.b ||
+            color_b.r != prev_b.r || color_b.g != prev_b.g || color_b.b != prev_b.b) {
+            ESP_LOGI(TAG, "LED: -> rgb_a(%u,%u,%u) rgb_b(%u,%u,%u) pattern=%d [bits=0x%02x "
+                          "ota=%d vend=%d claim_run=%d claim_fail=%d net_state=%d]",
+                     color_a.r, color_a.g, color_a.b, color_b.r, color_b.g, color_b.b, (int)pattern,
+                     (unsigned)xEventGroupGetBits(xLedEventGroup), ota_in_progress,
+                     (machine_state == VEND_STATE), s_prov_claim_running, s_prov_claim_failed,
+                     (int)network_get_state());
+            tick = 0;   // restart the animation cleanly whenever the state changes
+            prev_pattern = pattern;
+            prev_a = color_a;
+            prev_b = color_b;
+        }
+        led_render_frame(&color_a, &color_b, pattern, tick);
+        tick++;
+
+        if (uxBits & BIT_EVT_BUZZER) {
             gpio_set_level(PIN_BUZZER_PWR, 1);
             vTaskDelay(pdMS_TO_TICKS(1000));
             gpio_set_level(PIN_BUZZER_PWR, 0);
-
             xEventGroupClearBits(xLedEventGroup, BIT_EVT_BUZZER);
         }
     }
@@ -2403,10 +2626,6 @@ static const int PROV_RETRY_DELAYS_S[PROV_MAX_ATTEMPTS - 1] = {
     5, 15, 30, 60, 60, 60
 };
 
-/* Single-flight guard so concurrent /api/v1/claim submits + boot-time
- * re-spawn don't run two tasks against the same NVS state. */
-static volatile bool s_prov_claim_running = false;
-
 /* (The cellular keep-warm task that lived here was a diagnostic for
  * the PPP-based claim path. It probed 1.1.1.1:53 every 1 s during a
  * claim attempt, hoping to keep the LTE-M radio in RRC-CONNECTED.
@@ -2452,10 +2671,16 @@ void provision_claim_task(void *arg) {
 
     if (strlen(srv_url) == 0) {
         ESP_LOGE(TAG, "PROV: no server URL in NVS");
+        s_prov_claim_failed = true;
         s_prov_claim_running = false;
         vTaskDelete(NULL);
         return;
     }
+
+    /* A real attempt is starting — clear any stale failure flag from a
+     * previous submit so the LED doesn't keep showing "claim failed"
+     * while a fresh one is in flight. */
+    s_prov_claim_failed = false;
 
     /* MAC address. On cellular boards STA isn't started, but esp_wifi
      * is initialised for AP — esp_wifi_get_mac(STA) still works because
@@ -2501,6 +2726,7 @@ void provision_claim_task(void *arg) {
         esp_http_client_handle_t client = esp_http_client_init(&http_cfg);
         if (!client) {
             ESP_LOGE(TAG, "PROV: esp_http_client_init failed");
+            s_prov_claim_failed = true;
             s_prov_claim_running = false;
             vTaskDelete(NULL);
             return;
@@ -2537,6 +2763,7 @@ void provision_claim_task(void *arg) {
 
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "PROV: WiFi claim transport error: %s", esp_err_to_name(err));
+            s_prov_claim_failed = true;
             s_prov_claim_running = false;
             vTaskDelete(NULL);
             return;
@@ -2595,6 +2822,9 @@ void provision_claim_task(void *arg) {
             ESP_LOGW(TAG, "PROV: server returned HTTP %d — not retrying", http_status);
         }
 
+        /* Reached on every WiFi-path outcome except the successful
+         * restart above (missing fields, bad JSON, non-200 status). */
+        s_prov_claim_failed = true;
         s_prov_claim_running = false;
         vTaskDelete(NULL);
         return;
@@ -2646,6 +2876,7 @@ void provision_claim_task(void *arg) {
     if (modem_nvs_load(apn_buf, sizeof(apn_buf), pin_buf, sizeof(pin_buf),
                        &lte_mode_unused) != ESP_OK || apn_buf[0] == '\0') {
         ESP_LOGE(TAG, "PROV: no APN in NVS — cannot run modem-internal HTTPS");
+        s_prov_claim_failed = true;
         s_prov_claim_running = false;
         vTaskDelete(NULL);
         return;
@@ -2764,6 +2995,7 @@ void provision_claim_task(void *arg) {
      * stays reachable on the SoftAP side, and the user can either
      * factory-reset or POST /api/v1/claim again with a corrected code,
      * which spawns a fresh provision_claim_task. */
+    s_prov_claim_failed = true;
     if (gave_up_permanently) {
         ESP_LOGE(TAG, "PROV: terminal failure (%s) — restoring PPP",
                  "4xx or invalid JSON");
@@ -3138,10 +3370,10 @@ void app_main(void) {
 	gpio_set_direction(PIN_MDB_TX, GPIO_MODE_INPUT);  // idle: high-Z (tri-state)
 
 	/* GPIO 12 = PIN_BUZZER_PWR on the production PCB (drives a buzzer).
-	 * On the LilyGo T-SIM7080G-S3 the modem power isn't on a GPIO at
-	 * all — it's on the AXP2101 PMU's DC3 channel addressed via I2C
-	 * (see modem.c::modem_enable_pmu_rails). So we can keep the
-	 * original LOW init here without affecting cellular bring-up. */
+	 * The SIM7080G's PWRKEY sits on its own pin (modem.c's
+	 * MODEM_PIN_PWR, GPIO 14) and its main power comes straight off the
+	 * board's regulator, so this LOW init doesn't affect cellular
+	 * bring-up. */
 	gpio_set_direction(PIN_BUZZER_PWR, GPIO_MODE_OUTPUT);
 	gpio_set_level(PIN_BUZZER_PWR, 0);
 
@@ -3164,6 +3396,24 @@ void app_main(void) {
     };
 
     ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip));
+
+    /* Spawned here, right after the strip driver is ready, instead of at
+     * the end of app_main — network_init() below blocks for anywhere from
+     * ~1s to ~20s (modem_probe on cellular boards), and BLE/task-creation
+     * add more on top. Starting the LED task now means it immediately
+     * starts painting the "booting" pattern instead of leaving the LED
+     * dark for that whole window (reported as "took several seconds
+     * before the LED came on"). Safe this early: every global the pattern
+     * engine reads (machine_state, ota_in_progress, s_prov_claim_*,
+     * network_get_status) is a plain static that defaults sanely before
+     * its owning subsystem has run. */
+    /* 4096, not the original 2048: the pattern engine's led_compute_state()
+     * stack-allocates a network_status_t (~150B) and the deep RMT call chain
+     * (led_strip_refresh -> rmt_transmit -> ... -> encoder reset) adds more
+     * on top. 2048 blew the stack here (canary check didn't catch it in
+     * time — crashed as a raw Guru Meditation InstrFetchProhibited inside
+     * the RMT encoder reset, not a clean "stack overflow" message). */
+    xTaskCreatePinnedToCore(vTaskBitEvent, "TaskBitEvent", 4096, NULL, 1, NULL, 0);
 
 	//--------------- ADC Init (NTC thermistor) ----------------//
 	//----------------------------------------------------------//
@@ -3506,5 +3756,8 @@ void app_main(void) {
 	rfid_reader_start(rfid_card_handler, NULL);
 
     xTaskCreatePinnedToCore(vTaskBitEvent, "TaskBitEvent", 2048, NULL, 1, NULL, 0);
+    // vTaskBitEvent was already started right after the LED strip driver
+    // init, above — just force an immediate repaint now that MDB/network
+    // state has moved on.
     xEventGroupSetBits(xLedEventGroup, BIT_EVT_TRIGGER);
 }

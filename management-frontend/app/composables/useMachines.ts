@@ -13,6 +13,7 @@ interface Embedded {
   last_restart_reason?: string | null
   last_restart_at?: string | null
   online_since?: string | null
+  name?: string | null
 }
 
 interface VendingMachine {
@@ -428,7 +429,7 @@ export function useMachines() {
     const [allRes, assignedRes] = await Promise.all([
       supabase
         .from('embeddeds')
-        .select('id, mac_address, subdomain, status, status_at, firmware_version, firmware_build_date'),
+        .select('id, mac_address, subdomain, status, status_at, firmware_version, firmware_build_date, name'),
       supabase
         .from('vendingMachine')
         .select('embedded')
