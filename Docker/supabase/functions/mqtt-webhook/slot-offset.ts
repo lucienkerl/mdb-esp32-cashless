@@ -30,7 +30,7 @@ export function applyItemOffset(raw: number, offset: number): number {
 }
 
 /**
- * Shift the keys of a parsed DEX `slot_counters` map by the same offset.
+ * Re-key a parsed DEX `slot_counters` map through `rekey`.
  *
  * DEX PA1 selection ids arrive as strings and may be zero-padded ("01"), so the
  * keys are normalised to their decimal form on the way through. Non-numeric
@@ -38,22 +38,29 @@ export function applyItemOffset(raw: number, offset: number): number {
  * counter wins — dropping the smaller one is safer than merging two lifetime
  * counters into a number that never existed.
  */
-export function shiftSlotCounters(
+export function rekeySlotCounters(
   counters: Record<string, SlotCounter>,
-  offset: number,
+  rekey: (itemNumber: number) => number,
 ): Record<string, SlotCounter> {
-  if (offset === 0) return counters;
-
   const out: Record<string, SlotCounter> = {};
   for (const [key, value] of Object.entries(counters)) {
     if (!/^\d+$/.test(key)) {
       out[key] = value;
       continue;
     }
-    const shifted = String(applyItemOffset(parseInt(key, 10), offset));
-    const existing = out[shifted];
+    const target = String(rekey(parseInt(key, 10)));
+    const existing = out[target];
     if (existing && existing.vends >= value.vends) continue;
-    out[shifted] = value;
+    out[target] = value;
   }
   return out;
+}
+
+/** Shift the keys of a parsed DEX `slot_counters` map by the same offset. */
+export function shiftSlotCounters(
+  counters: Record<string, SlotCounter>,
+  offset: number,
+): Record<string, SlotCounter> {
+  if (offset === 0) return counters;
+  return rekeySlotCounters(counters, (itemNumber) => applyItemOffset(itemNumber, offset));
 }

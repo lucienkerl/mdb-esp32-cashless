@@ -5,6 +5,8 @@ interface Tray {
   id: string
   machine_id: string
   item_number: number
+  /** Number the machine reports for this tray when it differs from item_number; null = no mapping. */
+  internal_item_number: number | null
   product_id: string | null
   product_name: string | null
   product_sellprice: number | null
@@ -45,7 +47,7 @@ export function useMachineTrays() {
     try {
       const { data, error } = await (supabase as any)
         .from('machine_trays')
-        .select('id, machine_id, item_number, product_id, capacity, current_stock, min_stock, fill_when_below, products(name, sellprice, discontinued)')
+        .select('id, machine_id, item_number, internal_item_number, product_id, capacity, current_stock, min_stock, fill_when_below, products(name, sellprice, discontinued)')
         .eq('machine_id', machineId)
         .order('item_number')
 
@@ -59,6 +61,7 @@ export function useMachineTrays() {
           id: t.id,
           machine_id: t.machine_id,
           item_number: t.item_number,
+          internal_item_number: t.internal_item_number ?? null,
           product_id: t.product_id,
           product_name: t.products?.name ?? null,
           product_sellprice: t.products?.sellprice ?? null,
@@ -103,7 +106,7 @@ export function useMachineTrays() {
     }
   }
 
-  async function upsertTray(tray: { machine_id: string; item_number: number; product_id: string | null; capacity: number; current_stock: number }) {
+  async function upsertTray(tray: { machine_id: string; item_number: number; internal_item_number?: number | null; product_id: string | null; capacity: number; current_stock: number }) {
     const { error } = await (supabase as any)
       .from('machine_trays')
       .upsert(tray, { onConflict: 'machine_id,item_number' })
@@ -137,7 +140,7 @@ export function useMachineTrays() {
     })
   }
 
-  async function updateTray(trayId: string, machineId: string, updates: { item_number?: number; product_id?: string | null; capacity?: number; current_stock?: number; min_stock?: number; fill_when_below?: number }, source?: string) {
+  async function updateTray(trayId: string, machineId: string, updates: { item_number?: number; internal_item_number?: number | null; product_id?: string | null; capacity?: number; current_stock?: number; min_stock?: number; fill_when_below?: number }, source?: string) {
     const tray = trays.value.find(t => t.id === trayId)
     const { error } = await (supabase as any)
       .from('machine_trays')
@@ -354,6 +357,7 @@ export function useMachineTrays() {
               tray.current_stock = updated.current_stock
             }
             tray.capacity = updated.capacity
+            tray.internal_item_number = updated.internal_item_number ?? null
             tray.product_id = updated.product_id
             tray.min_stock = updated.min_stock ?? 0
             tray.fill_when_below = updated.fill_when_below ?? 0

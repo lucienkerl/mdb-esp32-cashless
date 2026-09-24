@@ -648,3 +648,52 @@ describe('effectiveNayaxItemNumber', () => {
     expect(effectiveNayaxItemNumber(1, '2026-08-27T12:00:00.000Z', { offset: -9, since: cfg.since })).toBe(0)
   })
 })
+
+describe('effectiveNayaxItemNumber with tray mappings', () => {
+  // The machine reports 3 for the tray labelled 25; the mapping took effect at noon.
+  const trays = { 3: { itemNumber: 25, since: '2026-09-24T12:00:00.000Z' } }
+  const cfg = { offset: 9, since: '2026-09-01T00:00:00.000Z' }
+
+  it('maps rows at or after the tray mapping took effect', () => {
+    expect(effectiveNayaxItemNumber(3, '2026-09-24T12:00:00.000Z', undefined, trays)).toBe(25)
+    expect(effectiveNayaxItemNumber(3, '2026-09-24T15:00:00.000Z', undefined, trays)).toBe(25)
+  })
+
+  it('leaves rows from before the mapping as they were recorded', () => {
+    expect(effectiveNayaxItemNumber(3, '2026-09-24T11:59:59.000Z', undefined, trays)).toBe(3)
+  })
+
+  it('leaves unmapped numbers to the offset', () => {
+    expect(effectiveNayaxItemNumber(4, '2026-09-24T15:00:00.000Z', cfg, trays)).toBe(13)
+  })
+
+  it('wins over the offset once in effect; before that the offset applied at ingest', () => {
+    expect(effectiveNayaxItemNumber(3, '2026-09-24T15:00:00.000Z', cfg, trays)).toBe(25)
+    expect(effectiveNayaxItemNumber(3, '2026-09-10T15:00:00.000Z', cfg, trays)).toBe(12)
+  })
+
+  it('treats a missing cut-over stamp as "never mapped"', () => {
+    expect(effectiveNayaxItemNumber(3, '2026-09-24T15:00:00.000Z', undefined, { 3: { itemNumber: 25, since: null } })).toBe(3)
+  })
+})
+
+describe('runMatch with tray mappings', () => {
+  it('aligns a raw Nayax selection with the sale booked on the mapped slot', () => {
+    const r = setupRecon({
+      rawRows: [
+        mkNayax({ txId: 'A', itemNumber: 3, utcDt: '2026-03-10T08:00:00.000Z' }),
+        mkNayax({ txId: 'B', itemNumber: 4, utcDt: '2026-03-10T09:00:00.000Z' }),
+      ],
+      mapping: { N1: 'vm1' },
+      dbSales: [
+        mkSale({ id: 's1', item_number: 25, created_at: '2026-03-10T08:00:05.000Z' }),
+        mkSale({ id: 's2', item_number: 4, created_at: '2026-03-10T09:00:05.000Z' }),
+      ],
+    })
+    r.trayMappings.value = { vm1: { 3: { itemNumber: 25, since: '2026-03-01T00:00:00.000Z' } } }
+    r.runMatch()
+    expect(r.result.value!.matched.map(m => m.nayax.txId)).toEqual(['A', 'B'])
+    expect(r.result.value!.missingInDb).toHaveLength(0)
+    expect(r.result.value!.ghostInDb).toHaveLength(0)
+  })
+})

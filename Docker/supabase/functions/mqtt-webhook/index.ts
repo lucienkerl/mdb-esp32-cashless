@@ -1,10 +1,10 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { decodeBase64 } from 'https://deno.land/std@0.224.0/encoding/base64.ts'
 import { sendPushToUsers } from '../_shared/web-push.ts'
 import { stockUrgency } from './stock-urgency.ts'
 import { t, formatPrice, type Locale } from '../_shared/notification-i18n.ts'
 import { decideSuppress, rebootCorroborates, REBOOT_CORRELATION_WINDOW_MS, REBOOT_CORRELATION_FORWARD_MS, SUPPRESS_WINDOW_MS, type SuppressCandidate } from "./suppress.ts";
-import { applyItemOffset, shiftSlotCounters } from './slot-offset.ts';
+import { buildTrayMap, mapSlotCounters, resolveItemNumber, type TrayMap } from './tray-mapping.ts';
 import { clampCredit, decodeCardPayload } from './card-payload.ts';
 import { deliverCredit } from '../_shared/deliver-credit.ts';
 
@@ -59,6 +59,20 @@ function parseDexAudit(bytes: Uint8Array): DexParseResult {
     total_vends,
     total_value: total_value_cents / 100,
   };
+}
+
+// The machine's per-tray "internal tray number" mapping (see tray-mapping.ts).
+// A failed lookup throws instead of degrading to "no mapping": the forwarder
+// retries a 5xx, while a sale booked on the wrong slot would stay there for
+// good — nothing backfills it.
+async function loadTrayMap(adminClient: SupabaseClient, machineId: string): Promise<TrayMap> {
+  const { data, error } = await adminClient
+    .from('machine_trays')
+    .select('item_number, internal_item_number')
+    .eq('machine_id', machineId)
+    .not('internal_item_number', 'is', null);
+  if (error) throw error;
+  return buildTrayMap(data ?? []);
 }
 
 Deno.serve(async (req) => {
@@ -344,18 +358,20 @@ Deno.serve(async (req) => {
       const dexBytes = decodeBase64(payloadB64);
       const parsed = parseDexAudit(dexBytes);
 
-      // The parsed slot keys are shifted by the same per-machine offset the sale
-      // path uses, so DEX counters and `sales.item_number` stay in one number
-      // space. `raw` below is deliberately NOT touched: it is the machine's own
-      // audit record and must stay verbatim.
+      // The parsed slot keys go through the same translation as the sale path
+      // (per-tray mapping, then per-machine offset), so DEX counters and
+      // `sales.item_number` stay in one number space. `raw` below is
+      // deliberately NOT touched: it is the machine's own audit record and must
+      // stay verbatim.
       const { data: dexMachine } = await adminClient
         .from('vendingMachine')
-        .select('item_number_offset')
+        .select('id, item_number_offset')
         .eq('embedded', embedded.id)
         .maybeSingle();
 
-      const slotCounters = shiftSlotCounters(
+      const slotCounters = mapSlotCounters(
         parsed.slot_counters,
+        dexMachine ? await loadTrayMap(adminClient, dexMachine.id) : new Map(),
         dexMachine?.item_number_offset ?? 0,
       );
 
@@ -504,7 +520,7 @@ Deno.serve(async (req) => {
       const itemNumber = ((payload[6] << 8) | payload[7]) & 0xFFFF;
 
       // The machine is resolved here rather than in the push block below because
-      // the per-machine item-number offset has to be applied before the insert.
+      // the reported item number has to be translated before the insert.
       // Same query the push path used to make on its own — not an extra round
       // trip, just an earlier one.
       const { data: machine } = await adminClient
@@ -513,10 +529,12 @@ Deno.serve(async (req) => {
         .eq('embedded', embedded.id)
         .maybeSingle();
 
-      // effective = raw + offset. No backfill: rows written before the operator
-      // set the offset keep their raw numbers on purpose.
-      const effectiveItemNumber = applyItemOffset(
+      // The tray whose internal tray number was reported, else raw + offset.
+      // No backfill: rows written before the operator configured either keep
+      // their raw numbers on purpose.
+      const effectiveItemNumber = resolveItemNumber(
         itemNumber,
+        machine ? await loadTrayMap(adminClient, machine.id) : new Map(),
         machine?.item_number_offset ?? 0,
       );
 
@@ -686,7 +704,7 @@ Deno.serve(async (req) => {
       // ── Push notification dispatch (best-effort, never blocks sale recording) ──
       try {
         // `machine` is resolved above, before the insert, because the
-        // item-number offset needs it. Reused here for tray + product lookup.
+        // item-number translation needs it. Reused here for tray + product lookup.
         let productImageUrl: string | undefined;
         let lowTray: { current_stock: number; capacity: number } | undefined;
 

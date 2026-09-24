@@ -52,17 +52,32 @@ export interface MachineOffset {
   since: string | null
 }
 
+/** A tray's internal tray number mapping (`machine_trays.internal_item_number`). */
+export interface TrayMapping {
+  /** Slot number on the label — what `sales.item_number` holds once mapped. */
+  itemNumber: number
+  /** ISO timestamp the mapping took effect; null means it never did. */
+  since: string | null
+}
+
+/** Internal (reported) number → tray mapping, for one machine. */
+export type MachineTrayMappings = Record<number, TrayMapping>
+
 /**
  * Nayax reads the same MDB bus as our device, so its export carries the RAW
- * selection number. Since the offset was introduced as a cut-over with no
- * backfill, DB rows are raw before `since` and shifted from `since` onwards —
- * so the Nayax row has to be shifted by the same rule to align against them.
+ * selection number. The offset and the per-tray mappings were both introduced
+ * as a cut-over with no backfill: DB rows are raw before `since` and translated
+ * from `since` onwards — so the Nayax row has to be translated by the same rule
+ * to align against them. As at ingest, a tray mapping wins over the offset.
  */
 export function effectiveNayaxItemNumber(
   rawItemNumber: number,
   rowUtcDt: string,
   cfg: MachineOffset | undefined,
+  trays?: MachineTrayMappings,
 ): number {
+  const tray = trays?.[rawItemNumber]
+  if (tray && tray.since !== null && Date.parse(rowUtcDt) >= Date.parse(tray.since)) return tray.itemNumber
   if (!cfg || cfg.offset === 0 || cfg.since === null) return rawItemNumber
   if (Date.parse(rowUtcDt) < Date.parse(cfg.since)) return rawItemNumber
   return Math.max(0, rawItemNumber + cfg.offset)
@@ -327,6 +342,7 @@ export function useNayaxReconciliation() {
   // `delete mapping.value[k]`) but not `Map.set` / `Map.delete`.
   const mapping = useState<Record<string, string>>('nayax-recon-mapping', () => ({}))
   const offsets = useState<Record<string, MachineOffset>>('nayax-recon-offsets', () => ({}))
+  const trayMappings = useState<Record<string, MachineTrayMappings>>('nayax-recon-tray-mappings', () => ({}))
   const settings = useState('nayax-recon-settings', () => ({
     timezone: 'Europe/Berlin',
     fromUtc: '',
@@ -437,27 +453,48 @@ export function useNayaxReconciliation() {
 
   async function loadMappingForCompany(): Promise<void> {
     const supabase = useSupabaseClient()
+    // Every machine of the company, not only the already-mapped ones: a Nayax
+    // ID mapped during this run (saveMapping) needs its number translation too.
     const { data, error: err } = await supabase
       .from('vendingMachine')
       .select('id, nayax_machine_id, item_number_offset, item_number_offset_since')
-      .not('nayax_machine_id', 'is', null)
     if (err) throw err
     const m: Record<string, string> = {}
     const o: Record<string, MachineOffset> = {}
     for (const row of (data ?? []) as {
       id: string
-      nayax_machine_id: string
+      nayax_machine_id: string | null
       item_number_offset: number | null
       item_number_offset_since: string | null
     }[]) {
-      m[row.nayax_machine_id] = row.id
+      if (row.nayax_machine_id) m[row.nayax_machine_id] = row.id
       o[row.id] = {
         offset: row.item_number_offset ?? 0,
         since: row.item_number_offset_since ?? null,
       }
     }
+
+    const { data: trayRows, error: trayErr } = await supabase
+      .from('machine_trays')
+      .select('machine_id, item_number, internal_item_number, internal_item_number_since')
+      .not('internal_item_number', 'is', null)
+    if (trayErr) throw trayErr
+    const tm: Record<string, MachineTrayMappings> = {}
+    for (const row of (trayRows ?? []) as {
+      machine_id: string
+      item_number: number
+      internal_item_number: number
+      internal_item_number_since: string | null
+    }[]) {
+      (tm[row.machine_id] ??= {})[row.internal_item_number] = {
+        itemNumber: row.item_number,
+        since: row.internal_item_number_since ?? null,
+      }
+    }
+
     mapping.value = m
     offsets.value = o
+    trayMappings.value = tm
   }
 
   function detectUnmappedIds(): string[] {
@@ -591,6 +628,7 @@ export function useNayaxReconciliation() {
         const bAll = (dbByVm.get(vmId) ?? []).slice()
           .sort((x, y) => x.created_at.localeCompare(y.created_at))
         const vmOffset = offsets.value[vmId]
+        const vmTrays = trayMappings.value[vmId]
 
         // Split DB rows into in-strict-range vs buffer-only. In-range rows are
         // matched FIRST (authoritatively) so a ±2-min buffer row can never steal
@@ -604,7 +642,7 @@ export function useNayaxReconciliation() {
         }
 
         // Pass 1: eligible Nayax rows vs in-range DB rows.
-        const aKeys = aRows.map(r => effectiveNayaxItemNumber(r.itemNumber as number, r.utcDt, vmOffset))
+        const aKeys = aRows.map(r => effectiveNayaxItemNumber(r.itemNumber as number, r.utcDt, vmOffset, vmTrays))
         const aDays = aRows.map(r => r.utcDt.slice(0, 10))
         const sKeys = bStrict.map(r => r.item_number ?? -1)
         const sDays = bStrict.map(r => r.created_at.slice(0, 10))
@@ -618,7 +656,7 @@ export function useNayaxReconciliation() {
         // unmatched buffer rows are dropped (never phantoms).
         const residualA = r1.aOnly.map(ai => aRows[ai]!)
         if (residualA.length > 0 && bBuffer.length > 0) {
-          const raKeys = residualA.map(r => effectiveNayaxItemNumber(r.itemNumber as number, r.utcDt, vmOffset))
+          const raKeys = residualA.map(r => effectiveNayaxItemNumber(r.itemNumber as number, r.utcDt, vmOffset, vmTrays))
           const rbKeys = bBuffer.map(r => r.item_number ?? -1)
           const r2 = alignSequences(raKeys, rbKeys)
           for (const [ai, bi] of r2.pairs) pushMatch(residualA[ai]!, bBuffer[bi]!)
@@ -701,13 +739,15 @@ export function useNayaxReconciliation() {
           continue
         }
         const channel = derivedChannelFromPaymentSource(n.paymentSource)
-        // Nayax reports the raw MDB selection; the DB holds shifted numbers from
-        // the machine's offset cut-over onwards. Import into the same space the
-        // tray join uses, or the manual sale lands on the wrong slot.
+        // Nayax reports the raw MDB selection; the DB holds translated numbers
+        // from the machine's offset / tray-mapping cut-overs onwards. Import into
+        // the same space the tray join uses, or the manual sale lands on the
+        // wrong slot.
         const importItemNumber = effectiveNayaxItemNumber(
           n.itemNumber,
           n.utcDt,
           offsets.value[vmId],
+          trayMappings.value[vmId],
         )
         const { data, error: err } = await (supabase as any).rpc('insert_manual_sale', {
           p_machine_id: vmId,
@@ -857,7 +897,7 @@ export function useNayaxReconciliation() {
   }
 
   return {
-    file, rawRows, dbSales, mapping, settings, result, step,
+    file, rawRows, dbSales, mapping, offsets, trayMappings, settings, result, step,
     parsing, matching, importing, deleting, error,
     parseFile, loadMappingForCompany, detectUnmappedIds, saveMapping,
     loadDbSales, runMatch, bulkImportMissing, deleteGhost, exportDiffCsv,
