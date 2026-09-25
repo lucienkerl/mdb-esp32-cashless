@@ -1,6 +1,7 @@
 package xyz.vmflow.ui.dashboard
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -71,6 +72,7 @@ private val SectionPadding = Modifier.padding(horizontal = 16.dp)
 @Composable
 fun DashboardScreen(
     onNavigateToMachine: (String) -> Unit,
+    onNavigateToDeals: () -> Unit,
     onLogout: () -> Unit,
     viewModel: DashboardViewModel = viewModel()
 ) {
@@ -99,6 +101,12 @@ fun DashboardScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onNavigateToDeals) {
+                        Icon(
+                            Icons.Filled.LocalOffer,
+                            contentDescription = stringResource(R.string.deals_open),
+                        )
+                    }
                     IconButton(onClick = {
                         scope.launch {
                             viewModel.signOut()
@@ -138,7 +146,11 @@ fun DashboardScreen(
                 ) {
                     if (uiState.newDealsCount > 0) {
                         item(key = "deals-banner") {
-                            NewDealsBanner(uiState.newDealsCount, modifier = SectionPadding)
+                            NewDealsBanner(
+                                uiState.newDealsCount,
+                                onClick = onNavigateToDeals,
+                                modifier = SectionPadding,
+                            )
                         }
                     }
 
@@ -284,11 +296,12 @@ fun DashboardScreen(
 }
 
 @Composable
-private fun NewDealsBanner(count: Int, modifier: Modifier = Modifier) {
+private fun NewDealsBanner(count: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
             .background(OnlineGreen.copy(alpha = 0.12f))
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,

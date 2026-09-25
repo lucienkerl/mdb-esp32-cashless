@@ -106,3 +106,14 @@ val ReasonNoStockLight = Color(0xFF6A1B9A)
 val ReasonNoStockDark = Color(0xFFBA68C8)
 val ReasonUnassignedLight = Color(0xFF0277BD)
 val ReasonUnassignedDark = Color(0xFF4FC3F7)
+
+// ─── Deals: "not valid yet" ─────────────────────────────────────────────────
+// Amber, not blue: blue next to a green price read as "valid, go", which is
+// exactly the misreading this marker has to prevent (people drove to the store
+// for an offer that only started days later). Same hue family as the web's
+// amber badge and the iOS orange capsule. Container + content pairs per theme
+// so the text keeps its contrast.
+val DealUpcomingContainerLight = Color(0xFFFFE0B2)
+val DealUpcomingContentLight = Color(0xFF7A3E00)
+val DealUpcomingContainerDark = Color(0xFF5A3300)
+val DealUpcomingContentDark = Color(0xFFFFCC80)

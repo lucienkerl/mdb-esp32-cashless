@@ -67,6 +67,9 @@ enum class TopLevelDestination(
          */
         fun fromRouteRoot(route: String?): TopLevelDestination? {
             val root = route?.substringBefore('/') ?: return null
+            // Deals is opened from the dashboard (banner / top-bar icon), so
+            // it keeps the Dashboard tab marked instead of highlighting nothing.
+            if (root == Routes.DEALS) return DASHBOARD
             return entries.firstOrNull { it.route == root }
         }
     }
