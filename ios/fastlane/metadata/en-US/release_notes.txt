@@ -1,6 +1,7 @@
-New
-• Year presets and an all-time range
-• Match the dashboard's chart treatment in analytics
+Improved
+• Deals: make "not valid yet" offers unmistakable, group by validity
 
 Fixed
-• Count dashboard stock alerts like the PWA does
+• Stop "fill all" booking stock the driver never packed
+• Distribute a reduced pack quantity without inventing units
+• Restore MDB status and real uptime on Device Health
