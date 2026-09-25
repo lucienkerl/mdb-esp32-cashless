@@ -18,6 +18,12 @@ struct DealCard: View {
             dealImage
 
             VStack(alignment: .leading, spacing: 4) {
+                // Not valid yet: first thing on the card, so nobody drives to
+                // the store for a price that only starts in a few days.
+                if isUpcoming {
+                    upcomingBadge
+                }
+
                 HStack(spacing: 4) {
                     if isNew {
                         Text("NEW")
@@ -51,7 +57,7 @@ struct DealCard: View {
                     if let price = deal.primary.formattedDealPrice {
                         Text(price)
                             .font(.subheadline.weight(.bold))
-                            .foregroundStyle(.green)
+                            .foregroundStyle(isUpcoming ? Color.primary : Color.green)
                     }
 
                     if let regular = deal.primary.formattedRegularPrice {
@@ -84,7 +90,9 @@ struct DealCard: View {
                 }
 
                 HStack(spacing: 6) {
-                    validityBadge
+                    if !isUpcoming {
+                        validityBadge
+                    }
 
                     if deal.requiresApp {
                         Text("App")
@@ -178,6 +186,29 @@ struct DealCard: View {
 
     // MARK: - Validity Badge
 
+    private var isUpcoming: Bool { deal.primary.validityStatus == .upcoming }
+
+    /// Filled orange capsule — deliberately louder than the plain-text
+    /// validity line of current deals (the old blue "until …" text next to a
+    /// green price read as "valid, go").
+    private var upcomingBadge: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "calendar.badge.clock")
+            Text([deal.primary.validFromLabel, deal.primary.startsInLabel]
+                    .compactMap { $0 }
+                    .joined(separator: " · "))
+                .lineLimit(1)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.white)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(Capsule().fill(Color.orange))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(Deal.ValidityStatus.upcoming.label) + Text(", ")
+            + Text(deal.primary.validFromLabel ?? ""))
+    }
+
     @ViewBuilder
     private var validityBadge: some View {
         let status = deal.primary.validityStatus
@@ -197,7 +228,7 @@ struct DealCard: View {
 
     private func validityColor(_ status: Deal.ValidityStatus) -> Color {
         switch status {
-        case .upcoming: return .blue
+        case .upcoming: return .orange
         case .active: return .green
         case .expiring: return .orange
         case .expired: return .gray
@@ -206,7 +237,7 @@ struct DealCard: View {
 
     private func validityIcon(_ status: Deal.ValidityStatus) -> String {
         switch status {
-        case .upcoming: return "clock"
+        case .upcoming: return "calendar.badge.clock"
         case .active: return "checkmark.circle"
         case .expiring: return "exclamationmark.triangle"
         case .expired: return "xmark.circle"

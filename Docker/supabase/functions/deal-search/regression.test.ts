@@ -17,6 +17,7 @@ import {
   type MarktguruOffer,
 } from '../_shared/providers/deal-source/marktguru.ts'
 import type { NormalizedOffer } from '../_shared/providers/deal-source.ts'
+import { toOfferDate } from './offer-date.ts'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -83,8 +84,8 @@ function buildDealRef(
     deal_price: offer.price,
     regular_price: offer.oldPrice,
     discount_pct: discountPct,
-    valid_from: offer.validFrom,
-    valid_until: offer.validUntil,
+    valid_from: toOfferDate(offer.validFrom),
+    valid_until: toOfferDate(offer.validUntil),
     image_url: offer.imageUrl,
     image_url_large: offer.imageUrlLarge,
     source_url: prospektUrl,
@@ -117,8 +118,8 @@ Deno.test('normalize → buildDeal produces row matching pre-refactor shape', ()
     deal_price: 0.99,
     regular_price: 1.49,
     discount_pct: 34,                                       // round((1 - 0.99/1.49) * 100)
-    valid_from: '2026-05-03T22:00:00Z',
-    valid_until: '2026-05-09T21:59:00Z',
+    valid_from: '2026-05-04',                              // local calendar day (offer-date.ts)
+    valid_until: '2026-05-09',
     image_url: 'https://example/medium.jpg',
     image_url_large: 'https://mg2de.b-cdn.net/api/v1/offers/12345/images/default/0/large.jpg',
     source_url: 'https://www.rewe.de/angebote/nationale-angebote/',  // dealConfig overlay

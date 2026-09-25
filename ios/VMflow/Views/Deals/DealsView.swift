@@ -125,17 +125,24 @@ struct DealsView: View {
                                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                     archiveSwipeButton(for: deal)
                                 }
+                                .listRowBackground(deal.primary.validityStatus == .upcoming
+                                                   ? Color.orange.opacity(0.08) : nil)
                         }
                     } header: {
                         HStack(spacing: 6) {
-                            if group.pinned {
-                                Image(systemName: "pin.fill")
+                            if let icon = headerIcon(for: group.kind) {
+                                Image(systemName: icon)
                                     .font(.caption)
-                                    .foregroundStyle(Color.accentColor)
+                                    .foregroundStyle(headerColor(for: group.kind))
                             }
                             Text(group.label)
                                 .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(group.pinned ? Color.accentColor : .primary)
+                                .foregroundStyle(headerColor(for: group.kind))
+                            if let sub = group.sublabel {
+                                Text(sub)
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                            }
                             Spacer()
                             Text("\(group.deals.count)")
                                 .font(.caption.weight(.medium))
@@ -192,6 +199,28 @@ struct DealsView: View {
                 }
                 .disabled(viewModel.isLoading)
             }
+        }
+    }
+
+    // MARK: - Section header styling
+
+    private func headerIcon(for kind: DealsViewModel.DealGroup.Kind) -> String? {
+        switch kind {
+        case .pinned: return "pin.fill"
+        case .validNow: return "checkmark.circle.fill"
+        case .upcoming: return "calendar.badge.clock"
+        case .expired: return "xmark.circle"
+        case .plain: return nil
+        }
+    }
+
+    private func headerColor(for kind: DealsViewModel.DealGroup.Kind) -> Color {
+        switch kind {
+        case .pinned: return .accentColor
+        case .validNow: return .green
+        case .upcoming: return .orange
+        case .expired: return .secondary
+        case .plain: return .primary
         }
     }
 

@@ -11,7 +11,9 @@ final class DealsViewModel: ObservableObject {
     @Published var error: String?
     @Published var fromCache = false
     @Published var searchText = ""
-    @Published var groupBy: GroupMode = .retailer
+    /// Validity first so "can I buy this today?" is answered before anything
+    /// else — upcoming offers were too easy to mistake for current ones.
+    @Published var groupBy: GroupMode = .validity
     @Published var listMode: ListMode = .active
 
     // Settings
@@ -33,11 +35,13 @@ final class DealsViewModel: ObservableObject {
     private let purchaseVM = PurchasePricesViewModel()
 
     enum GroupMode: String, CaseIterable {
+        case validity = "Validity"
         case retailer = "Retailer"
         case product = "Product"
 
         var label: String {
             switch self {
+            case .validity: return String(localized: "Validity")
             case .retailer: return String(localized: "Retailer")
             case .product: return String(localized: "Product")
             }
@@ -240,10 +244,65 @@ final class DealsViewModel: ObservableObject {
     /// chosen dimension below. In Archived view the pinned group is omitted
     /// (the user is explicitly reviewing archived items).
     struct DealGroup: Identifiable {
+        enum Kind { case plain, pinned, validNow, upcoming, expired }
+
         let id: String
         let label: String
-        let pinned: Bool
+        var sublabel: String? = nil
+        let kind: Kind
         let deals: [DedupedDeal]
+
+        var pinned: Bool { kind == .pinned }
+    }
+
+    /// Stable sort: valid today first (keeping the incoming order, i.e.
+    /// discount desc), then upcoming by start day, then expired.
+    private func sortedByValidity(_ list: [DedupedDeal]) -> [DedupedDeal] {
+        list.enumerated().sorted { a, b in
+            let pa = a.element.primary, pb = b.element.primary
+            if pa.validityRank != pb.validityRank { return pa.validityRank < pb.validityRank }
+            if pa.validityStatus == .upcoming, let fa = pa.validFromDate, let fb = pb.validFromDate, fa != fb {
+                return fa < fb
+            }
+            return a.offset < b.offset
+        }.map(\.element)
+    }
+
+    /// "Valid now", then one section per upcoming start day, then expired.
+    private func validityGroups(_ list: [DedupedDeal]) -> [DealGroup] {
+        let sorted = sortedByValidity(list)
+        var result: [DealGroup] = []
+
+        let now = sorted.filter { $0.primary.isValidToday }
+        if !now.isEmpty {
+            result.append(DealGroup(id: "__valid_now__", label: String(localized: "Valid now"),
+                                    kind: .validNow, deals: now))
+        }
+
+        var upcomingOrder: [Date] = []
+        var upcomingByDay: [Date: [DedupedDeal]] = [:]
+        for deal in sorted where deal.primary.validityStatus == .upcoming {
+            guard let from = deal.primary.validFromDate else { continue }
+            if upcomingByDay[from] == nil { upcomingOrder.append(from) }
+            upcomingByDay[from, default: []].append(deal)
+        }
+        for day in upcomingOrder {
+            let deals = upcomingByDay[day] ?? []
+            result.append(DealGroup(
+                id: "__from_\(day.timeIntervalSince1970)__",
+                label: deals.first?.primary.validFromLabel ?? Deal.shortDay(day),
+                sublabel: deals.first?.primary.startsInLabel,
+                kind: .upcoming,
+                deals: deals
+            ))
+        }
+
+        let expired = sorted.filter { $0.primary.validityStatus == .expired }
+        if !expired.isEmpty {
+            result.append(DealGroup(id: "__expired__", label: String(localized: "Expired"),
+                                    kind: .expired, deals: expired))
+        }
+        return result
     }
 
     var groupedDeals: [DealGroup] {
@@ -251,20 +310,22 @@ final class DealsViewModel: ObservableObject {
         let source = filteredDeals
         let isActive = listMode == .active
 
-        let pinnedDeals = isActive ? source.filter { $0.pinned } : []
-        let rest = isActive ? source.filter { !$0.pinned } : source
+        let pinnedDeals = sortedByValidity(isActive ? source.filter { $0.pinned } : [])
+        let rest = sortedByValidity(isActive ? source.filter { !$0.pinned } : source)
 
         if !pinnedDeals.isEmpty {
             result.append(DealGroup(
                 id: "__pinned__",
-                label: "Pinned",
-                pinned: true,
+                label: String(localized: "Pinned"),
+                kind: .pinned,
                 deals: pinnedDeals
             ))
         }
 
         let grouped: [String: [DedupedDeal]]
         switch groupBy {
+        case .validity:
+            return result + validityGroups(rest)
         case .retailer:
             grouped = Dictionary(grouping: rest) { $0.retailer }
         case .product:
@@ -277,7 +338,7 @@ final class DealsViewModel: ObservableObject {
             result.append(DealGroup(
                 id: key,
                 label: key,
-                pinned: false,
+                kind: .plain,
                 deals: deals
             ))
         }
