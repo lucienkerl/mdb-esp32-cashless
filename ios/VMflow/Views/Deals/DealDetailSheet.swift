@@ -39,6 +39,10 @@ struct DealDetailSheet: View {
                     heroImage
 
                     VStack(alignment: .leading, spacing: 16) {
+                        if primary.validityStatus == .upcoming {
+                            notYetValidNotice
+                        }
+
                         titleSection
 
                         Divider()
@@ -304,6 +308,32 @@ struct DealDetailSheet: View {
                 validityStatusBadge
             }
         }
+    }
+
+    /// Explicit callout for deals that only start later — the whole point is
+    /// that nobody drives to the store for a price that isn't live yet.
+    private var notYetValidNotice: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "calendar.badge.clock")
+                .font(.title3)
+                .foregroundStyle(.orange)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(Deal.ValidityStatus.upcoming.label)
+                    .font(.subheadline.weight(.semibold))
+                if let from = primary.validFromDate, let rel = primary.startsInLabel {
+                    Text(String(format: String(localized: "This offer only starts on %@ (%@). The store won't have this price before then."),
+                                Deal.longDay(from), rel))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.orange.opacity(0.12)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.orange.opacity(0.4)))
     }
 
     @ViewBuilder
@@ -578,7 +608,7 @@ struct DealDetailSheet: View {
 
     private func validityColor(_ status: Deal.ValidityStatus) -> Color {
         switch status {
-        case .upcoming: return .blue
+        case .upcoming: return .orange
         case .active: return .green
         case .expiring: return .orange
         case .expired: return .gray

@@ -10470,6 +10470,12 @@
             "state": "translated",
             "value": "tot %@"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bis %@"
+          }
         }
       }
     },
@@ -10581,6 +10587,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Geldigheid"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gültigkeit"
           }
         }
       }
@@ -16537,6 +16549,174 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dieses Jahr"
+          }
+        }
+      }
+    },
+    "Valid now": {
+      "comment": "Deal list section: offers that can be bought today",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jetzt gültig"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valable maintenant"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nu geldig"
+          }
+        }
+      }
+    },
+    "Pinned": {
+      "comment": "Deal list section: deals the user pinned",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angepinnt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Épinglées"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vastgepind"
+          }
+        }
+      }
+    },
+    "valid from %@": {
+      "comment": "Deal validity: start day of an offer that is not valid yet. Argument is a short date like 'Mon, 28.09.'",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ab %@ gültig"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "valable dès le %@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "geldig vanaf %@"
+          }
+        }
+      }
+    },
+    "tomorrow": {
+      "comment": "Deal validity: the offer starts tomorrow",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "morgen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "demain"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "morgen"
+          }
+        }
+      }
+    },
+    "in %lld days": {
+      "comment": "Deal validity: the offer starts in N days (N ≥ 2)",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "in %lld Tagen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dans %lld jours"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "over %lld dagen"
+          }
+        }
+      }
+    },
+    "Not valid yet": {
+      "comment": "Deal validity status: the offer has not started yet",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch nicht gültig"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas encore valable"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nog niet geldig"
+          }
+        }
+      }
+    },
+    "This offer only starts on %@ (%@). The store won't have this price before then.": {
+      "comment": "Deal detail notice for an offer that is not valid yet. First argument is the long start date, second is 'tomorrow' / 'in 3 days'.",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Angebot gilt erst ab %1$@ (%2$@). Vorher gibt es den Preis im Markt noch nicht."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette offre ne commence que le %1$@ (%2$@). Le magasin n'applique pas ce prix avant."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deze aanbieding geldt pas vanaf %1$@ (%2$@). Eerder heeft de winkel deze prijs nog niet."
           }
         }
       }

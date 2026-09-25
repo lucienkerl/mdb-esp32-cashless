@@ -100,7 +100,7 @@ struct Deal: Codable, Identifiable {
 
         var label: String {
             switch self {
-            case .upcoming: return String(localized: "Upcoming")
+            case .upcoming: return String(localized: "Not valid yet")
             case .active: return String(localized: "Active")
             case .expiring: return String(localized: "Expiring soon")
             case .expired: return String(localized: "Expired")
@@ -108,38 +108,79 @@ struct Deal: Codable, Identifiable {
         }
     }
 
+    /// Calendar-day validity, mirroring the web's `app/lib/dealValidity.ts` —
+    /// keep both in sync. `valid_from`/`valid_until` are DATE columns holding
+    /// calendar days in the company's timezone, so they're parsed as local
+    /// days. The upcoming check deliberately doesn't require an end date: a
+    /// deal without `valid_until` used to read as `.active` even when it only
+    /// started next week.
     var validityStatus: ValidityStatus {
-        let today = Self.todayString
-        guard let until = validUntil else { return .active }
-
-        if until < today { return .expired }
-
-        if let from = validFrom, from > today { return .upcoming }
-
-        // Check if expiring within 2 days
-        if let untilDate = Self.dateFormatter.date(from: until) {
-            let daysLeft = Calendar.current.dateComponents([.day], from: Date(), to: untilDate).day ?? 0
-            if daysLeft <= 2 { return .expiring }
-        }
-
+        let today = Calendar.current.startOfDay(for: Date())
+        if let until = validUntilDate, until < today { return .expired }
+        if let from = validFromDate, from > today { return .upcoming }
+        if let until = validUntilDate, Self.days(from: today, to: until) <= 2 { return .expiring }
         return .active
     }
 
     var isValid: Bool {
-        guard let until = validUntil else { return true }
-        return until >= Self.todayString
+        guard let until = validUntilDate else { return true }
+        return until >= Calendar.current.startOfDay(for: Date())
+    }
+
+    /// True when the deal can be bought today (not upcoming, not expired).
+    var isValidToday: Bool {
+        validityStatus == .active || validityStatus == .expiring
+    }
+
+    var validFromDate: Date? { validFrom.flatMap(Self.parseDay) }
+    var validUntilDate: Date? { validUntil.flatMap(Self.parseDay) }
+
+    /// Whole days until the deal starts (≥ 1), only while it is upcoming.
+    var startsInDays: Int? {
+        guard validityStatus == .upcoming, let from = validFromDate else { return nil }
+        return Self.days(from: Calendar.current.startOfDay(for: Date()), to: from)
     }
 
     var formattedValidUntil: String? {
-        guard let until = validUntil,
-              let date = Self.dateFormatter.date(from: until) else { return nil }
-        return Self.displayFormatter.string(from: date)
+        validUntilDate.map { Self.displayFormatter.string(from: $0) }
     }
 
     var formattedValidFrom: String? {
-        guard let from = validFrom,
-              let date = Self.dateFormatter.date(from: from) else { return nil }
-        return Self.displayFormatter.string(from: date)
+        validFromDate.map { Self.displayFormatter.string(from: $0) }
+    }
+
+    /// "valid from Mon, 28.09." — weekday first, since "is it Monday yet?"
+    /// is the question when deciding whether to drive to the store.
+    var validFromLabel: String? {
+        validFromDate.map { String(format: String(localized: "valid from %@"), Self.shortDay($0)) }
+    }
+
+    /// "tomorrow" / "in 3 days".
+    var startsInLabel: String? {
+        startsInDays.map(Self.relativeDaysLabel)
+    }
+
+    static func relativeDaysLabel(_ days: Int) -> String {
+        days == 1
+            ? String(localized: "tomorrow")
+            : String(format: String(localized: "in %lld days"), days)
+    }
+
+    static func shortDay(_ date: Date) -> String {
+        date.formatted(.dateTime.weekday(.abbreviated).day(.twoDigits).month(.twoDigits))
+    }
+
+    static func longDay(_ date: Date) -> String {
+        date.formatted(.dateTime.weekday(.wide).day().month(.wide))
+    }
+
+    /// Sort rank for "valid today first, then upcoming, then expired".
+    var validityRank: Int {
+        switch validityStatus {
+        case .active, .expiring: return 0
+        case .upcoming: return 1
+        case .expired: return 2
+        }
     }
 
     // MARK: - Confidence
@@ -166,6 +207,9 @@ struct Deal: Codable, Identifiable {
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = .current
         f.dateFormat = "yyyy-MM-dd"
         return f
     }()
@@ -177,8 +221,13 @@ struct Deal: Codable, Identifiable {
         return f
     }()
 
-    private static var todayString: String {
-        dateFormatter.string(from: Date())
+    /// Local midnight of a `YYYY-MM-DD` value (tolerates a timestamp suffix).
+    private static func parseDay(_ value: String) -> Date? {
+        dateFormatter.date(from: String(value.prefix(10)))
+    }
+
+    private static func days(from: Date, to: Date) -> Int {
+        Calendar.current.dateComponents([.day], from: from, to: to).day ?? 0
     }
 }
 

@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { NormalizedOffer } from '../_shared/providers/deal-source.ts'
 import { resolveProviders, type ResolvedProvider } from './resolve-providers.ts'
+import { toOfferDate } from './offer-date.ts'
 import { sendPushToUsers } from '../_shared/web-push.ts'
 import { t, type Locale } from '../_shared/notification-i18n.ts'
 
@@ -322,7 +323,7 @@ Deno.serve(async (req) => {
     // Check if deals feature is enabled + load config
     const { data: company } = await adminClient
       .from('companies')
-      .select('deals_enabled, deals_zip_code, deals_config, country_code')
+      .select('deals_enabled, deals_zip_code, deals_config, country_code, timezone')
       .eq('id', companyId)
       .single()
 
@@ -336,6 +337,9 @@ Deno.serve(async (req) => {
     const zipCode = company.deals_zip_code || '60487'
     const countryCode = (company as any).country_code ?? 'DE'
     const dealConfig = resolveConfig(countryCode, (company as any).deals_config ?? null)
+    // Validity boundaries are stored as calendar days in the company's zone
+    // (see offer-date.ts for the off-by-one this prevents).
+    const companyTz: string = (company as any).timezone || 'Europe/Berlin'
 
     // Scheduled runs always force a fresh fetch (that's the point of the cron).
     const forceRefresh = body.forceRefresh === true || isScheduled
@@ -576,8 +580,8 @@ Deno.serve(async (req) => {
             deal_price: offer.price,
             regular_price: offer.oldPrice,
             discount_pct: discountPct,
-            valid_from: offer.validFrom,
-            valid_until: offer.validUntil,
+            valid_from: toOfferDate(offer.validFrom, companyTz),
+            valid_until: toOfferDate(offer.validUntil, companyTz),
             image_url: offer.imageUrl,
             image_url_large: offer.imageUrlLarge,
             source_url: prospektUrl,
@@ -643,8 +647,8 @@ Deno.serve(async (req) => {
             deal_price: offer.price,
             regular_price: offer.oldPrice,
             discount_pct: discountPct,
-            valid_from: offer.validFrom,
-            valid_until: offer.validUntil,
+            valid_from: toOfferDate(offer.validFrom, companyTz),
+            valid_until: toOfferDate(offer.validUntil, companyTz),
             image_url: offer.imageUrl,
             image_url_large: offer.imageUrlLarge,
             source_url: prospektUrl,

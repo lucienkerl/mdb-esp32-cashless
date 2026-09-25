@@ -15,6 +15,8 @@ import {
   IconBuildingWarehouse,
   IconBox,
   IconPlug,
+  IconCalendarClock,
+  IconCircleCheck,
 } from '@tabler/icons-vue'
 import Badge from '@/components/ui/badge/Badge.vue'
 import {
@@ -29,6 +31,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { DedupedDeal } from '@/composables/useDeals'
 import { timeAgo, formatCurrency } from '@/lib/utils'
 import { classifyDeal, marginDelta, type DealVerdict, type PurchaseSummary } from '~/lib/purchaseComparison'
+import { compareByValidity, dealValidityInfo, groupByValidity, type DealValidityInfo } from '~/lib/dealValidity'
 
 definePageMeta({ middleware: 'auth' })
 
@@ -110,7 +113,9 @@ const lastFetchLabel = computed(() => {
 })
 
 const searchQuery = ref('')
-const groupBy = ref<'retailer' | 'none'>('retailer')
+// Default to validity so "can I buy this today?" is answered before anything
+// else — upcoming offers were too easy to mistake for current ones.
+const groupBy = ref<'validity' | 'retailer' | 'none'>('validity')
 const listMode = ref<'active' | 'archived'>('active')
 
 // Detail sheet state
@@ -208,6 +213,19 @@ interface DealGroup {
   label: string
   pinned: boolean
   deals: DedupedDeal[]
+  /** Set for groups produced by the validity grouping (header styling). */
+  validity?: 'now' | 'upcoming' | 'expired'
+  /** Secondary header text, e.g. "in 3 days" for an upcoming start day. */
+  sublabel?: string
+}
+
+function validityOf(deal: DedupedDeal): DealValidityInfo {
+  return dealValidityInfo(deal.primary.valid_from, deal.primary.valid_until)
+}
+
+/** Stable sort: valid-today first, then upcoming by start day. */
+function sortByValidity(list: DedupedDeal[]): DedupedDeal[] {
+  return [...list].sort((a, b) => compareByValidity(validityOf(a), validityOf(b)))
 }
 
 const groupedFiltered = computed<DealGroup[]>(() => {
@@ -215,8 +233,8 @@ const groupedFiltered = computed<DealGroup[]>(() => {
   const source = filteredDeals.value
   const isActive = listMode.value === 'active'
 
-  const pinnedDeals = isActive ? source.filter((d) => d.pinned) : []
-  const rest = isActive ? source.filter((d) => !d.pinned) : source
+  const pinnedDeals = sortByValidity(isActive ? source.filter((d) => d.pinned) : [])
+  const rest = sortByValidity(isActive ? source.filter((d) => !d.pinned) : source)
 
   if (pinnedDeals.length > 0) {
     result.push({
@@ -227,7 +245,24 @@ const groupedFiltered = computed<DealGroup[]>(() => {
     })
   }
 
-  if (groupBy.value === 'none') {
+  if (groupBy.value === 'validity') {
+    for (const section of groupByValidity(rest, validityOf)) {
+      result.push({
+        key: `__validity_${section.key}`,
+        label: section.kind === 'now'
+          ? t('deals.validNowGroup')
+          : section.kind === 'expired'
+            ? t('deals.expiredGroup')
+            : t('deals.validFromDate', { date: formatDealDay(section.from!) }),
+        sublabel: section.kind === 'upcoming' && section.startsInDays != null
+          ? startsInLabel(section.startsInDays)
+          : undefined,
+        pinned: false,
+        deals: section.items,
+        validity: section.kind,
+      })
+    }
+  } else if (groupBy.value === 'none') {
     if (rest.length > 0) {
       result.push({
         key: '__all__',
@@ -299,61 +334,77 @@ interface DealValidity {
   badgeCls: string
 }
 
-function dealValidity(validFrom: string | null, validUntil: string | null): DealValidity {
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+/** "Mo., 28.09." — weekday first, since "is it Monday already?" is the question. */
+function formatDealDay(d: Date): string {
+  return new Intl.DateTimeFormat(locale.value, { weekday: 'short', day: '2-digit', month: '2-digit' }).format(d)
+}
 
-  if (validFrom) {
-    const from = new Date(validFrom)
-    if (from > today) {
-      const days = Math.ceil((from.getTime() - today.getTime()) / (24 * 60 * 60 * 1000))
+/** "Montag, 28. September" for the detail sheet. */
+function formatDealDayLong(d: Date): string {
+  return new Intl.DateTimeFormat(locale.value, { weekday: 'long', day: 'numeric', month: 'long' }).format(d)
+}
+
+/** "morgen" / "in 3 Tagen". */
+function startsInLabel(days: number): string {
+  return t('deals.startsInRel', days)
+}
+
+// Amber (not blue) for "not yet valid": blue next to the green price read as
+// "fine, go", which is exactly the misreading this badge has to prevent.
+const UPCOMING_BADGE_CLS = 'bg-amber-100 text-amber-900 ring-1 ring-inset ring-amber-300 dark:bg-amber-950 dark:text-amber-200 dark:ring-amber-800'
+
+function dealValidity(validFrom: string | null, validUntil: string | null): DealValidity {
+  const info = dealValidityInfo(validFrom, validUntil)
+
+  switch (info.status) {
+    case 'upcoming':
       return {
         status: 'upcoming',
-        label: days === 1
-          ? t('deals.startsIn', { days: 1 })
-          : t('deals.startsIn', { days }),
-        cls: 'text-blue-600 dark:text-blue-400',
-        badgeCls: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
+        label: t('deals.validFromDate', { date: formatDealDay(info.from!) }),
+        cls: 'text-amber-700 dark:text-amber-300 font-medium',
+        badgeCls: UPCOMING_BADGE_CLS,
       }
-    }
-  }
-
-  if (validUntil) {
-    const until = new Date(validUntil)
-    if (until < today) {
+    case 'expired':
       return {
         status: 'expired',
         label: t('deals.expired'),
         cls: 'text-muted-foreground line-through',
         badgeCls: 'bg-muted text-muted-foreground',
       }
-    }
-    const daysLeft = Math.ceil((until.getTime() - today.getTime()) / (24 * 60 * 60 * 1000))
-    if (daysLeft <= 2) {
+    case 'expiring':
       return {
         status: 'expiring',
-        label: daysLeft === 0
+        label: info.daysLeft === 0
           ? t('deals.lastDay')
-          : t('deals.daysLeft', { days: daysLeft }),
+          : t('deals.daysLeft', { days: info.daysLeft }),
         cls: 'text-orange-600 dark:text-orange-400 font-medium',
         badgeCls: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200',
       }
-    }
-    return {
-      status: 'active',
-      label: t('deals.daysLeft', { days: daysLeft }),
-      cls: 'text-green-600 dark:text-green-400',
-      badgeCls: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
-    }
-  }
-
-  return {
-    status: 'active',
-    label: t('deals.activeNow'),
-    cls: 'text-green-600 dark:text-green-400',
-    badgeCls: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+    default:
+      return {
+        status: 'active',
+        label: info.daysLeft != null ? t('deals.daysLeft', { days: info.daysLeft }) : t('deals.activeNow'),
+        cls: 'text-green-600 dark:text-green-400',
+        badgeCls: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+      }
   }
 }
+
+/** Formatted "Mo., 28.09. – Sa., 03.10." for the detail sheet. */
+function validityRange(validFrom: string | null, validUntil: string | null): string {
+  const info = dealValidityInfo(validFrom, validUntil)
+  const parts = [info.from, info.until].map((d) => (d ? formatDealDay(d) : ''))
+  if (info.from && info.until) return `${parts[0]} – ${parts[1]}`
+  if (info.from) return t('deals.validFromDate', { date: parts[0] })
+  if (info.until) return t('deals.validUntilDate', { date: parts[1] })
+  return ''
+}
+
+const upcomingCount = computed(() => visibleActiveDeals.value.filter((d) => validityOf(d).status === 'upcoming').length)
+
+const selectedValidity = computed(() => selectedDeal.value
+  ? dealValidityInfo(selectedDeal.value.primary.valid_from, selectedDeal.value.primary.valid_until)
+  : null)
 
 function confidenceLevel(c: number): { label: string; cls: string } {
   if (c >= 0.85) return { label: t('deals.matchHigh'), cls: 'text-green-600 dark:text-green-400' }
@@ -467,6 +518,9 @@ function highlightTokens(text: string, tokens: string[] | null): { text: string;
             <div class="rounded-xl border bg-card p-4 shadow-sm">
               <p class="text-sm text-muted-foreground">{{ t('deals.totalDeals') }}</p>
               <p class="mt-1 text-2xl font-bold">{{ totalDeals }}</p>
+              <p v-if="upcomingCount > 0" class="mt-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
+                {{ t('deals.upcomingCountHint', { n: upcomingCount }) }}
+              </p>
             </div>
             <div class="rounded-xl border bg-card p-4 shadow-sm">
               <p class="text-sm text-muted-foreground">{{ t('deals.retailers') }}</p>
@@ -516,6 +570,13 @@ function highlightTokens(text: string, tokens: string[] | null): { text: string;
               class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring sm:max-w-xs"
             />
             <div class="flex gap-1 rounded-md border p-0.5">
+              <button
+                class="rounded-sm px-3 py-1 text-sm font-medium transition-colors"
+                :class="groupBy === 'validity' ? 'bg-primary text-primary-foreground shadow-sm' : 'hover:bg-muted'"
+                @click="groupBy = 'validity'"
+              >
+                {{ t('deals.byValidity') }}
+              </button>
               <button
                 class="rounded-sm px-3 py-1 text-sm font-medium transition-colors"
                 :class="groupBy === 'retailer' ? 'bg-primary text-primary-foreground shadow-sm' : 'hover:bg-muted'"
@@ -585,9 +646,27 @@ function highlightTokens(text: string, tokens: string[] | null): { text: string;
                 <h2 class="text-lg font-semibold text-primary">{{ group.label }}</h2>
                 <Badge variant="default">{{ group.deals.length }}</Badge>
               </div>
+              <!-- Validity headers: "valid now" vs. one per upcoming start day. -->
+              <div
+                v-else-if="group.validity"
+                class="flex flex-wrap items-center gap-x-2 gap-y-1 border-b pb-2"
+                :class="group.validity === 'upcoming' ? 'border-amber-300 dark:border-amber-800' : 'border-border'"
+              >
+                <IconCircleCheck v-if="group.validity === 'now'" class="size-5 text-green-600 dark:text-green-400" />
+                <IconCalendarClock v-else-if="group.validity === 'upcoming'" class="size-5 text-amber-600 dark:text-amber-400" />
+                <IconAlertCircle v-else class="size-5 text-muted-foreground" />
+                <h2
+                  class="text-lg font-semibold first-letter:uppercase"
+                  :class="{ 'text-amber-800 dark:text-amber-200': group.validity === 'upcoming' }"
+                >
+                  {{ group.label }}
+                </h2>
+                <span v-if="group.sublabel" class="text-sm text-amber-700 dark:text-amber-300">{{ group.sublabel }}</span>
+                <Badge variant="secondary">{{ group.deals.length }}</Badge>
+              </div>
               <!-- Retailer header (only shown when grouped by retailer). -->
               <div
-                v-else-if="groupBy !== 'none' && group.key !== '__all__'"
+                v-else-if="groupBy === 'retailer' && group.key !== '__all__'"
                 class="flex items-center gap-2"
               >
                 <IconBuildingStore class="size-5 text-muted-foreground" />
@@ -600,7 +679,10 @@ function highlightTokens(text: string, tokens: string[] | null): { text: string;
                   v-for="deal in group.deals"
                   :key="deal.key"
                   class="group relative flex gap-3 rounded-xl border bg-card p-4 text-left shadow-sm transition-colors hover:bg-muted/50"
-                  :class="{ 'ring-1 ring-primary/40': deal.pinned }"
+                  :class="{
+                    'ring-1 ring-primary/40': deal.pinned,
+                    'border-dashed border-amber-400 bg-amber-50/50 dark:border-amber-700 dark:bg-amber-950/20': validityOf(deal).status === 'upcoming',
+                  }"
                 >
                   <!-- Pinned marker (top-left) -->
                   <div
@@ -665,6 +747,18 @@ function highlightTokens(text: string, tokens: string[] | null): { text: string;
 
                     <!-- Deal info -->
                     <div class="min-w-0 flex-1">
+                      <!-- Not valid yet: first thing on the card, so nobody drives there for nothing. -->
+                      <div
+                        v-if="validityOf(deal).status === 'upcoming'"
+                        class="mb-1.5 inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
+                        :class="UPCOMING_BADGE_CLS"
+                      >
+                        <IconCalendarClock class="size-3.5 shrink-0" />
+                        <span class="truncate">
+                          {{ dealValidity(deal.primary.valid_from, deal.primary.valid_until).label }}
+                          · {{ startsInLabel(validityOf(deal).startsInDays!) }}
+                        </span>
+                      </div>
                       <div class="flex items-start justify-between gap-2 pr-16">
                         <p class="line-clamp-2 text-sm font-medium leading-tight">
                           {{ deal.primary.deal_title }}
@@ -704,7 +798,11 @@ function highlightTokens(text: string, tokens: string[] | null): { text: string;
 
                       <!-- Price row -->
                       <div class="mt-2 flex items-center gap-2">
-                        <span v-if="deal.primary.deal_price != null" class="text-sm font-bold text-green-600 dark:text-green-400">
+                        <span
+                          v-if="deal.primary.deal_price != null"
+                          class="text-sm font-bold"
+                          :class="validityOf(deal).status === 'upcoming' ? 'text-foreground' : 'text-green-600 dark:text-green-400'"
+                        >
                           {{ deal.primary.deal_price.toFixed(2) }}&euro;
                         </span>
                         <span v-if="ekPill(deal)" :class="ekPill(deal)!.cls" class="ml-2 text-xs font-medium">
@@ -725,6 +823,7 @@ function highlightTokens(text: string, tokens: string[] | null): { text: string;
                       <!-- Validity & confidence -->
                       <div class="mt-1 flex items-center gap-2 text-[11px]">
                         <span
+                          v-if="validityOf(deal).status !== 'upcoming'"
                           class="inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-medium"
                           :class="dealValidity(deal.primary.valid_from, deal.primary.valid_until).badgeCls"
                         >
@@ -824,6 +923,23 @@ function highlightTokens(text: string, tokens: string[] | null): { text: string;
             </div>
           </div>
 
+          <!-- Not valid yet: explicit callout right under the hero, above the title. -->
+          <div
+            v-if="selectedValidity?.status === 'upcoming'"
+            class="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+          >
+            <IconCalendarClock class="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400" />
+            <div class="text-sm">
+              <p class="font-semibold">{{ t('deals.notYetValidTitle') }}</p>
+              <p>
+                {{ t('deals.notYetValidBody', {
+                  date: formatDealDayLong(selectedValidity.from!),
+                  rel: startsInLabel(selectedValidity.startsInDays!),
+                }) }}
+              </p>
+            </div>
+          </div>
+
           <!-- Title + badges row -->
           <div class="space-y-2.5">
             <h3 class="text-sm font-semibold leading-snug sm:text-base">
@@ -839,7 +955,7 @@ function highlightTokens(text: string, tokens: string[] | null): { text: string;
                 {{ dealValidity(selectedDeal.primary.valid_from, selectedDeal.primary.valid_until).label }}
               </span>
               <span v-if="selectedDeal.primary.valid_from || selectedDeal.primary.valid_until" class="text-xs text-muted-foreground">
-                {{ selectedDeal.primary.valid_from }}{{ selectedDeal.primary.valid_from && selectedDeal.primary.valid_until ? ' — ' : '' }}{{ selectedDeal.primary.valid_until }}
+                {{ validityRange(selectedDeal.primary.valid_from, selectedDeal.primary.valid_until) }}
               </span>
               <span v-if="selectedDeal.primary.requires_app" class="inline-flex items-center gap-0.5 rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-medium text-purple-800 dark:bg-purple-900 dark:text-purple-200">
                 <IconDeviceMobile class="size-3" />
