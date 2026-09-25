@@ -12,6 +12,7 @@ topic write /+/+/paxcounter
 topic write /+/+/dex
 topic write /+/+/mdb-log
 topic write /+/+/restart
+topic write /+/+/card
 topic read  /+/+/credit
 topic read  /+/+/ota
 topic read  /+/+/config

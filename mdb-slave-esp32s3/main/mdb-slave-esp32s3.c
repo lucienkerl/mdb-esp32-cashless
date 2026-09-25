@@ -35,6 +35,8 @@
 #include "webui_server.h"
 #include "sale_queue.h"
 #include "network.h"
+#include "rfid_reader.h"
+#include "scale_factor.h"
 
 #include "esp_system.h"
 #include "esp_http_client.h"
@@ -60,10 +62,6 @@
 
 #define ADC_UNIT_THERMISTOR     ADC_UNIT_1
 #define ADC_CHANNEL_THERMISTOR  ADC_CHANNEL_6   // Define the ADC unit, channel, and attenuation (NTC Thermistor)
-
-// Functions for scale factor conversion
-#define TO_SCALE_FACTOR(p, scale_to, dec_to) (p / scale_to / pow(10, -(dec_to) ))               // Converts to scale factor
-#define FROM_SCALE_FACTOR(p, scale_from, dec_from) (p * scale_from * pow(10, -(dec_from) ))     // Converts from scale factor
 
 #define ACK 	0x00  // Acknowledgment / Checksum correct
 #define RET 	0xAA  // Retransmit previously sent data. Only VMC can send this
@@ -1232,6 +1230,7 @@ void vTaskMdbEvent(void *pvParameters) {
  *
  *  MQTT target -> server:
  *   0x21 CASH_SALE | 0x22 PAX_COUNTER | 0x23 CARD_SALE | 0x24 CASHLESS_SALE
+ *   0x25 CARD_PRESENTED (variable length, see card_payload_encode)
  *
  * [ random filler ] + [ structured fields per CMD ] → XOR → obfuscated payload
  */
@@ -1325,6 +1324,98 @@ void xorEncodeWithPasskey(uint8_t cmd, uint16_t itemPrice, uint16_t itemNumber, 
 	for(int x = 0; x < sizeof(my_passkey); x++){
 		payload[x + 1] ^= my_passkey[x];
 	}
+}
+
+/*
+ * RFID card presentation (cmd 0x25) — variable-length MQTT payload.
+ *
+ * The 19-byte fixed payload above has no room for a card serial (only six
+ * spare bytes, which is too tight for 7- and 10-byte UIDs), so card
+ * presentations get their own layout. The security envelope is unchanged:
+ * passkey XOR (cycled over the payload), a unix timestamp, and a sum
+ * checksum, all matching what mqtt-webhook expects.
+ *
+ * +----+----+----+----+----+----+----+----+----+ ... +-----+
+ * |CMD |VER |     TIME_SEC      |TYPE|ULEN| UID …    | CHK |
+ * +----+----+----+----+----+----+----+----+----+ ... +-----+
+ *   0    1    2    3    4    5    6    7    8   8+N-1  8+N
+ *
+ * CHK  = sum(bytes 0 .. 7+N) & 0xFF
+ * XOR  = bytes 1 .. 8+N with passkey[(i - 1) % 18]
+ *
+ * Total length is 9 + N bytes.
+ */
+#define CARD_PAYLOAD_VERSION    0x01
+#define CARD_PAYLOAD_MAX_LEN    (9 + RFID_UID_MAX_BYTES)
+
+static size_t card_payload_encode(uint8_t *payload, const rfid_card_t *card) {
+
+	uint8_t n = card->uid_len;
+	if (n > RFID_UID_MAX_BYTES) n = RFID_UID_MAX_BYTES;
+
+	time_t now = time(NULL);
+
+	payload[0] = 0x25;                      // CARD_PRESENTED
+	payload[1] = CARD_PAYLOAD_VERSION;
+	payload[2] = (uint8_t) (now >> 24);
+	payload[3] = (uint8_t) (now >> 16);
+	payload[4] = (uint8_t) (now >> 8);
+	payload[5] = (uint8_t) now;
+	payload[6] = card->card_type;
+	payload[7] = n;
+	memcpy(&payload[8], card->uid, n);
+
+	size_t chk_idx = 8 + n;
+
+	uint8_t chk = 0x00;
+	for (size_t i = 0; i < chk_idx; i++) chk += payload[i];
+	payload[chk_idx] = chk;
+
+	for (size_t i = 1; i <= chk_idx; i++)
+		payload[i] ^= my_passkey[(i - 1) % sizeof(my_passkey)];
+
+	return chk_idx + 1;
+}
+
+/*
+ * Reader callback — runs on the RFID task, once per card presentation.
+ * Duplicate frames while the card sits on the antenna are already filtered
+ * in rfid_reader.c, so this is the single backend request per card.
+ *
+ * When the card cannot be reported the dedup memory is cleared, so the
+ * customer only has to present the card again rather than wait out the
+ * suppression window.
+ */
+static void rfid_card_handler(const rfid_card_t *card, void *ctx) {
+
+	(void) ctx;
+
+	if (my_company_id[0] == '\0' || my_device_id[0] == '\0') {
+		ESP_LOGW(TAG, "RFID: card %s ignored — device not provisioned", card->uid_hex);
+		rfid_reader_reset_dedup();
+		return;
+	}
+
+	if (!mqtt_started || !mqttClient) {
+		ESP_LOGW(TAG, "RFID: card %s dropped — MQTT offline", card->uid_hex);
+		rfid_reader_reset_dedup();
+		return;
+	}
+
+	uint8_t payload[CARD_PAYLOAD_MAX_LEN];
+	size_t len = card_payload_encode(payload, card);
+
+	char topic[128];
+	snprintf(topic, sizeof(topic), "/%s/%s/card", my_company_id, my_device_id);
+
+	int msg_id = mqtt_publish_safe(mqttClient, topic, (char*) payload, (int) len, 1, 0);
+	if (msg_id < 0) {
+		ESP_LOGW(TAG, "RFID: publish failed for card %s", card->uid_hex);
+		rfid_reader_reset_dedup();
+		return;
+	}
+
+	ESP_LOGI(TAG, "RFID: published card %s (%d bytes, msg_id=%d)", card->uid_hex, (int) len, msg_id);
 }
 
 char* calc_crc_16(uint16_t *pCrc, char *uData) {
@@ -2167,9 +2258,9 @@ static void publish_mdb_diag(void) {
     char topic[128];
     snprintf(topic, sizeof(topic), "/%s/%s/mdb-log", my_company_id, my_device_id);
 
-    char msg[448];
-    snprintf(msg, sizeof(msg),
-        "{\"state\":\"%s\",\"addr\":\"0x%02X\",\"polls\":%lu,\"chkErr\":%lu,\"lastCmd\":\"%s\",\"vmcLevel\":%u,\"saleQueue\":{\"pending\":%lu,\"overflow\":%lu,\"lastSeq\":%lu,\"fastPath\":%lu}}",
+    char msg[512];
+    int n = snprintf(msg, sizeof(msg),
+        "{\"state\":\"%s\",\"addr\":\"0x%02X\",\"polls\":%lu,\"chkErr\":%lu,\"lastCmd\":\"%s\",\"vmcLevel\":%u,\"saleQueue\":{\"pending\":%lu,\"overflow\":%lu,\"lastSeq\":%lu,\"fastPath\":%lu}",
         machine_state_name(machine_state),
         cashless_device_address,
         mdb_poll_count,
@@ -2180,6 +2271,23 @@ static void publish_mdb_diag(void) {
         (unsigned long) sale_queue_overflow_count(),
         (unsigned long) sale_queue_last_seq(),
         (unsigned long) sale_queue_fast_path_count());
+
+    /* Only present when a reader is actually attached, so boards without
+     * one keep the pre-RFID payload byte for byte. */
+    if (rfid_reader_is_running() && n > 0 && n < (int) sizeof(msg)) {
+        n += snprintf(msg + n, sizeof(msg) - n,
+            ",\"rfid\":{\"ok\":%lu,\"bad\":%lu,\"cards\":%lu,\"dup\":%lu,\"rx\":%lu}",
+            (unsigned long) rfid_frames_ok(),
+            (unsigned long) rfid_frames_bad(),
+            (unsigned long) rfid_cards_reported(),
+            (unsigned long) rfid_cards_deduped(),
+            (unsigned long) rfid_rx_bytes());
+    }
+
+    if (n > 0 && n < (int) sizeof(msg) - 1) {
+        msg[n]     = '}';
+        msg[n + 1] = '\0';
+    }
 
     mqtt_publish_safe(mqttClient, topic, msg, 0, 0, 0);
 }
@@ -3642,6 +3750,12 @@ void app_main(void) {
 	mdbSessionQueue = xQueueCreate(1 /*queue-length*/, sizeof(uint16_t));
 	xTaskCreatePinnedToCore(vTaskMdbEvent, "TaskMdbEvent", 4096, NULL, 1, NULL, 1);
 
+	/* Serial RFID reader on the pulse input. Cards are published to the
+	 * /card topic; the backend answers on /credit with the balance of the
+	 * matching card account, which is the same path send-credit uses. */
+	rfid_reader_start(rfid_card_handler, NULL);
+
+    xTaskCreatePinnedToCore(vTaskBitEvent, "TaskBitEvent", 2048, NULL, 1, NULL, 0);
     // vTaskBitEvent was already started right after the LED strip driver
     // init, above — just force an immediate repaint now that MDB/network
     // state has moved on.

@@ -1,13 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { mqttPublish } from '../_shared/mqtt-publish.ts'
-
-function toScaleFactor(p: number, x: number, y: number): number {
-  return p / x / Math.pow(10, -y);
-}
-
-function fromScaleFactor(p: number, x: number, y: number): number {
-  return p * x * Math.pow(10, -y);
-}
+import { eurToScaleUnits } from '../_shared/scale.ts'
 
 async function hashKey(key: string): Promise<string> {
   const encoded = new TextEncoder().encode(key)
@@ -106,7 +99,7 @@ Deno.serve(async (req) => {
     const payload: Uint8Array = new Uint8Array(19)
     crypto.getRandomValues(payload);
 
-    const itemPrice = toScaleFactor(body.amount, 1, 2)
+    const itemPrice = eurToScaleUnits(body.amount)
     const timestampSec = Math.floor(new Date().getTime() / 1000);
 
     payload[0] = 0x20;
@@ -130,6 +123,19 @@ Deno.serve(async (req) => {
     }
 
     await mqttPublish(`/${embeddedData.company}/${embeddedData.id}/credit`, payload);
+
+    // A manually pushed amount replaces whatever the machine was holding, so
+    // any open RFID card session goes with it — otherwise the vend this pays
+    // for would be charged back to whoever tapped their card last.
+    // Best-effort: never fail a delivered credit over bookkeeping.
+    try {
+      await adminClient.rpc('card_session_close', {
+        p_embedded_id: embeddedData.id,
+        p_reason: 'credit_replaced',
+      })
+    } catch (sessionErr) {
+      console.error('card_session_close failed:', sessionErr)
+    }
 
     // NOTE: No sale is recorded here. The actual sale is created when the
     // device reports it via the MQTT 'sale' topic → mqtt-webhook function.

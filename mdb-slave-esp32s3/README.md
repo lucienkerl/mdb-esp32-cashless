@@ -16,3 +16,20 @@ already in use. Flashing this firmware onto that board will not bring up
 cellular connectivity as-is. See
 `kicad/mdb-slave-esp32s3-sim7080g/README.md` for the full pin trace and
 what reconciling the two would take.
+
+## RFID card reader on the pulse input
+
+A serial RFID reader (F02DC and compatibles) can be wired to the board's
+pulse input — reader TX to GPIO 13, plus GND and power — and turns the
+machine into a prepaid-card reader. No hardware change: the pin is routed
+through the GPIO matrix to UART0, which is free because the console runs
+over USB-Serial-JTAG.
+
+Presenting a card sends its serial to the backend, which answers with the
+balance of that card's account as MDB credit; the vend that follows is
+charged back to the account. Settings live under
+`idf.py menuconfig` → **RFID card reader**; the driver is
+`main/rfid_reader.c` with a host-side test in `test/rfid/run.sh`.
+
+Full write-up, including the frame format and the backend flow:
+[`docs/integrations/rfid-card-reader.md`](../docs/integrations/rfid-card-reader.md).

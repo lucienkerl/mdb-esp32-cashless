@@ -12,6 +12,7 @@ import { useInsights, sortedRecommendations, priorityVariant, recommendationType
 import { suppressedReasonParts, buildSalesFeedDays } from '~/composables/useSuppressedSales'
 import { useDeviceRestarts, reasonLabel, reasonVariant, formatUptime } from '@/composables/useDeviceRestarts'
 import { timeAgo, formatCurrency, formatDate, formatTime, formatDateTime } from '@/lib/utils'
+import { MAX_INTERNAL_ITEM_NUMBER, findInternalItemNumberConflict, findShadowingTray, parseInternalItemNumber } from '@/lib/trayInternalNumber'
 import MachineSettingsModal from '~/components/MachineSettingsModal.vue'
 import { usePosterFreshness } from '@/composables/usePosterFreshness'
 import MachineAnalysisPanel from '~/components/analysis/MachineAnalysisPanel.vue'
@@ -649,13 +650,29 @@ async function setMdbAddress(address: 1 | 2) {
 }
 
 // ── Tray management ─────────────────────────────────────────────────────────
-const trayModal = useModalForm({ item_number: 0, product_id: '' as string | null, capacity: 10, current_stock: 0 })
+const trayModal = useModalForm({ item_number: 0, internal_item_number: '' as number | string, product_id: '' as string | null, capacity: 10, current_stock: 0 })
 
 function openAddTray() {
   const maxSlot = trays.value.length > 0
     ? Math.max(...trays.value.map(t => t.item_number)) + 1
     : 0
-  trayModal.openModal({ item_number: maxSlot, product_id: '', capacity: 10, current_stock: 0 })
+  trayModal.openModal({ item_number: maxSlot, internal_item_number: '', product_id: '', capacity: 10, current_stock: 0 })
+}
+
+/**
+ * Parse and check an internal tray number for `trayId` (null for a tray that
+ * does not exist yet). `value: null` means "no mapping".
+ */
+function validateInternalItemNumber(trayId: string | null, input: string | number): { value: number | null } | { error: string } {
+  const value = parseInternalItemNumber(input)
+  if (value === 'invalid') {
+    return { error: t('machineDetail.internalSlotInvalid', { max: MAX_INTERNAL_ITEM_NUMBER }) }
+  }
+  const conflict = value === null ? undefined : findInternalItemNumberConflict(trays.value, trayId, value)
+  if (conflict) {
+    return { error: t('machineDetail.internalSlotTaken', { number: value, slot: conflict.item_number }) }
+  }
+  return { value }
 }
 
 async function submitTray() {
@@ -671,15 +688,69 @@ async function submitTray() {
     trayModal.error.value = t('machineDetail.stockCannotExceed')
     return
   }
+  // The upsert overwrites a tray that already has this slot number, so that
+  // tray must not count as a conflict with itself.
+  const existingTray = trays.value.find(tr => tr.item_number === trayModal.form.value.item_number)
+  const internal = validateInternalItemNumber(existingTray?.id ?? null, trayModal.form.value.internal_item_number)
+  if ('error' in internal) {
+    trayModal.error.value = internal.error
+    return
+  }
   await trayModal.submit(async () => {
     await upsertTray({
       machine_id: machine.value.id,
       item_number: trayModal.form.value.item_number,
+      // Left empty: don't send it, so re-adding an existing slot keeps its mapping.
+      ...(internal.value !== null ? { internal_item_number: internal.value } : {}),
       product_id: trayModal.form.value.product_id || null,
       capacity: trayModal.form.value.capacity,
       current_stock: trayModal.form.value.current_stock,
     })
   })
+}
+
+// ── Internal tray number (inline) ───────────────────────────────────────────
+// Error of the last rejected inline edit; shown under that tray's input.
+const internalSlotError = ref<{ trayId: string; message: string } | null>(null)
+
+async function saveInternalItemNumber(trayId: string, input: string) {
+  const tray = trays.value.find(tr => tr.id === trayId)
+  if (!tray) return
+  const internal = validateInternalItemNumber(trayId, input)
+  if ('error' in internal) {
+    internalSlotError.value = { trayId, message: internal.error }
+    return
+  }
+  internalSlotError.value = null
+  if (tray.internal_item_number === internal.value) return
+  try {
+    await updateTray(trayId, machine.value.id, { internal_item_number: internal.value })
+  } catch {
+    internalSlotError.value = { trayId, message: t('machineDetail.failedToSaveTray') }
+  }
+}
+
+function handleInternalSlotKeydown(event: KeyboardEvent, trayId: string) {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    saveInternalItemNumber(trayId, (event.target as HTMLInputElement).value)
+    // Advance to the next row's internal number: mappings are typically
+    // entered for the whole machine in one go.
+    const idx = sortedTrays.value.findIndex(tr => tr.id === trayId)
+    const nextTray = sortedTrays.value[idx + 1]
+    if (nextTray) {
+      nextTick(() => {
+        const el = document.getElementById(`internal-slot-${nextTray.id}`) as HTMLInputElement | null
+        el?.focus()
+        el?.select()
+      })
+    } else {
+      (event.target as HTMLInputElement).blur()
+    }
+  }
+  if (event.key === 'Escape') {
+    (event.target as HTMLInputElement).blur()
+  }
 }
 
 // ── Inline tray editing ─────────────────────────────────────────────────────
@@ -1713,6 +1784,7 @@ async function handleAddSale() {
                           class="inline-flex items-center gap-1 rounded px-1 py-0.5 transition-colors hover:bg-muted active:bg-muted/80"
                           @click="expandedMobileTray = expandedMobileTray === tray.id ? null : tray.id"
                         >
+                          <span v-if="tray.internal_item_number != null">{{ t('machineDetail.internalSlot') }}: {{ tray.internal_item_number }}</span>
                           <span v-if="tray.min_stock">{{ t('machineDetail.min') }}: {{ tray.min_stock }}</span>
                           <span v-if="tray.fill_when_below">{{ t('machineDetail.fill') }}: {{ tray.fill_when_below }}</span>
                           <span v-if="!tray.min_stock && !tray.fill_when_below" class="italic">{{ t('machineDetail.setThresholds') }}</span>
@@ -1722,6 +1794,7 @@ async function handleAddSale() {
                           ><polyline points="6 9 12 15 18 9" /></svg>
                         </button>
                         <template v-else>
+                          <span v-if="tray.internal_item_number != null">{{ t('machineDetail.internalSlot') }}: {{ tray.internal_item_number }}</span>
                           <span v-if="tray.min_stock">{{ t('machineDetail.min') }}: {{ tray.min_stock }}</span>
                           <span v-if="tray.fill_when_below">{{ t('machineDetail.fill') }}: {{ tray.fill_when_below }}</span>
                         </template>
@@ -1742,8 +1815,20 @@ async function handleAddSale() {
                     <!-- Expandable thresholds row (mobile, admin only) -->
                     <div
                       v-if="isAdmin && expandedMobileTray === tray.id"
-                      class="mt-2 flex items-center gap-4 rounded-md bg-muted/50 px-3 py-2"
+                      class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md bg-muted/50 px-3 py-2"
                     >
+                      <label class="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        {{ t('machineDetail.internalSlot') }}
+                        <input
+                          type="number"
+                          :value="tray.internal_item_number ?? ''"
+                          min="0"
+                          :max="MAX_INTERNAL_ITEM_NUMBER"
+                          placeholder="—"
+                          class="h-7 w-16 rounded border border-input bg-background px-1.5 text-center font-mono text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          @change="(e: Event) => saveInternalItemNumber(tray.id, (e.target as HTMLInputElement).value)"
+                        />
+                      </label>
                       <label class="flex items-center gap-1.5 text-xs text-muted-foreground">
                         {{ t('machineDetail.min') }}
                         <input
@@ -1766,6 +1851,12 @@ async function handleAddSale() {
                           @change="(e: Event) => saveInlineField(tray.id, 'fill_when_below', parseInt((e.target as HTMLInputElement).value) || 0)"
                         />
                       </label>
+                      <p v-if="internalSlotError?.trayId === tray.id" class="w-full text-[10px] leading-tight text-destructive">
+                        {{ internalSlotError.message }}
+                      </p>
+                      <p v-else-if="findShadowingTray(trays, tray)" class="w-full text-[10px] leading-tight text-amber-600 dark:text-amber-400">
+                        {{ t('machineDetail.internalSlotShadowed', { number: tray.item_number, slot: findShadowingTray(trays, tray)!.item_number }) }}
+                      </p>
                     </div>
                   </div>
                   </SwipeRight>
@@ -1778,6 +1869,21 @@ async function handleAddSale() {
                       <tr class="border-b bg-muted/50 text-left">
                         <th class="w-20 px-4 py-3 font-medium cursor-pointer select-none hover:text-foreground" @click="toggleTraySort('slot')">
                           <SortHeader :icon="traySortIcon('slot')">{{ t('machineDetail.slot') }}</SortHeader>
+                        </th>
+                        <th class="w-24 px-4 py-3 font-medium">
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger as-child>
+                                <span class="inline-flex cursor-help items-center gap-1">
+                                  {{ t('machineDetail.internalSlot') }}
+                                  <span class="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-muted-foreground/20 text-[9px] font-semibold leading-none text-muted-foreground">i</span>
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p class="max-w-56">{{ t('machineDetail.internalSlotTooltip') }}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                         </th>
                         <th class="px-4 py-3 font-medium cursor-pointer select-none hover:text-foreground" @click="toggleTraySort('product')">
                           <SortHeader :icon="traySortIcon('product')">{{ t('machineDetail.product') }}</SortHeader>
@@ -1837,6 +1943,30 @@ async function handleAddSale() {
                           <span v-if="trayProductMap.get(tray.item_number)?.sellprice" class="ml-1 text-xs text-muted-foreground">
                             {{ formatCurrency(trayProductMap.get(tray.item_number)!.sellprice!, locale) }}
                           </span>
+                        </td>
+
+                        <!-- Internal tray number: what the machine reports for this slot (empty = same as the slot) -->
+                        <td class="px-4 py-2">
+                          <input
+                            v-if="isAdmin"
+                            :id="`internal-slot-${tray.id}`"
+                            type="number"
+                            :value="tray.internal_item_number ?? ''"
+                            min="0"
+                            :max="MAX_INTERNAL_ITEM_NUMBER"
+                            placeholder="—"
+                            :aria-label="t('machineDetail.internalSlot')"
+                            class="h-7 w-16 rounded border border-transparent bg-transparent px-1 text-center font-mono text-sm placeholder:text-muted-foreground hover:border-input focus:border-input focus:bg-background focus:shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                            @change="(e: Event) => saveInternalItemNumber(tray.id, (e.target as HTMLInputElement).value)"
+                            @keydown="(e: KeyboardEvent) => handleInternalSlotKeydown(e, tray.id)"
+                          />
+                          <span v-else class="font-mono text-muted-foreground">{{ tray.internal_item_number ?? '—' }}</span>
+                          <p v-if="internalSlotError?.trayId === tray.id" class="mt-0.5 max-w-40 text-[10px] leading-tight text-destructive">
+                            {{ internalSlotError.message }}
+                          </p>
+                          <p v-else-if="findShadowingTray(trays, tray)" class="mt-0.5 max-w-40 text-[10px] leading-tight text-amber-600 dark:text-amber-400">
+                            {{ t('machineDetail.internalSlotShadowed', { number: tray.item_number, slot: findShadowingTray(trays, tray)!.item_number }) }}
+                          </p>
                         </td>
 
                         <!-- Product (inline autocomplete for admins) -->
@@ -2126,6 +2256,37 @@ async function handleAddSale() {
                       <p class="mt-1 text-sm font-mono truncate">{{ machine.embeddeds.mdb_diagnostics.lastCmd }}</p>
                     </div>
                   </div>
+                  <!-- RFID reader: the firmware only sends this block once a reader
+                       is attached, so boards without one look exactly as before. -->
+                  <div v-if="machine.embeddeds.mdb_diagnostics.rfid" class="mt-4 border-t pt-3">
+                    <p class="text-xs text-muted-foreground uppercase tracking-wide">{{ t('machineDetail.rfidReader') }}</p>
+                    <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                      <span>{{ t('machineDetail.rfidCards') }}: <span class="font-medium">{{ machine.embeddeds.mdb_diagnostics.rfid.cards ?? 0 }}</span></span>
+                      <span>{{ t('machineDetail.rfidFrames') }}: <span class="font-medium">{{ machine.embeddeds.mdb_diagnostics.rfid.ok ?? 0 }}</span></span>
+                      <span :class="machine.embeddeds.mdb_diagnostics.rfid.bad ? 'text-red-500' : ''">
+                        {{ t('machineDetail.rfidBad') }}: <span class="font-medium">{{ machine.embeddeds.mdb_diagnostics.rfid.bad ?? 0 }}</span>
+                      </span>
+                      <span>{{ t('machineDetail.rfidRepeats') }}: <span class="font-medium">{{ machine.embeddeds.mdb_diagnostics.rfid.dup ?? 0 }}</span></span>
+                      <span v-if="machine.embeddeds.mdb_diagnostics.rfid.rx != null">
+                        {{ t('machineDetail.rfidBytes') }}: <span class="font-medium">{{ machine.embeddeds.mdb_diagnostics.rfid.rx }}</span>
+                      </span>
+                    </div>
+                    <!-- The two failure modes a counter can actually tell apart:
+                         a silent line, and a line that talks another dialect. -->
+                    <p
+                      v-if="machine.embeddeds.mdb_diagnostics.rfid.rx === 0"
+                      class="mt-2 text-xs text-amber-600 dark:text-amber-500"
+                    >
+                      {{ t('machineDetail.rfidNoBytes') }}
+                    </p>
+                    <p
+                      v-else-if="machine.embeddeds.mdb_diagnostics.rfid.rx > 0 && !machine.embeddeds.mdb_diagnostics.rfid.ok"
+                      class="mt-2 text-xs text-amber-600 dark:text-amber-500"
+                    >
+                      {{ t('machineDetail.rfidNoFrames') }}
+                    </p>
+                  </div>
+
                   <p class="mt-3 text-xs text-muted-foreground">
                     Updated {{ timeAgo(machine.embeddeds.mdb_diagnostics.updated_at, t) }}
                   </p>
@@ -2623,6 +2784,19 @@ async function handleAddSale() {
                 required
                 class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
+            </div>
+            <div class="space-y-1">
+              <label class="text-sm font-medium" for="tray-internal-slot">{{ t('machineDetail.internalSlotLabel') }}</label>
+              <input
+                id="tray-internal-slot"
+                v-model="trayModal.form.value.internal_item_number"
+                type="number"
+                min="0"
+                :max="MAX_INTERNAL_ITEM_NUMBER"
+                :placeholder="t('machineDetail.internalSlotPlaceholder')"
+                class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              />
+              <p class="text-xs text-muted-foreground">{{ t('machineDetail.internalSlotHint') }}</p>
             </div>
             <div class="space-y-1">
               <label class="text-sm font-medium">{{ t('machineDetail.product') }}</label>

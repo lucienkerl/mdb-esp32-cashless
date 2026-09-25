@@ -85,6 +85,75 @@ menu "MDB Cashless Device"
 
 endmenu # MDB Cashless Device
 
+menu "RFID card reader"
+
+    config RFID_READER_ENABLE
+        bool "Serial RFID reader on the pulse input"
+        default y
+        help
+            Read a serial RFID reader (F02DC and compatibles) wired to the
+            board's pulse input. Every card presented is published to the
+            MQTT topic /{company}/{device}/card; the backend answers with
+            the card account's balance on the /credit topic.
+
+            No hardware change is needed — the pulse input is routed
+            through the GPIO matrix to a spare UART receiver.
+
+    config RFID_UART_PORT
+        int "UART port"
+        depends on RFID_READER_ENABLE
+        default 0
+        range 0 2
+        help
+            UART1 carries DEX telemetry and UART2 the SIM7080G modem, so
+            UART0 is the only free port on this board. It is available
+            because the console runs over USB-Serial-JTAG.
+
+    config RFID_RX_GPIO
+        int "RX GPIO (reader TX -> board pulse input)"
+        depends on RFID_READER_ENABLE
+        default 13
+        help
+            GPIO 13 is PIN_PULSE_1 on the production PCB, broken out as
+            io13 on the J4 expansion header.
+
+            Wire the reader to that header pin, NOT to the three-pin Pulse
+            connector: the connector is an output (it carries the collector
+            of Q7, whose base GPIO 13 drives through R27), so nothing on it
+            can reach the SoC. The reader's output must also be push-pull —
+            R27 parks an undriven line near 0.9 V. Any free GPIO (io1, io2,
+            io6 on the slave board) avoids both issues.
+
+    config RFID_BAUD
+        int "Baud rate"
+        depends on RFID_READER_ENABLE
+        default 9600
+        help
+            F02DC ships at 9600 8N1.
+
+    config RFID_INVERT_RX
+        bool "Invert the RX line"
+        depends on RFID_READER_ENABLE
+        default n
+        help
+            Enable when the pulse input passes through an inverting buffer
+            or optocoupler, so the idle level reaches the SoC as low.
+
+    config RFID_DEDUP_MS
+        int "Duplicate suppression window (ms)"
+        depends on RFID_READER_ENABLE
+        default 5000
+        range 250 60000
+        help
+            These readers repeat the serial for as long as the card sits on
+            the antenna. Repeats of the same serial within this window are
+            dropped, and each repeat slides the window forward, so one card
+            presentation causes exactly one backend request however long
+            the card is held there. The card has to be away for this long
+            before it counts as a new presentation.
+
+endmenu # RFID card reader
+
 menu "SIM7080G"
 
     choice

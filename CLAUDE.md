@@ -31,7 +31,8 @@ Single main file `main/mdb-slave-esp32s3.c` runs these concurrent FreeRTOS tasks
 - `mdb_cashless_loop` – MDB protocol handler on UART2 (GPIO4 RX, GPIO5 TX, 9600 baud, 9-bit mode)
 - `bleprph_host_task` – NimBLE BLE peripheral (in `nimble.c`) for legacy device config and vend approvals
 - MQTT client over WiFi for credit delivery and sales publishing
-- Telemetry reader on UART1 (GPIO43 TX, GPIO44 RX) for DEX/DDCMP data
+- Telemetry reader on UART1 (GPIO9 TX, GPIO8 RX — `PIN_DEX_TX`/`PIN_DEX_RX`, configured unconditionally at boot) for DEX/DDCMP data
+- `rfid_reader_task` – serial RFID card reader (F02DC) on UART0, RX = the pulse input (GPIO13), 9600 8N1
 
 **MDB State machine**: `INACTIVE → DISABLED → ENABLED → IDLE → VEND → IDLE`
 
@@ -83,7 +84,43 @@ cycle and then stays silent, which satisfies both.
 
 **Security**: MQTT and BLE payloads use XOR obfuscation with an 18-byte `passkey` plus a ±8 second timestamp window to prevent replay attacks.
 
-**MQTT topics**: `/{company_id}/{device_id}/{event}` where events are: `sale`, `status`, `paxcounter`, `dex`, `mdb-log`, `credit`, `ota`, `config`
+**Money arithmetic (`scale_factor.h`)**: MDB carries prices as integers in
+scale-factor units (a cent at the configured scale 1 / 2 decimals). The
+conversion goes through `pow(10, -dec)`, which is not exactly representable,
+so the round trip lands just *below* the integer it should hit — 8.20 becomes
+819.9999999999999 — and assigning that to an integer truncates. `TO_SCALE_FACTOR`
+therefore rounds (`llround`); `FROM_SCALE_FACTOR` stays a plain double because
+its result is a currency amount that callers print. The backend does the same
+on its side (`functions/_shared/scale.ts`). Both truncating forms were live
+once and compounded: a card balance of 8.20 reached the machine as 8.18.
+Regression tests: `mdb-slave-esp32s3/test/scale/run.sh` and
+`functions/_shared/scale.test.ts`.
+
+**MQTT topics**: `/{company_id}/{device_id}/{event}` where events are: `sale`, `status`, `paxcounter`, `dex`, `mdb-log`, `card`, `credit`, `ota`, `config`
+
+**RFID card reader (`rfid_reader.c` / `rfid_reader.h`)**: serial reader
+(F02DC and compatibles) on the **pulse pin** (GPIO 13) — no added hardware,
+the pin is routed through the GPIO matrix to UART0 (free because the console
+is on USB-Serial-JTAG; UART1 is DEX, UART2 the modem). The reader goes on
+`io13` of the J4 expansion header, **not** on the three-pin Pulse connector:
+that connector is an output (GND, `vin`, and the collector of Q7, whose base
+GPIO 13 drives through the 4k7 R27), so a reader wired there never reaches
+the SoC. R27 also means the reader's output has to be push-pull; any free pin
+(`io1`/`io2`/`io6`) avoids both, via `CONFIG_RFID_RX_GPIO`. Frames are
+`0x02 | LEN | TYPE | DATA… | XOR | 0x03`, parsed delimiter-driven and
+validated by the XOR byte rather than by trusting `LEN` (vendors disagree
+about what it counts). Readers repeat the serial while the card sits on the
+antenna, so repeats within `CONFIG_RFID_DEDUP_MS` (default 5 s) are dropped
+and each repeat slides the window — **one presentation is one backend
+request**. A card that could not be reported clears the dedup memory so the
+customer can simply present it again. Counters (`ok`/`bad`/`cards`/`dup`/`rx`, the last one raw bytes read)
+ride along in the `/mdb-log` diagnostics payload and are shown on the
+machine's MDB diagnostics card; a burst that parses into nothing is also
+hex-dumped to the console (rate-limited), which is what tells a mute
+reader apart from one speaking another dialect. Card presentations are
+published to `/{company}/{device}/card` as a variable-length payload
+(cmd `0x25`, see `card_payload_encode`) because the 19-byte sale payload has
+no room for a UID. Full write-up: `docs/integrations/rfid-card-reader.md`.
 
 **NVS namespace `vmflow`** keys:
 - `company_id` – UUID from companies table
@@ -231,7 +268,7 @@ docker compose down -v --remove-orphans
 
 ### MQTT Forwarder
 
-`Docker/mqtt/forwarder/main.ts` is a Deno service that subscribes to MQTT topics `/+/+/sale`, `/+/+/status`, `/+/+/paxcounter`, `/+/+/mdb-log` and forwards raw payloads (base64-encoded) to the `mqtt-webhook` Supabase edge function via HTTP POST with webhook secret authentication. The `mqtt-webhook` function decrypts XOR payloads, validates checksum + timestamp (±8s), and writes to Supabase tables. The `mdb-log` topic carries plaintext JSON diagnostics (no XOR encryption).
+`Docker/mqtt/forwarder/main.ts` is a Deno service that subscribes to MQTT topics `/+/+/sale`, `/+/+/status`, `/+/+/paxcounter`, `/+/+/mdb-log`, `/+/+/card` and forwards raw payloads (base64-encoded) to the `mqtt-webhook` Supabase edge function via HTTP POST with webhook secret authentication. The `mqtt-webhook` function decrypts XOR payloads, validates checksum + timestamp (±8s), and writes to Supabase tables. The `mdb-log` topic carries plaintext JSON diagnostics (no XOR encryption).
 
 ### Supabase Local Development
 
@@ -272,10 +309,13 @@ Tables:
 - `device_provisioning` – one-time provisioning codes: `short_code`, `expires_at`, `used_at`, `embedded_id`
 - `vendingMachine` – physical machine records linked to embedded devices; `nayax_machine_id` (nullable text, UNIQUE per company) maps to a Nayax serial for `/reports/nayax-reconciliation`; `contact_phone`/`whatsapp_phone`/`support_hours`/`contact_email` are nullable **overrides** of the company imprint used by printed posters (empty = inherit)
 - `products`, `product_category` – product catalogue per company; `products.image_path` stores the storage object path; `products.discontinued` (boolean) flag
-- `machine_trays` – per-machine tray/slot configuration: `machine_id`, `item_number` (unique per machine), `product_id`, `capacity`, `current_stock`, `fill_when_below` (refill threshold), `product_assigned_at` (timestamp the current product was assigned to the slot, restamped on product change via trigger); stock auto-decremented on sales via `stamp_machine_and_decrement_stock` trigger
+- `machine_trays` – per-machine tray/slot configuration: `machine_id`, `item_number` (unique per machine), `product_id`, `capacity`, `current_stock`, `fill_when_below` (refill threshold), `product_assigned_at` (timestamp the current product was assigned to the slot, restamped on product change via trigger), `internal_item_number` (optional "internal tray number": the selection number the machine reports for this slot when it differs from the label; unique per machine, NULL = no mapping); stock auto-decremented on sales via `stamp_machine_and_decrement_stock` trigger. `item_number` is always the **labelled** number: `mqtt-webhook` translates the reported number at ingest (sale + DEX) — a tray whose `internal_item_number` matches wins, otherwise `vendingMachine.item_number_offset` is added (`mqtt-webhook/tray-mapping.ts`). No backfill; `internal_item_number_since` is a server-stamped cut-over the Nayax reconciliation and `dex_reconcile_gaps` use to decide per row
 - `machine_product_offerings` – per-`(machine_id, product_id)` offering history for the Analysis tab: `offered_since` timestamp tracks how long a product has been offered in a machine **independent of which slot(s) it occupies**. Maintained by an AFTER trigger on `machine_trays` (`maintain_machine_product_offerings`): moving a product between slots keeps the offering open; only removing it from every slot closes it (a later re-add starts a fresh trial). Used so the "testing" grace period survives slot moves.
 - `poster_layouts` – saved poster configuration per motif: which QR source sits in which slot, the operator's own link, overridden headlines/labels, and the content blocks. `machine_id IS NULL` is the company default, a set `machine_id` overrides it for one machine (partial unique indexes enforce one row each). Read by every member, written by admins.
 - `api_keys` – API keys for external integrations: `company_id`, `key_hash`, `key_prefix`, `name`
+- `card_accounts` – prepaid RFID card balances: `name`, `balance` (**EUR**), `is_active`, `last_seen_at`. Resolved by the card serial being **contained in `name`**, so `04A1B2C3` can be renamed to `Jane Doe (04A1B2C3)` without breaking the card; an unknown card auto-creates an account at 0
+- `card_account_transactions` – append-only ledger behind `card_accounts.balance` (`topup` / `vend` / `adjustment` / `refund`); `UNIQUE(sale_id)` makes a webhook replay charge a vend exactly once
+- `card_sessions` – which card account currently holds a device's credit (one open per device, 15 min TTL); how an incoming cashless sale is mapped back to an account
 - `warehouses` – warehouse locations per company
 - `product_barcodes` – barcode-to-product mapping for scanning
 - `warehouse_stock_batches` – FIFO stock batches with expiry tracking
@@ -295,6 +335,10 @@ Key RPC functions:
 - `delete_sale_and_restore_stock(sale_id)` – manual sale deletion with stock restoration
 - `insert_manual_sale(machine_id, item_number, price, channel, created_at)` – manual sale insertion
 - `deduct_warehouse_stock_fifo(...)` – FIFO warehouse stock deduction for refills
+- `card_account_resolve(company_id, card_uid)` – find (or auto-create) the card account whose name contains the serial; service role only
+- `card_session_open(...)` / `card_session_close(embedded_id, reason)` – open/supersede the device's card session; every non-card credit path (`send-credit`, Stripe, the app via `deliverCredit`) closes it so a paid vend is never charged to whoever tapped last
+- `card_account_charge_vend(embedded_id, amount, sale_id)` – subtract a completed cashless sale from the open session's account; no-op when the device has no live session
+- `card_account_topup(account_id, amount, description)` – operator-facing signed balance change (admins only), always writing a ledger row
 
 ### Supabase Storage
 
@@ -319,7 +363,7 @@ All functions use `verify_jwt = false` in `config.toml` (workaround for ES256 `C
 | `claim-device` | none | Called by firmware; validates code, creates `embeddeds` row, returns `{company_id, device_id, passkey, mqtt_host, mqtt_port}` |
 | `send-credit` | yes | Encrypt + publish credit to device MQTT topic |
 | `request-credit` | yes | Related credit request flow |
-| `mqtt-webhook` | webhook secret | Receives forwarded MQTT payloads, decrypts + validates + writes to DB |
+| `mqtt-webhook` | webhook secret | Receives forwarded MQTT payloads, decrypts + validates + writes to DB; on `card` resolves the card account and delivers its balance as credit, on a cashless `sale` charges it back |
 | `trigger-ota` | admin | Publishes OTA firmware URL to device MQTT topic |
 | `import-products` | admin | Bulk import products from Nayax Excel export |
 | `register-push` | yes | Register browser push notification subscription |
@@ -353,7 +397,8 @@ When adding a new env var that the frontend or edge functions need in production
 **Edge function config**: Each edge function needs a `[functions.<name>]` section in `config.toml` with `import_map` pointing to its `deno.json` file. The self-hosted edge runtime reads secrets from `[edge_runtime.secrets]`.
 
 **Shared modules** (`Docker/supabase/functions/_shared/`):
-- `mqtt-publish.ts` – reusable MQTT publish helper (connects to broker, publishes, disconnects)
+- `mqtt-publish.ts` – reusable MQTT publish helper (connects to broker, publishes, disconnects). Speaks MQTT 3.1.1 over a **native WebSocket** rather than `npm:mqtt`: the library's Node path builds the upgrade with `ws`, which sets `options.createConnection`, and the edge runtime's node compatibility layer does not implement that — every publish died with `Not implemented: ClientRequest.options.createConnection`. Unit + stub-broker tests in `mqtt-publish.test.ts`
+- `scale.ts` – EUR ↔ MDB scale-factor units. Use `eurToScaleUnits()` for anything going onto the wire; never `amount / Math.pow(10, -2)`, which lands below the integer and gets truncated (see the money-arithmetic note in the firmware section)
 - `web-push.ts` – web push notification sender
 
 ---
@@ -392,13 +437,14 @@ Public routes (no auth check): `/auth/login`, `/auth/register`, `/onboarding/*`
 - `useProducts()` – CRUD for products + categories; `uploadProductImage(productId, file)` uploads to `product-images/{id}.{ext}` with upsert; `deleteProductImage()` removes from storage + nulls `image_path`; `deleteProduct()` cleans up storage; `getProductImageUrl(path)` builds public URL; `createProduct()` returns the new product ID
 - `usePosterFreshness()` – per machine: does the sign hanging on it still show the current contact data? Recomputes the contact fingerprint from today's data using the blocks the `poster_printed` entry recorded, and compares it with the fingerprint stored at print time — so a motif change or a reprint in another language is not a change, but a new support number is. Drives the "sign out of date" badge on `/machines` and the banner on `/machines/[id]`
 - `useMachinePrint()` – data, QR rendering and layout persistence for the printable machine posters (`/machines/[id]/print`): resolves `machine.x ?? company.x` contact data, resolves each motif **slot** to a QR target (machine page / `tel:` / WhatsApp / fault form / the operator's own link / empty), renders them as **SVG** (not data URLs — visibly sharper at 5 cm on paper), loads and saves `poster_layouts`, and writes the `poster_printed` activity entry. The pure logic lives in `app/lib/printSheet.ts` and is unit-tested; motifs declare their slots, editable headlines and blocks in `app/lib/printMotifs.ts`
-- `useMachineTrays()` – CRUD for machine tray/slot configuration; `batchCreateTrays(machineId, startSlot, count, capacity)` bulk-inserts sequential slots; `updateTray()` updates by ID (allows slot number changes); `subscribeToTrayUpdates()` for realtime stock changes; stock auto-decrements on sales via DB trigger
+- `useMachineTrays()` – CRUD for machine tray/slot configuration; `batchCreateTrays(machineId, startSlot, count, capacity)` bulk-inserts sequential slots; `updateTray()` updates by ID (allows slot number changes and the per-tray `internal_item_number`, validated by `app/lib/trayInternalNumber.ts`); `subscribeToTrayUpdates()` for realtime stock changes; stock auto-decrements on sales via DB trigger
 - `useMachineAnalysis()` – powers the Analysis tab on `/machines/[id]`. **Product-centric** performance analysis: combines `get_machine_product_kpis` (sales aggregated per product across all its slots), `get_product_sales_velocity` (fleet-wide velocity), the product catalogue, and `machine_product_offerings` tenure. Exposes pure, unit-tested helpers — `slotRowCol`/`computeSlotWidths`/`buildGridSlots` (replicate the iOS layout: 10 columns, `row=max(0,⌊item/10⌋-1)`, `col=item%10`, width=gap to next slot), `scoreProduct` (tier: dead/weak/ok/strong, plus a "testing" grace period for products offered < ~14 days so freshly-placed or brand-new test products aren't condemned), and `buildSuggestionPool` (replacement candidates = proven fleet bestsellers + never-sold "newcomer" test products). `applySwap(trayId, productId)` reassigns a slot's product (resets stock to 0, logs `product_swapped` to `activity_log`)
 - `useFirmware()` – CRUD for firmware versions in `firmware` storage bucket; `triggerOta(deviceId, firmwareId)` calls `trigger-ota` edge function
 - `useImportProducts()` – parses Nayax Excel exports, previews products, bulk imports via `import-products` edge function
 - `useNotifications()` – browser push notification registration and management via `register-push` edge function
 - `useWarehouse()` – CRUD for warehouses, stock batches (FIFO), transactions, barcode lookups, min-stock alerts; `deductStock()` calls `deduct_warehouse_stock_fifo` DB function for refill operations
 - `useMdbLog()` – fetches MDB diagnostics history from `mdb_log` table with realtime subscription
+- `useCardAccounts()` – CRUD for prepaid RFID card accounts plus `adjustBalance()` (via the `card_account_topup` RPC, so the ledger always matches) and the per-account transaction history. Exports the unit-tested `extractCardSerials`/`keepsCardSerials` helpers the rename warning uses — dropping the serial from a name orphans the physical card
 - `useActivityLog()` – activity/audit log composable
 
 **Refill & insights:**
@@ -446,6 +492,7 @@ Public routes (no auth check): `/auth/login`, `/auth/register`, `/onboarding/*`
 - `/history` – Activity/audit log
 - `/devices` – Admin device management: registered embedded devices table, register new device with provisioning code + QR, pending tokens, delete device
 - `/firmware` – Firmware version management: upload .bin files + import from GitHub releases, deploy OTA to devices, delete versions
+- `/card-accounts` – prepaid RFID card accounts: balances, last use, block/unblock, top-up and correction (both ledgered), per-account history. Admin-only for writes; every member can read
 - `/api-keys` – API key management: create/revoke keys for external integrations
 - `/members` – Active members table + pending invitations (admin only); invite modal calls `invite-member`
 - `/settings` – Application settings (incl. Anthropic API key for AI insights, velocity days config)
@@ -477,4 +524,11 @@ npx vitest run          # run all tests
 npx vitest run --watch  # watch mode
 ```
 
-Edge function tests (Deno): `Docker/supabase/functions/mqtt-webhook/mdb-log.test.ts`
+Firmware host-side tests need no board and compile the real sources:
+- `mdb-slave-esp32s3/test/rfid/run.sh` — the F02DC frame parser
+  (`main/rfid_reader.c` against a few ESP-IDF stubs): framing, XOR validation,
+  duplicate suppression, resync.
+- `mdb-slave-esp32s3/test/scale/run.sh` — `main/scale_factor.h`: every credit
+  and price value over the whole uint16 MDB range converts exactly.
+
+Edge function tests (Deno): `Docker/supabase/functions/mqtt-webhook/*.test.ts` (`mdb-log`, `suppress`, `slot-offset`, `tray-mapping`, `stock-urgency`, `card-payload`) and `Docker/supabase/functions/_shared/*.test.ts` (`notification-i18n`, `scale`, `mqtt-publish` — the last drives the publisher against an in-process stub broker), run with `deno test -A` from the respective directory

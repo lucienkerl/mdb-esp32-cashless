@@ -2,11 +2,9 @@
  * Shared credit delivery helper — builds XOR-encrypted MDB credit payload
  * and publishes via MQTT. Same logic as send-credit/index.ts.
  */
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { mqttPublish } from './mqtt-publish.ts'
-
-function toScaleFactor(p: number, x: number, y: number): number {
-  return p / x / Math.pow(10, -y)
-}
+import { eurToScaleUnits } from './scale.ts'
 
 /**
  * Deliver credit to a vending machine via MQTT.
@@ -14,19 +12,25 @@ function toScaleFactor(p: number, x: number, y: number): number {
  * @param deviceId - Embedded device UUID (for MQTT topic)
  * @param passkey - Device passkey string (for XOR encryption)
  * @param amountEur - Amount in EUR (e.g., 2.50)
+ * @param opts.closeCardSession - default true. Credit from anywhere other
+ *   than an RFID card replaces whatever the machine was holding, so any open
+ *   card session has to go with it: otherwise the vend it pays for would be
+ *   charged back to whoever tapped their card last. mqtt-webhook's own card
+ *   handler passes false — it opens the session itself.
  */
 export async function deliverCredit(
   companyId: string,
   deviceId: string,
   passkey: string,
   amountEur: number,
+  opts: { closeCardSession?: boolean } = {},
 ): Promise<void> {
   const cipher: number[] = [...passkey].map((c: string) => c.charCodeAt(0))
 
   const payload = new Uint8Array(19)
   crypto.getRandomValues(payload)
 
-  const itemPrice = toScaleFactor(amountEur, 1, 2)
+  const itemPrice = eurToScaleUnits(amountEur)
   const timestampSec = Math.floor(Date.now() / 1000)
 
   payload[0] = 0x20                            // cmd: credit
@@ -52,4 +56,21 @@ export async function deliverCredit(
   }
 
   await mqttPublish(`/${companyId}/${deviceId}/credit`, payload, { qos: 1 })
+
+  if (opts.closeCardSession !== false) {
+    // Best-effort: a card-account bookkeeping problem must never make a paid
+    // credit look undelivered to the caller.
+    try {
+      const adminClient = createClient(
+        Deno.env.get('SUPABASE_URL')!,
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+      )
+      await adminClient.rpc('card_session_close', {
+        p_embedded_id: deviceId,
+        p_reason: 'credit_replaced',
+      })
+    } catch (err) {
+      console.error('card_session_close failed:', err)
+    }
+  }
 }

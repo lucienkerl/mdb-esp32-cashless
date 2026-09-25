@@ -1,10 +1,12 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { decodeBase64 } from 'https://deno.land/std@0.224.0/encoding/base64.ts'
 import { sendPushToUsers } from '../_shared/web-push.ts'
 import { stockUrgency } from './stock-urgency.ts'
 import { t, formatPrice, type Locale } from '../_shared/notification-i18n.ts'
 import { decideSuppress, rebootCorroborates, REBOOT_CORRELATION_WINDOW_MS, REBOOT_CORRELATION_FORWARD_MS, SUPPRESS_WINDOW_MS, type SuppressCandidate } from "./suppress.ts";
-import { applyItemOffset, shiftSlotCounters } from './slot-offset.ts';
+import { buildTrayMap, mapSlotCounters, resolveItemNumber, type TrayMap } from './tray-mapping.ts';
+import { clampCredit, decodeCardPayload } from './card-payload.ts';
+import { deliverCredit } from '../_shared/deliver-credit.ts';
 
 // Sale payload format version carried in byte 1 of the 19-byte XOR-encrypted
 // payload. v2 adds per-device monotonic sale_seq (bytes 14-17) + time_uncertain
@@ -59,6 +61,20 @@ function parseDexAudit(bytes: Uint8Array): DexParseResult {
   };
 }
 
+// The machine's per-tray "internal tray number" mapping (see tray-mapping.ts).
+// A failed lookup throws instead of degrading to "no mapping": the forwarder
+// retries a 5xx, while a sale booked on the wrong slot would stay there for
+// good — nothing backfills it.
+async function loadTrayMap(adminClient: SupabaseClient, machineId: string): Promise<TrayMap> {
+  const { data, error } = await adminClient
+    .from('machine_trays')
+    .select('item_number, internal_item_number')
+    .eq('machine_id', machineId)
+    .not('internal_item_number', 'is', null);
+  if (error) throw error;
+  return buildTrayMap(data ?? []);
+}
+
 Deno.serve(async (req) => {
   try {
     // Verify webhook secret
@@ -72,7 +88,7 @@ Deno.serve(async (req) => {
     const { topic, payload: payloadB64 } = body;
 
     // Parse topic: /{company_id}/{device_id}/{event_type}
-    const match = topic.match(/^\/([^/]+)\/([^/]+)\/(sale|status|paxcounter|mdb-log|restart|dex)$/);
+    const match = topic.match(/^\/([^/]+)\/([^/]+)\/(sale|status|paxcounter|mdb-log|restart|dex|card)$/);
     if (!match) {
       return new Response(JSON.stringify({ error: 'invalid topic' }), { status: 400 });
     }
@@ -322,7 +338,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // DEX / sale / paxcounter: look up device first (all three need passkey or embedded_id)
+    // DEX / card / sale / paxcounter: look up device first (all four need passkey or embedded_id)
     const { data: embeddedData, error: lookupError } = await adminClient
       .from('embeddeds')
       .select('passkey, id, owner_id, company')
@@ -342,18 +358,20 @@ Deno.serve(async (req) => {
       const dexBytes = decodeBase64(payloadB64);
       const parsed = parseDexAudit(dexBytes);
 
-      // The parsed slot keys are shifted by the same per-machine offset the sale
-      // path uses, so DEX counters and `sales.item_number` stay in one number
-      // space. `raw` below is deliberately NOT touched: it is the machine's own
-      // audit record and must stay verbatim.
+      // The parsed slot keys go through the same translation as the sale path
+      // (per-tray mapping, then per-machine offset), so DEX counters and
+      // `sales.item_number` stay in one number space. `raw` below is
+      // deliberately NOT touched: it is the machine's own audit record and must
+      // stay verbatim.
       const { data: dexMachine } = await adminClient
         .from('vendingMachine')
-        .select('item_number_offset')
+        .select('id, item_number_offset')
         .eq('embedded', embedded.id)
         .maybeSingle();
 
-      const slotCounters = shiftSlotCounters(
+      const slotCounters = mapSlotCounters(
         parsed.slot_counters,
+        dexMachine ? await loadTrayMap(adminClient, dexMachine.id) : new Map(),
         dexMachine?.item_number_offset ?? 0,
       );
 
@@ -369,6 +387,93 @@ Deno.serve(async (req) => {
 
       if (insertErr) throw insertErr;
       return new Response(JSON.stringify({ ok: true, slots: Object.keys(slotCounters).length }), { status: 200 });
+    }
+
+    // RFID card presented at the reader on the pulse input. Resolve the card
+    // account, then hand its balance to the machine over the same /credit
+    // topic send-credit uses. The vend that follows comes back as a normal
+    // cashless sale and is charged to the session opened here.
+    if (eventType === 'card') {
+      const cardBytes = new Uint8Array(decodeBase64(payloadB64));
+      const decoded = decodeCardPayload(cardBytes, embedded.passkey);
+
+      if (!decoded.ok) {
+        // 4xx: the forwarder drops these instead of retrying forever. A card
+        // read is only useful while the customer is still standing there.
+        return new Response(JSON.stringify({ error: decoded.error }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      const { uidHex, cardType } = decoded.card;
+
+      const { data: resolvedRows, error: resolveError } = await adminClient.rpc(
+        'card_account_resolve',
+        { p_company_id: embedded.company, p_card_uid: uidHex },
+      );
+      if (resolveError) throw resolveError;
+
+      const account = Array.isArray(resolvedRows) ? resolvedRows[0] : resolvedRows;
+      if (!account) throw new Error('card_account_resolve returned no account');
+
+      // A blocked card gets 0, which the firmware reads as "cancel the
+      // session" — same as an empty account.
+      const credit = account.account_active ? clampCredit(account.account_balance) : 0;
+
+      if (credit > 0) {
+        const { error: sessionError } = await adminClient.rpc('card_session_open', {
+          p_company_id: embedded.company,
+          p_embedded_id: embedded.id,
+          p_account_id: account.account_id,
+          p_card_uid: uidHex,
+          p_credit: credit,
+        });
+        if (sessionError) throw sessionError;
+      } else {
+        // No spendable credit: make sure an older session can't absorb the
+        // next sale on this machine.
+        await adminClient.rpc('card_session_close', {
+          p_embedded_id: embedded.id,
+          p_reason: 'no_credit',
+        });
+      }
+
+      // closeCardSession: false — the session for this very card was just
+      // opened above; deliverCredit's default would close it again.
+      await deliverCredit(embedded.company, embedded.id, embedded.passkey, credit, {
+        closeCardSession: false,
+      });
+
+      // ── Activity log (best-effort) ──────────────────────────────────────
+      try {
+        await adminClient.from('activity_log').insert({
+          company_id: embedded.company,
+          entity_type: 'card_account',
+          entity_id: account.account_id,
+          action: account.account_created ? 'card_account_created' : 'card_credit_sent',
+          metadata: {
+            device_id: embedded.id,
+            card_uid: uidHex,
+            card_type: cardType,
+            account_name: account.account_name,
+            balance: account.account_balance,
+            credit_sent: credit,
+            blocked: !account.account_active,
+          },
+        });
+      } catch (logErr) {
+        console.error('Activity log error:', logErr);
+      }
+
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          account_created: account.account_created,
+          credit_sent: credit,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
     }
 
     // Sale and paxcounter: encrypted payload
@@ -415,7 +520,7 @@ Deno.serve(async (req) => {
       const itemNumber = ((payload[6] << 8) | payload[7]) & 0xFFFF;
 
       // The machine is resolved here rather than in the push block below because
-      // the per-machine item-number offset has to be applied before the insert.
+      // the reported item number has to be translated before the insert.
       // Same query the push path used to make on its own — not an extra round
       // trip, just an earlier one.
       const { data: machine } = await adminClient
@@ -424,10 +529,12 @@ Deno.serve(async (req) => {
         .eq('embedded', embedded.id)
         .maybeSingle();
 
-      // effective = raw + offset. No backfill: rows written before the operator
-      // set the offset keep their raw numbers on purpose.
-      const effectiveItemNumber = applyItemOffset(
+      // The tray whose internal tray number was reported, else raw + offset.
+      // No backfill: rows written before the operator configured either keep
+      // their raw numbers on purpose.
+      const effectiveItemNumber = resolveItemNumber(
         itemNumber,
+        machine ? await loadTrayMap(adminClient, machine.id) : new Map(),
         machine?.item_number_offset ?? 0,
       );
 
@@ -525,7 +632,10 @@ Deno.serve(async (req) => {
       // 23505. Treat that as a successful duplicate — the row already
       // exists and the BEFORE INSERT trigger for stock decrement only fires
       // once on the original insert.
-      const { error: insertError } = await adminClient
+      // `.select('id')` so the card-account charge below can reference the
+      // row it is settling — the ledger's UNIQUE(sale_id) is what makes a
+      // webhook replay charge the account exactly once.
+      const { data: insertedSale, error: insertError } = await adminClient
         .from('sales')
         .insert([{
           owner_id: embedded.owner_id,
@@ -536,7 +646,9 @@ Deno.serve(async (req) => {
           created_at: saleTime,
           sale_seq: saleSeq,
           time_uncertain: timeUncertain,
-        }]);
+        }])
+        .select('id')
+        .maybeSingle();
 
       if (insertError) {
         const code = (insertError as { code?: string }).code;
@@ -544,6 +656,44 @@ Deno.serve(async (req) => {
           return new Response(JSON.stringify({ ok: true, duplicate: true }), { status: 200 });
         }
         throw insertError;
+      }
+
+      // ── Card account settlement (best-effort, never blocks sale recording) ──
+      // Only cashless vends can come from a card session; coin, bill and the
+      // sniffed Nayax terminal never do. card_account_charge_vend is a no-op
+      // when the device has no live session, which is the normal case for
+      // machines without a reader.
+      if (channel === 'cashless') {
+        try {
+          const { data: chargedRows, error: chargeError } = await adminClient.rpc(
+            'card_account_charge_vend',
+            {
+              p_embedded_id: embedded.id,
+              p_amount: salePrice,
+              p_sale_id: insertedSale?.id ?? null,
+            },
+          );
+          if (chargeError) throw chargeError;
+
+          const charged = Array.isArray(chargedRows) ? chargedRows[0] : chargedRows;
+          if (charged) {
+            await adminClient.from('activity_log').insert({
+              company_id: embedded.company,
+              entity_type: 'card_account',
+              entity_id: charged.account_id,
+              action: 'card_account_charged',
+              metadata: {
+                device_id: embedded.id,
+                sale_id: insertedSale?.id ?? null,
+                account_name: charged.account_name,
+                amount: salePrice,
+                balance_after: charged.new_balance,
+              },
+            });
+          }
+        } catch (chargeErr) {
+          console.error('Card account charge error:', chargeErr);
+        }
       }
 
       // Hoisted out of the push-notification try block below so the
@@ -554,7 +704,7 @@ Deno.serve(async (req) => {
       // ── Push notification dispatch (best-effort, never blocks sale recording) ──
       try {
         // `machine` is resolved above, before the insert, because the
-        // item-number offset needs it. Reused here for tray + product lookup.
+        // item-number translation needs it. Reused here for tray + product lookup.
         let productImageUrl: string | undefined;
         let lowTray: { current_stock: number; capacity: number } | undefined;
 

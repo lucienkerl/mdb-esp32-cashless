@@ -31,9 +31,16 @@
 #define pin_mdb_tx  	GPIO_NUM_5  // Pin to transmit data to MDB
 #define pin_mdb_led 	GPIO_NUM_48 // LED to indicate MDB state
 
-// Functions for scale factor conversion
-#define TO_SCALE_FACTOR(p, scale_to, dec_to) (p / scale_to / pow(10, -(dec_to) ))               // Converts to scale factor
-#define FROM_SCALE_FACTOR(p, scale_from, dec_from) (p * scale_from * pow(10, -(dec_from) ))     // Converts from scale factor
+// Scale-factor units are integers by definition, but pow(10, -dec) is not
+// exactly representable, so the round trip lands just below the integer it
+// should hit (8.20 -> 819.9999999999999) and assigning it to an integer eats
+// a cent. Round at the double -> integer step. Same reasoning, and the same
+// bug, as mdb-slave-esp32s3/main/scale_factor.h — see that file for the
+// field symptom this caused on the slave.
+#define TO_SCALE_FACTOR(p, scale_to, dec_to) \
+	llround((double) (p) / (scale_to) / pow(10, -(dec_to)))
+#define FROM_SCALE_FACTOR(p, scale_from, dec_from) \
+	((double) (p) * (scale_from) * pow(10, -(dec_from)))
 
 #define ACK 	0x00  // Acknowledgment / Checksum correct;
 #define RET 	0xAA  // Retransmit the previously sent data. Only the VMC can transmit this byte;
