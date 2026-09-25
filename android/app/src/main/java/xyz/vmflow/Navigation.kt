@@ -14,6 +14,7 @@ import androidx.navigation.navArgument
 import xyz.vmflow.ui.auth.LoginScreen
 import xyz.vmflow.ui.auth.RegisterScreen
 import xyz.vmflow.ui.dashboard.DashboardScreen
+import xyz.vmflow.ui.deals.DealsScreen
 import xyz.vmflow.ui.machines.MachineDetailScreen
 import xyz.vmflow.ui.machines.MachinesPane
 import xyz.vmflow.ui.navigation.TopLevelDestination
@@ -28,6 +29,7 @@ object Routes {
     const val MACHINE_DETAIL = "machines/{machineId}"
     const val REFILL = "refill"
     const val WAREHOUSE = "warehouse"
+    const val DEALS = "deals"
 
     fun machineDetail(machineId: String) = "machines/$machineId"
 }
@@ -107,6 +109,9 @@ fun VMflowNavHost(
                 onNavigateToMachine = { id ->
                     navController.navigate(Routes.machineDetail(id))
                 },
+                onNavigateToDeals = {
+                    navController.navigate(Routes.DEALS) { launchSingleTop = true }
+                },
                 onLogout = {
                     navController.navigate(Routes.LOGIN) {
                         popUpTo(0) { inclusive = true }
@@ -150,6 +155,10 @@ fun VMflowNavHost(
 
         composable(Routes.WAREHOUSE) {
             WarehouseScreen()
+        }
+
+        composable(Routes.DEALS) {
+            DealsScreen(onNavigateBack = { navController.popBackStack() })
         }
     }
 }

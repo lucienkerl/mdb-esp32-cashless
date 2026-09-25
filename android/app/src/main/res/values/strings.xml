@@ -521,4 +521,91 @@
     <string name="refill_picker_selected">Selected</string>
     <string name="refill_picker_no_matches">No products matching \"%1$s\"</string>
     <string name="refill_picker_empty">No products available</string>
+    <!-- Deals -->
+    <string name="deals_title">Deals</string>
+    <string name="deals_open">Open deals</string>
+    <string name="deals_refresh">Refresh</string>
+    <string name="deals_close">Close</string>
+    <string name="deals_list_active">Active</string>
+    <string name="deals_list_archived">Archived</string>
+    <string name="deals_list_archived_count">Archived (%1$d)</string>
+    <string name="deals_group_validity">Validity</string>
+    <string name="deals_group_retailer">Retailer</string>
+    <string name="deals_group_product">Product</string>
+    <string name="deals_search_hint">Search deals…</string>
+    <string name="deals_section_pinned">Pinned</string>
+    <string name="deals_section_valid_now">Valid now</string>
+    <string name="deals_section_expired">Expired</string>
+    <string name="deals_valid_from">valid from %1$s</string>
+    <plurals name="deals_starts_in_days">
+        <item quantity="one">tomorrow</item>
+        <item quantity="other">in %1$d days</item>
+    </plurals>
+    <string name="deals_valid_until">until %1$s</string>
+    <plurals name="deals_days_left">
+        <item quantity="one">%1$d day left</item>
+        <item quantity="other">%1$d days left</item>
+    </plurals>
+    <string name="deals_last_day">last day!</string>
+    <string name="deals_status_active">Valid</string>
+    <string name="deals_status_expired">Expired</string>
+    <string name="deals_not_valid_yet">Not valid yet</string>
+    <string name="deals_not_valid_yet_body">This offer only starts on %1$s (%2$s). The store won\'t have this price before then.</string>
+    <plurals name="deals_count">
+        <item quantity="one">%1$d deal</item>
+        <item quantity="other">%1$d deals</item>
+    </plurals>
+    <string name="deals_avg_discount">avg. −%1$d%%</string>
+    <plurals name="deals_upcoming_hint">
+        <item quantity="one">%1$d not valid yet</item>
+        <item quantity="other">%1$d not valid yet</item>
+    </plurals>
+    <string name="deals_new">NEW</string>
+    <string name="deals_app">App</string>
+    <string name="deals_pin">Pin</string>
+    <string name="deals_unpin">Unpin</string>
+    <string name="deals_archive">Archive</string>
+    <string name="deals_restore">Restore</string>
+    <plurals name="deals_matched_products_count">
+        <item quantity="one">%1$d matched product</item>
+        <item quantity="other">%1$d matched products</item>
+    </plurals>
+    <string name="deals_ek_below_pct">%1$d%% below your cost</string>
+    <string name="deals_ek_below">below your cost</string>
+    <string name="deals_ek_similar">≈ your cost</string>
+    <string name="deals_ek_above_pct">%1$d%% above your cost</string>
+    <string name="deals_ek_above">above your cost</string>
+    <string name="deals_ek_cost">Cost %1$s</string>
+    <plurals name="deals_ek_hidden">
+        <item quantity="one">%1$d hidden — above your highest cost</item>
+        <item quantity="other">%1$d hidden — above your highest cost</item>
+    </plurals>
+    <string name="deals_ek_likely_mismatch">likely mismatch</string>
+    <string name="deals_ek_offer_vs_usual">Offer %1$s vs usual cost %2$s</string>
+    <string name="deals_ek_margin">Margin %1$d%% → %2$d%%</string>
+    <string name="deals_from_cache">Loaded from cache</string>
+    <string name="deals_low_confidence">Uncertain match</string>
+    <string name="deals_disabled_title">Deal search is off</string>
+    <string name="deals_disabled_body">Turn on deal search in the web app\'s settings to find retailer offers for your products.</string>
+    <string name="deals_no_providers_title">No deal source configured</string>
+    <string name="deals_no_providers_body">An admin has to enable a deal source in the web app\'s settings.</string>
+    <string name="deals_empty_active">No deals found</string>
+    <string name="deals_empty_archived">No archived deals</string>
+    <string name="deals_empty_search">Try a different search term.</string>
+    <string name="deals_empty_active_hint">Pull down to refresh.</string>
+    <string name="deals_empty_archived_hint">Archive deals you\'re not interested in to keep the list focused.</string>
+    <string name="deals_detail_validity">Validity</string>
+    <string name="deals_requires_app_title">Requires loyalty app</string>
+    <string name="deals_requires_app_body">This price may require the retailer\'s loyalty app or membership card.</string>
+    <string name="deals_keywords_title">Matched keyword groups</string>
+    <string name="deals_matched_via">matched via \"%1$s\"</string>
+    <string name="deals_keyword_no_products">No products linked to this group yet</string>
+    <plurals name="deals_matched_products_title">
+        <item quantity="one">Matched product</item>
+        <item quantity="other">%1$d matched products</item>
+    </plurals>
+    <string name="deals_view_prospekt">View leaflet</string>
+    <string name="deals_view_all_offers">View all offers</string>
+    <string name="deals_stock_warehouse">In warehouse</string>
+    <string name="deals_stock_machines">In machines</string>
 </resources>

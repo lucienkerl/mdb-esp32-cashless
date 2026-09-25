@@ -517,4 +517,91 @@
     <string name="refill_picker_selected">Ausgewählt</string>
     <string name="refill_picker_no_matches">Keine Produkte für „%1$s“</string>
     <string name="refill_picker_empty">Keine Produkte verfügbar</string>
+    <!-- Angebote -->
+    <string name="deals_title">Angebote</string>
+    <string name="deals_open">Angebote öffnen</string>
+    <string name="deals_refresh">Aktualisieren</string>
+    <string name="deals_close">Schließen</string>
+    <string name="deals_list_active">Aktiv</string>
+    <string name="deals_list_archived">Archiviert</string>
+    <string name="deals_list_archived_count">Archiviert (%1$d)</string>
+    <string name="deals_group_validity">Gültigkeit</string>
+    <string name="deals_group_retailer">Händler</string>
+    <string name="deals_group_product">Produkt</string>
+    <string name="deals_search_hint">Angebote suchen…</string>
+    <string name="deals_section_pinned">Angepinnt</string>
+    <string name="deals_section_valid_now">Jetzt gültig</string>
+    <string name="deals_section_expired">Abgelaufen</string>
+    <string name="deals_valid_from">ab %1$s gültig</string>
+    <plurals name="deals_starts_in_days">
+        <item quantity="one">morgen</item>
+        <item quantity="other">in %1$d Tagen</item>
+    </plurals>
+    <string name="deals_valid_until">bis %1$s</string>
+    <plurals name="deals_days_left">
+        <item quantity="one">noch %1$d Tag</item>
+        <item quantity="other">noch %1$d Tage</item>
+    </plurals>
+    <string name="deals_last_day">letzter Tag!</string>
+    <string name="deals_status_active">Gültig</string>
+    <string name="deals_status_expired">Abgelaufen</string>
+    <string name="deals_not_valid_yet">Noch nicht gültig</string>
+    <string name="deals_not_valid_yet_body">Dieses Angebot gilt erst ab %1$s (%2$s). Vorher gibt es den Preis im Markt noch nicht.</string>
+    <plurals name="deals_count">
+        <item quantity="one">%1$d Angebot</item>
+        <item quantity="other">%1$d Angebote</item>
+    </plurals>
+    <string name="deals_avg_discount">Ø −%1$d%%</string>
+    <plurals name="deals_upcoming_hint">
+        <item quantity="one">davon %1$d noch nicht gültig</item>
+        <item quantity="other">davon %1$d noch nicht gültig</item>
+    </plurals>
+    <string name="deals_new">NEU</string>
+    <string name="deals_app">App</string>
+    <string name="deals_pin">Anpinnen</string>
+    <string name="deals_unpin">Lösen</string>
+    <string name="deals_archive">Archivieren</string>
+    <string name="deals_restore">Wiederherstellen</string>
+    <plurals name="deals_matched_products_count">
+        <item quantity="one">%1$d gematchtes Produkt</item>
+        <item quantity="other">%1$d gematchte Produkte</item>
+    </plurals>
+    <string name="deals_ek_below_pct">%1$d%% unter deinem EK</string>
+    <string name="deals_ek_below">unter deinem EK</string>
+    <string name="deals_ek_similar">≈ wie dein EK</string>
+    <string name="deals_ek_above_pct">%1$d%% über deinem EK</string>
+    <string name="deals_ek_above">über deinem EK</string>
+    <string name="deals_ek_cost">EK %1$s</string>
+    <plurals name="deals_ek_hidden">
+        <item quantity="one">%1$d ausgeblendet — über deinem höchsten EK</item>
+        <item quantity="other">%1$d ausgeblendet — über deinem höchsten EK</item>
+    </plurals>
+    <string name="deals_ek_likely_mismatch">evtl. Fehl-Match</string>
+    <string name="deals_ek_offer_vs_usual">Angebot %1$s vs. üblicher EK %2$s</string>
+    <string name="deals_ek_margin">Spanne %1$d%% → %2$d%%</string>
+    <string name="deals_from_cache">Aus dem Cache geladen</string>
+    <string name="deals_low_confidence">Unsicherer Treffer</string>
+    <string name="deals_disabled_title">Angebotssuche ist deaktiviert</string>
+    <string name="deals_disabled_body">Aktiviere die Angebotssuche in den Einstellungen der Web-App, um Händler-Angebote für deine Produkte zu finden.</string>
+    <string name="deals_no_providers_title">Keine Angebotsquelle eingerichtet</string>
+    <string name="deals_no_providers_body">Ein Admin muss in den Einstellungen der Web-App eine Angebotsquelle aktivieren.</string>
+    <string name="deals_empty_active">Keine Angebote gefunden</string>
+    <string name="deals_empty_archived">Keine archivierten Angebote</string>
+    <string name="deals_empty_search">Versuch es mit einem anderen Suchbegriff.</string>
+    <string name="deals_empty_active_hint">Zum Aktualisieren nach unten ziehen.</string>
+    <string name="deals_empty_archived_hint">Archiviere uninteressante Angebote, damit die Liste übersichtlich bleibt.</string>
+    <string name="deals_detail_validity">Gültigkeit</string>
+    <string name="deals_requires_app_title">Nur mit Kunden-App</string>
+    <string name="deals_requires_app_body">Dieser Preis gilt evtl. nur mit der Kunden-App oder Kundenkarte des Händlers.</string>
+    <string name="deals_keywords_title">Gematchte Schlagwort-Gruppen</string>
+    <string name="deals_matched_via">erkannt via „%1$s“</string>
+    <string name="deals_keyword_no_products">Noch keine Produkte verknüpft</string>
+    <plurals name="deals_matched_products_title">
+        <item quantity="one">Gematchtes Produkt</item>
+        <item quantity="other">%1$d gematchte Produkte</item>
+    </plurals>
+    <string name="deals_view_prospekt">Prospekt ansehen</string>
+    <string name="deals_view_all_offers">Alle Angebote ansehen</string>
+    <string name="deals_stock_warehouse">Im Lager</string>
+    <string name="deals_stock_machines">In Automaten</string>
 </resources>

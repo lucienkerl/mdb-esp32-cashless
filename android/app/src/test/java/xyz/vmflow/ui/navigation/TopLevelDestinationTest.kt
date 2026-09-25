@@ -41,6 +41,12 @@ class TopLevelDestinationTest {
     }
 
     @Test
+    fun `the deals screen keeps the dashboard tab marked`() {
+        assertEquals(TopLevelDestination.DASHBOARD, TopLevelDestination.fromRouteRoot(Routes.DEALS))
+        assertNull(TopLevelDestination.fromRoute(Routes.DEALS))
+    }
+
+    @Test
     fun `a bare top level route still resolves by root`() {
         assertEquals(TopLevelDestination.MACHINES, TopLevelDestination.fromRouteRoot(Routes.MACHINES))
         assertEquals(TopLevelDestination.DASHBOARD, TopLevelDestination.fromRouteRoot(Routes.DASHBOARD))
