@@ -119,6 +119,9 @@ struct DealsView: View {
                                 .onTapGesture {
                                     selectedDeal = deal
                                 }
+                                // Re-runs when the row turns "new" while already on
+                                // screen (new-keys RPC can land after the first render).
+                                .task(id: viewModel.isNew(deal)) { viewModel.markSeen(deal) }
                                 .swipeActions(edge: .leading, allowsFullSwipe: true) {
                                     pinSwipeButton(for: deal)
                                 }

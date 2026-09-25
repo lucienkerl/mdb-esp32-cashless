@@ -1546,7 +1546,7 @@
     "unpin": "Unpin",
     "pinned": "Pinned",
     "new": "NEW",
-    "newTooltip": "New since the last refresh — pin or archive it to clear it",
+    "newTooltip": "New since the last refresh — clears once you've seen it",
     "pinnedGroup": "Pinned",
     "archive": "Archive",
     "unarchive": "Restore",

@@ -25,8 +25,8 @@ final class DealsViewModel: ObservableObject {
     /// Only deals the user has interacted with have an entry here.
     @Published var userStates: [String: DealUserState] = [:]
 
-    /// Keys (`${retailer}::${offer_id}`) of offers that are NEW + unhandled for
-    /// the current user — first seen after their baseline and not yet pinned or
+    /// Keys (`${retailer}::${offer_id}`) of offers that are NEW for the current
+    /// user — first seen after their baseline and not yet seen, pinned or
     /// archived. Computed server-side by the get_new_deal_keys RPC.
     @Published var newDealKeys: Set<String> = []
 
@@ -458,6 +458,45 @@ final class DealsViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Seen tracking
+
+    /// Seeing a new offer in the list is enough to clear it. Rows report
+    /// themselves on appear; keys are batched into one mark_deals_seen call.
+    /// `newDealKeys` is deliberately left alone so the NEU badge stays visible
+    /// until the next fetchNewDealKeys (pull-to-refresh / next visit) — the
+    /// server-side count (dashboard banner) drops immediately.
+    private var seenQueue: [String: DealSeenKey] = [:]
+    private var seenSent: Set<String> = []
+    private var seenFlushTask: Task<Void, Never>?
+
+    func markSeen(_ deal: DedupedDeal) {
+        guard newDealKeys.contains(deal.key), !seenSent.contains(deal.key) else { return }
+        seenSent.insert(deal.key)
+        seenQueue[deal.key] = DealSeenKey(retailer: deal.retailer, offerId: deal.offerId)
+        guard seenFlushTask == nil else { return }
+        seenFlushTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            await self?.flushSeen()
+        }
+    }
+
+    func flushSeen() async {
+        seenFlushTask?.cancel()
+        seenFlushTask = nil
+        guard !seenQueue.isEmpty else { return }
+        let batch = seenQueue
+        seenQueue = [:]
+        do {
+            try await client
+                .rpc("mark_deals_seen", params: MarkDealsSeenParams(pKeys: Array(batch.values)))
+                .execute()
+        } catch {
+            // Non-fatal — allow a retry the next time the row appears.
+            print("[DealsVM] mark_deals_seen failed: \(error.localizedDescription)")
+            for key in batch.keys { seenSent.remove(key) }
+        }
+    }
+
     // MARK: - User state (archive / pin)
 
     private static func stateKey(retailer: String, offerId: String) -> String {
@@ -645,6 +684,24 @@ private struct NewDealKeyRow: Decodable {
     enum CodingKeys: String, CodingKey {
         case retailer
         case offerId = "offer_id"
+    }
+}
+
+private struct DealSeenKey: Encodable {
+    let retailer: String
+    let offerId: String
+
+    enum CodingKeys: String, CodingKey {
+        case retailer
+        case offerId = "offer_id"
+    }
+}
+
+private struct MarkDealsSeenParams: Encodable {
+    let pKeys: [DealSeenKey]
+
+    enum CodingKeys: String, CodingKey {
+        case pKeys = "p_keys"
     }
 }
 

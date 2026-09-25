@@ -66,6 +66,8 @@ const {
   userStateError,
   fetchNewDealKeys,
   isNew,
+  markDealSeen,
+  flushSeenDeals,
 } = useDeals()
 
 // "+ EK erfassen" modal
@@ -292,6 +294,29 @@ onMounted(async () => {
     await Promise.all([fetchUserStates(), fetchDeals(), fetchNewDealKeys()])
     await fetchEkSummaries()
   }
+})
+
+// A new offer counts as seen once at least half of its card was on screen.
+const dealByCard = new WeakMap<Element, DedupedDeal>()
+let seenObserver: IntersectionObserver | null = null
+function observeDealCard(el: Element | null, deal: DedupedDeal) {
+  if (!(el instanceof Element) || !isNew(deal)) return
+  seenObserver ??= new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue
+      const d = dealByCard.get(entry.target)
+      if (d) markDealSeen(d)
+      seenObserver?.unobserve(entry.target)
+    }
+  }, { threshold: 0.5 })
+  if (dealByCard.get(el) === deal) return
+  dealByCard.set(el, deal)
+  seenObserver.observe(el)
+}
+onBeforeUnmount(() => {
+  seenObserver?.disconnect()
+  seenObserver = null
+  flushSeenDeals()
 })
 
 async function refresh() {
@@ -678,6 +703,7 @@ function highlightTokens(text: string, tokens: string[] | null): { text: string;
                 <div
                   v-for="deal in group.deals"
                   :key="deal.key"
+                  :ref="(el) => observeDealCard(el as Element | null, deal)"
                   class="group relative flex gap-3 rounded-xl border bg-card p-4 text-left shadow-sm transition-colors hover:bg-muted/50"
                   :class="{
                     'ring-1 ring-primary/40': deal.pinned,
@@ -692,7 +718,7 @@ function highlightTokens(text: string, tokens: string[] | null): { text: string;
                   >
                     <IconPin class="size-3" />
                   </div>
-                  <!-- New (unhandled) marker — stays until pinned/archived. -->
+                  <!-- New marker — cleared server-side once the card has been on screen. -->
                   <div
                     v-else-if="isNew(deal)"
                     class="absolute -left-1 -top-1 z-10 rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none tracking-wide text-white shadow"

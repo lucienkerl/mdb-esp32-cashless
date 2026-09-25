@@ -1546,7 +1546,7 @@
     "unpin": "Lösen",
     "pinned": "Angepinnt",
     "new": "NEU",
-    "newTooltip": "Neu seit der letzten Aktualisierung — anpinnen oder archivieren zum Entfernen",
+    "newTooltip": "Neu seit der letzten Aktualisierung — verschwindet, sobald du es gesehen hast",
     "pinnedGroup": "Angepinnt",
     "archive": "Archivieren",
     "unarchive": "Wiederherstellen",

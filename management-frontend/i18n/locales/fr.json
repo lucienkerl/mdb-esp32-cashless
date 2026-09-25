@@ -1546,7 +1546,7 @@
     "unpin": "Détacher",
     "pinned": "Épinglé",
     "new": "NOUVEAU",
-    "newTooltip": "Nouveau depuis la dernière actualisation — épinglez-le ou archivez-le pour l'effacer",
+    "newTooltip": "Nouveau depuis la dernière actualisation — disparaît une fois consulté",
     "pinnedGroup": "Épinglé",
     "archive": "Archiver",
     "unarchive": "Restaurer",

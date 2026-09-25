@@ -286,6 +286,37 @@ export function useDeals() {
     return newDealKeys.value.has(deal.key) && !deal.archived && !deal.pinned
   }
 
+  // Seeing a new offer in the list is enough to clear it. The card reports
+  // itself once it scrolls into view; keys are batched into one
+  // mark_deals_seen call. The local badge deliberately stays until the next
+  // fetchNewDealKeys (reload / pull-to-refresh), so the user actually gets to
+  // see which offers were new — the server-side count drops immediately.
+  const seenQueue = new Map<string, { retailer: string; offer_id: string }>()
+  const seenSent = new Set<string>()
+  let seenTimer: ReturnType<typeof setTimeout> | null = null
+
+  function markDealSeen(deal: DedupedDeal) {
+    if (!newDealKeys.value.has(deal.key) || seenSent.has(deal.key)) return
+    seenSent.add(deal.key)
+    seenQueue.set(deal.key, { retailer: deal.retailer, offer_id: deal.offer_id })
+    if (!seenTimer) seenTimer = setTimeout(flushSeenDeals, 1000)
+  }
+
+  async function flushSeenDeals() {
+    if (seenTimer) { clearTimeout(seenTimer); seenTimer = null }
+    if (seenQueue.size === 0) return
+    const batch = [...seenQueue.entries()]
+    seenQueue.clear()
+    const { error: err } = await (supabase as any).rpc('mark_deals_seen', {
+      p_keys: batch.map(([, v]) => v),
+    })
+    if (err) {
+      console.error('[useDeals] mark_deals_seen failed:', err)
+      // Allow a retry the next time the card comes into view.
+      for (const [key] of batch) seenSent.delete(key)
+    }
+  }
+
   async function loadSettings() {
     if (!organization.value?.id) return
     const { data } = await supabase
@@ -801,6 +832,8 @@ export function useDeals() {
     newDealsCount,
     fetchNewDealKeys,
     isNew,
+    markDealSeen,
+    flushSeenDeals,
     dedupedDeals,
     activeDeals,
     archivedDeals,
