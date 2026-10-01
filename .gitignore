@@ -3,6 +3,8 @@ kicad/**/*-backups
 kicad/**/fp-info-cache
 kicad/**/*.lck
 kicad/**/*_prl
+kicad/do-not-scan_folder/
+kicad/**/*.7z
 
 # Xcode per-user UI state (Apple standard: never commit)
 **/xcuserdata/

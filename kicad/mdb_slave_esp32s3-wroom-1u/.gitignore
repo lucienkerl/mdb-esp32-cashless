@@ -1,0 +1,22 @@
+# Ignore everything by default
+*
+
+# Keep the core KiCad project files
+!*.kicad_pcb
+!*.kicad_pro
+!*.kicad_sch
+!*.md
+
+# Keep this .gitignore
+!.gitignore
+
+# Keep the licence
+!LICENSE
+
+# Keep the fabrication Gerber archives
+!gerber_to_order/
+!gerber_to_order/**
+
+# Keep the interactive BOM (InteractiveHtmlBom export)
+!bom/
+!bom/ibom.html
