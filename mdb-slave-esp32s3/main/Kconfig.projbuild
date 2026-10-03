@@ -124,6 +124,21 @@ menu "RFID card reader"
             R27 parks an undriven line near 0.9 V. Any free GPIO (io1, io2,
             io6 on the slave board) avoids both issues.
 
+            Original board only: the ESP32-S3-WROOM-1U board uses
+            RFID_RX_GPIO_WROOM_1U instead, picked at boot by the GPIO3
+            board-ID strap.
+
+    config RFID_RX_GPIO_WROOM_1U
+        int "RX GPIO on the ESP32-S3-WROOM-1U board"
+        depends on RFID_READER_ENABLE
+        default 44
+        help
+            The WROOM-1U PCB has no pulse circuit, so the reader goes on the
+            RXD pin of the J1 UART header (GPIO 44, UART0's own RX pad),
+            which also carries GND and +3V3. The board is flashed over USB,
+            so J1 is free at runtime. A 5 V reader still needs a divider on
+            its TX line.
+
     config RFID_BAUD
         int "Baud rate"
         depends on RFID_READER_ENABLE

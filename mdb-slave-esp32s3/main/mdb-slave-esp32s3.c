@@ -30,10 +30,15 @@
 #include <esp_adc/adc_cali_scheme.h>
 
 #include "led_strip.h"
+#include "onewire_bus.h"
+#include "ds18b20.h"
+#include "driver/pulse_cnt.h"
+#include "driver/ledc.h"
 
 #include "nimble.h"
 #include "webui_server.h"
 #include "sale_queue.h"
+#include "debug_log.h"
 #include "network.h"
 #include "rfid_reader.h"
 #include "scale_factor.h"
@@ -52,7 +57,6 @@
 
 #define PIN_I2C_SDA             GPIO_NUM_10
 #define PIN_I2C_SCL             GPIO_NUM_11
-#define PIN_PULSE_1             GPIO_NUM_13
 #define PIN_MDB_RX              GPIO_NUM_4
 #define PIN_MDB_TX              GPIO_NUM_5
 #define PIN_MDB_LED             GPIO_NUM_21
@@ -60,8 +64,73 @@
 #define PIN_DEX_TX              GPIO_NUM_9
 #define PIN_BUZZER_PWR          GPIO_NUM_12
 
+/* WROOM-1U's buzzer is an MLT-8530 electro-magnetic transducer — per its
+ * datasheet it needs an oscillating drive at its resonant frequency
+ * (2700Hz, 50% duty square wave) to produce proper output, not a static
+ * DC level (that only yields a faint click as the diaphragm moves once).
+ * Generated via LEDC rather than gpio_set_level; see the BIT_EVT_BUZZER
+ * handler in vTaskBitEvent(). The original board's buzzer circuit isn't
+ * confirmed to be the same part, so it keeps the old static ON/OFF drive
+ * unchanged. */
+#define BUZZER_LEDC_TIMER       LEDC_TIMER_0
+#define BUZZER_LEDC_CHANNEL     LEDC_CHANNEL_0
+#define BUZZER_LEDC_FREQ_HZ     2700
+#define BUZZER_LEDC_DUTY_RES    LEDC_TIMER_8_BIT
+#define BUZZER_LEDC_DUTY_50PCT  128  // ~50% of 2^8
+
+/* Pulse (J8) — original board only, desoldered on the WROOM-1U revision
+ * (see README). This is the legacy pre-MDB vending "Pulse" signaling some
+ * older coin/bill mechanisms use to report credit as a train of edges
+ * instead of a serial protocol. We don't have a confirmed pulse-value/
+ * timing spec for this connector, so for now this is raw edge counting
+ * only (via the PCNT peripheral, see pulse_input_task) — not decoded into
+ * vend credit. */
+#define PIN_PULSE_1             GPIO_NUM_13
+
+/* Custom digital inputs (J11/J13/J14 on the WROOM-1U board). GPIO6 was
+ * already clear of both boards' PIN_* usage. custom_input2/3 moved from
+ * GPIO47/48 to GPIO17/18 per the latest WROOM-1U PCB revision — safe on
+ * this board specifically because it's WiFi-only (no SIM7080G populated,
+ * so there's nothing on this PCB using PIN_SIM7080G_TX/RX). GPIO46/47/48
+ * are free on this revision and unused. */
+#define PIN_CUSTOM_INPUT1       GPIO_NUM_6
+#define PIN_CUSTOM_INPUT2       GPIO_NUM_17
+#define PIN_CUSTOM_INPUT3       GPIO_NUM_18
+
+/* Relay outputs (J2/J3 on the WROOM-1U board). These drive an external
+ * relay module's 3.3V control input — the ESP32 supplies no switched
+ * power itself. A relay module rated for the actual load (up to 220VAC)
+ * sits between this pin and whatever gets switched. */
+#define PIN_RELAY_1             GPIO_NUM_1
+#define PIN_RELAY_2             GPIO_NUM_2
+
+/* 1-Wire buses (J4, J5/J6 on the WROOM-1U board). Bus-based rather than
+ * a fixed device type: onewire_new_device_iter() enumerates whatever ROM
+ * IDs are present, so mixed device families can share one physical bus. */
+#define PIN_ONEWIRE_1           GPIO_NUM_15
+#define PIN_ONEWIRE_2           GPIO_NUM_16
+
+/* Board-ID strap: GPIO3 is unused on both the original mdb-slave-esp32s3
+ * PCB and this WROOM-1U PCB per their schematics. Fitting a 10k pull-down
+ * to GND on GPIO3 on the WROOM-1U board only (nothing to add on the
+ * original board — its floating pin reads HIGH via the internal pull-up
+ * below) lets a single firmware image tell the two boards apart at boot,
+ * instead of relying on whoever flashes it picking the right binary. */
+#define PIN_BOARD_ID            GPIO_NUM_3
+
 #define ADC_UNIT_THERMISTOR     ADC_UNIT_1
 #define ADC_CHANNEL_THERMISTOR  ADC_CHANNEL_6   // Define the ADC unit, channel, and attenuation (NTC Thermistor)
+
+/* TH1 = Murata NCP18XH103F03RB (10k @ 25C, B25/50 = 3380K per Murata
+ * catalog R44E). Divider per the committed schematic (kicad/mdb-slave-
+ * esp32s3, TH1/R15): +3V3 -> R15 (10k, fixed) -> ADC7 node -> TH1 -> GND.
+ * So Vadc rises with temperature (Rntc falls as it heats up). */
+#define NTC_R25_OHMS   10000.0f
+#define NTC_B_COEFF    3380.0f
+#define NTC_T25_KELVIN 298.15f
+#define NTC_DIVIDER_R15_OHMS 10000.0f
+#define NTC_VDD_MV     3300
+
 
 #define ACK 	0x00  // Acknowledgment / Checksum correct
 #define RET 	0xAA  // Retransmit previously sent data. Only VMC can send this
@@ -88,6 +157,11 @@ EventGroupHandle_t xLedEventGroup;
 // reachable before pulling a pending sale off the queue.
 bool mqtt_started = false;
 static bool sntp_started = false;
+
+// Set once at boot by detect_board_variant(). Gates every WROOM-1U-only
+// peripheral (relay, 1-Wire, custom inputs) — those GPIOs are unused/
+// floating on the original board, so there's no hardware there to drive.
+static bool g_board_is_wroom_1u = false;
 static bool ota_in_progress = false;
 
 /* Single-flight guard so concurrent /api/v1/claim submits + boot-time
@@ -505,6 +579,7 @@ void write_payload_9(uint8_t *mdb_payload, uint8_t length) {
 }
 
 void xorEncodeWithPasskey(uint8_t cmd, uint16_t itemPrice, uint16_t itemNumber, uint16_t paxCounter, uint8_t *payload);
+static void set_relay(uint8_t relay_num, bool on);
 uint8_t xorDecodeWithPasskey(uint16_t *itemPrice, uint16_t *itemNumber, uint8_t *payload);
 
 // Drain any remaining bytes from the MDB bus after a checksum error or
@@ -2088,12 +2163,54 @@ void vTaskBitEvent(void *pvParameters) {
         tick++;
 
         if (uxBits & BIT_EVT_BUZZER) {
-            gpio_set_level(PIN_BUZZER_PWR, 1);
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            gpio_set_level(PIN_BUZZER_PWR, 0);
+            if (g_board_is_wroom_1u) {
+                // MLT-8530: needs the 2700Hz resonant-frequency drive, not
+                // a static level — see BUZZER_LEDC_* above.
+                ledc_set_duty(LEDC_LOW_SPEED_MODE, BUZZER_LEDC_CHANNEL, BUZZER_LEDC_DUTY_50PCT);
+                ledc_update_duty(LEDC_LOW_SPEED_MODE, BUZZER_LEDC_CHANNEL);
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                ledc_set_duty(LEDC_LOW_SPEED_MODE, BUZZER_LEDC_CHANNEL, 0);
+                ledc_update_duty(LEDC_LOW_SPEED_MODE, BUZZER_LEDC_CHANNEL);
+            } else {
+                // Original board: unchanged static ON/OFF drive.
+                gpio_set_level(PIN_BUZZER_PWR, 1);
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                gpio_set_level(PIN_BUZZER_PWR, 0);
+            }
+
             xEventGroupClearBits(xLedEventGroup, BIT_EVT_BUZZER);
         }
     }
+}
+
+/* Boot chime — WROOM-1U only (needs the LEDC/MLT-8530 tone path, see
+ * BUZZER_LEDC_* above). Three ascending notes kept close to the buzzer's
+ * 2700Hz resonance so all three stay reasonably audible (this transducer
+ * loses volume fast away from resonance, unlike a wideband speaker).
+ * Played once at boot, right after ledc_channel_config() in app_main() —
+ * before vTaskBitEvent exists, so it's driven directly rather than via
+ * BIT_EVT_BUZZER. Restores BUZZER_LEDC_FREQ_HZ afterwards so the normal
+ * credit-received beep is unaffected. */
+typedef struct { uint32_t freq_hz; uint32_t duration_ms; } buzzer_note_t;
+
+static const buzzer_note_t BOOT_CHIME[] = {
+    { 2200, 90 },
+    { 2700, 90 },
+    { 3200, 140 },
+};
+
+static void play_boot_chime(void) {
+    for (size_t i = 0; i < sizeof(BOOT_CHIME) / sizeof(BOOT_CHIME[0]); i++) {
+        ledc_set_freq(LEDC_LOW_SPEED_MODE, BUZZER_LEDC_TIMER, BOOT_CHIME[i].freq_hz);
+        ledc_set_duty(LEDC_LOW_SPEED_MODE, BUZZER_LEDC_CHANNEL, BUZZER_LEDC_DUTY_50PCT);
+        ledc_update_duty(LEDC_LOW_SPEED_MODE, BUZZER_LEDC_CHANNEL);
+        vTaskDelay(pdMS_TO_TICKS(BOOT_CHIME[i].duration_ms));
+        ledc_set_duty(LEDC_LOW_SPEED_MODE, BUZZER_LEDC_CHANNEL, 0);
+        ledc_update_duty(LEDC_LOW_SPEED_MODE, BUZZER_LEDC_CHANNEL);
+        vTaskDelay(pdMS_TO_TICKS(25));
+    }
+    // Restore the resonant frequency the BIT_EVT_BUZZER handler expects.
+    ledc_set_freq(LEDC_LOW_SPEED_MODE, BUZZER_LEDC_TIMER, BUZZER_LEDC_FREQ_HZ);
 }
 
 void ble_pax_event_handler(uint16_t devices_count){
@@ -2390,6 +2507,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 		ESP_LOGW(TAG, "MQTT: disconnected from broker");
         mqtt_started = false;
         sale_queue_on_disconnect();
+        debug_log_on_disconnect();
         xEventGroupClearBits(xLedEventGroup, BIT_EVT_INTERNET);
         xEventGroupSetBits(xLedEventGroup, BIT_EVT_TRIGGER);
 
@@ -2403,6 +2521,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 	case MQTT_EVENT_PUBLISHED:
 		ESP_LOGI(TAG, "MQTT: published, msg_id=%d", event->msg_id);
 		sale_queue_on_published(event->msg_id);
+		debug_log_on_published(event->msg_id);
 		break;
 	case MQTT_EVENT_DATA:
 
@@ -2550,6 +2669,24 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 		                    vmc_feature_level = 1;
 		                    cashless_reset_todo = true;
 		                    publish_mdb_diag();
+		                    break;
+		                case 0x33: // Set relay 1 (WROOM-1U only)
+		                    if (!g_board_is_wroom_1u) {
+		                        ESP_LOGW(TAG, "CONFIG: relay1 command ignored — not a WROOM-1U board");
+		                    } else if (configParam == 0 || configParam == 1) {
+		                        set_relay(1, configParam == 1);
+		                    } else {
+		                        ESP_LOGE(TAG, "CONFIG: invalid relay1 state %u (must be 0 or 1)", configParam);
+		                    }
+		                    break;
+		                case 0x34: // Set relay 2 (WROOM-1U only)
+		                    if (!g_board_is_wroom_1u) {
+		                        ESP_LOGW(TAG, "CONFIG: relay2 command ignored — not a WROOM-1U board");
+		                    } else if (configParam == 0 || configParam == 1) {
+		                        set_relay(2, configParam == 1);
+		                    } else {
+		                        ESP_LOGE(TAG, "CONFIG: invalid relay2 state %u (must be 0 or 1)", configParam);
+		                    }
 		                    break;
 		                default:
 		                    ESP_LOGW(TAG, "CONFIG: unknown encrypted cmd 0x%02X", cmd);
@@ -3344,7 +3481,355 @@ static void factory_reset_task(void *arg) {
     }
 }
 
+// True on the WROOM-1U PCB (external 10k pull-down fitted on GPIO3),
+// false on the original mdb-slave-esp32s3 PCB (GPIO3 floats, so the
+// internal pull-up wins and it reads HIGH). See PIN_BOARD_ID above.
+static bool detect_board_variant(void) {
+    gpio_config_t id_cfg = {
+        .pin_bit_mask = (1ULL << PIN_BOARD_ID),
+        .mode         = GPIO_MODE_INPUT,
+        .pull_up_en   = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&id_cfg);
+    vTaskDelay(pdMS_TO_TICKS(1)); // let the internal pull-up settle
+
+    bool is_wroom_1u = (gpio_get_level(PIN_BOARD_ID) == 0);
+    ESP_LOGI(TAG, "Board detected: %s", is_wroom_1u ? "WROOM-1U" : "original");
+    return is_wroom_1u;
+}
+
+//------------------------- Relay outputs (J2/J3) -------------------------//
+//--------------------------------------------------------------------------//
+// WROOM-1U only — see PIN_RELAY_1/2 above for why these GPIOs are safe to
+// drive unconditionally on this board but must never be touched on the
+// original board (no relay hardware there to receive the signal).
+static void relay_init(void) {
+    gpio_config_t relay_cfg = {
+        .pin_bit_mask = (1ULL << PIN_RELAY_1) | (1ULL << PIN_RELAY_2),
+        .mode         = GPIO_MODE_OUTPUT,
+        .pull_up_en   = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&relay_cfg);
+    gpio_set_level(PIN_RELAY_1, 0);
+    gpio_set_level(PIN_RELAY_2, 0);
+    ESP_LOGI(TAG, "Relay outputs initialised (both OFF)");
+}
+
+// relay_num: 1 or 2. on: true = energize the relay coil.
+static void set_relay(uint8_t relay_num, bool on) {
+    gpio_num_t pin = (relay_num == 1) ? PIN_RELAY_1 : PIN_RELAY_2;
+    gpio_set_level(pin, on ? 1 : 0);
+    ESP_LOGW(TAG, "Relay %u set to %s", relay_num, on ? "ON" : "OFF");
+    debug_log_append(DEBUG_LOG_RELAY, relay_num, on ? 1 : 0, 0);
+}
+
+//------------------- Custom digital inputs (J11/J13/J14) ------------------//
+//--------------------------------------------------------------------------//
+// Generic edge-triggered inputs — the firmware doesn't know or care what's
+// wired to them (door contact, pushbutton, presence sensor, ...). It only
+// reports level transitions with a timestamp and how long the previous
+// level was held; interpreting that (e.g. "door left open past a
+// configurable threshold", unusual-hour alarms, notification routing) is
+// backend/app logic, tracked separately under "custom inputs management".
+typedef struct {
+    gpio_num_t pin;
+    uint8_t channel;      // 1/2/3 — matches J11/J13/J14 silkscreen numbering
+    int last_level;
+    time_t last_change_at;
+} custom_input_state_t;
+
+static custom_input_state_t custom_inputs[3] = {
+    { .pin = PIN_CUSTOM_INPUT1, .channel = 1 },
+    { .pin = PIN_CUSTOM_INPUT2, .channel = 2 },
+    { .pin = PIN_CUSTOM_INPUT3, .channel = 3 },
+};
+
+#define CUSTOM_INPUT_DEBOUNCE_MS  50
+#define CUSTOM_INPUT_POLL_MS      100
+
+static void publish_custom_input_event(uint8_t channel, int level, time_t ts, uint32_t prev_held_sec) {
+    if (!mqttClient) return;
+
+    char topic[128];
+    snprintf(topic, sizeof(topic), "/%s/%s/input", my_company_id, my_device_id);
+
+    char msg[128];
+    snprintf(msg, sizeof(msg),
+        "{\"channel\":%u,\"level\":%d,\"ts\":%lld,\"prevHeldSec\":%lu}",
+        channel, level, (long long) ts, (unsigned long) prev_held_sec);
+
+    // QoS 1: these events feed alarm/notification logic downstream, so a
+    // dropped transition could hide a real open/close — same durability
+    // requirement as the sale topic.
+    mqtt_publish_safe(mqttClient, topic, msg, 0, 1, 0);
+}
+
+static void custom_input_task(void *arg) {
+    gpio_config_t in_cfg = {
+        .pin_bit_mask = (1ULL << PIN_CUSTOM_INPUT1) | (1ULL << PIN_CUSTOM_INPUT2) | (1ULL << PIN_CUSTOM_INPUT3),
+        .mode         = GPIO_MODE_INPUT,
+        .pull_up_en   = GPIO_PULLUP_ENABLE,  // idle HIGH even if a variant is missing its external pull-up
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&in_cfg);
+
+    time_t boot_time = time(NULL);
+    for (int i = 0; i < 3; i++) {
+        custom_inputs[i].last_level = gpio_get_level(custom_inputs[i].pin);
+        custom_inputs[i].last_change_at = boot_time;  // no event published for the boot-time read
+    }
+    ESP_LOGI(TAG, "Custom inputs initialised: ch1=%d ch2=%d ch3=%d",
+             custom_inputs[0].last_level, custom_inputs[1].last_level, custom_inputs[2].last_level);
+
+    while (1) {
+        for (int i = 0; i < 3; i++) {
+            int level = gpio_get_level(custom_inputs[i].pin);
+            if (level != custom_inputs[i].last_level) {
+                vTaskDelay(pdMS_TO_TICKS(CUSTOM_INPUT_DEBOUNCE_MS));
+                if (gpio_get_level(custom_inputs[i].pin) != level) {
+                    continue;  // bounced back within the debounce window, not a real transition
+                }
+
+                time_t now = time(NULL);
+                uint32_t prev_held_sec = (uint32_t)(now - custom_inputs[i].last_change_at);
+
+                custom_inputs[i].last_level = level;
+                custom_inputs[i].last_change_at = now;
+
+                ESP_LOGI(TAG, "Custom input %u: level -> %d (held previous %lu s)",
+                         custom_inputs[i].channel, level, (unsigned long) prev_held_sec);
+                publish_custom_input_event(custom_inputs[i].channel, level, now, prev_held_sec);
+                debug_log_append(DEBUG_LOG_INPUT, custom_inputs[i].channel, (uint8_t)level, (int32_t)prev_held_sec);
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(CUSTOM_INPUT_POLL_MS));
+    }
+}
+
+//------------------------------ Pulse input (J8) ---------------------------//
+//--------------------------------------------------------------------------//
+// Original board only (see PIN_PULSE_1). Raw hardware edge counting via the
+// PCNT peripheral — deliberately protocol-agnostic: we don't know this
+// legacy "Pulse" interface's pulse-value/timing spec yet, so this just
+// reports "N edges seen in the last PULSE_POLL_MS" as telemetry rather than
+// guessing at a pulses-to-credit conversion. Turning this into actual vend
+// credit is follow-up work once the protocol is confirmed on real hardware.
+#define PULSE_POLL_MS     200
+#define PULSE_GLITCH_NS   1000  // reject sub-1us electrical noise, not a protocol assumption
+
+static pcnt_unit_handle_t s_pulse_pcnt_unit = NULL;
+
+static void publish_pulse_event(uint32_t count, time_t ts) {
+    if (!mqttClient) return;
+
+    char topic[128];
+    snprintf(topic, sizeof(topic), "/%s/%s/pulse", my_company_id, my_device_id);
+
+    char msg[96];
+    snprintf(msg, sizeof(msg), "{\"count\":%lu,\"ts\":%lld}", (unsigned long) count, (long long) ts);
+
+    // QoS 1: same durability rationale as the custom-input/sale topics —
+    // a dropped pulse-count window would otherwise just vanish.
+    mqtt_publish_safe(mqttClient, topic, msg, 0, 1, 0);
+}
+
+/* Unused when the RFID reader claims GPIO13 (the default), see app_main. */
+static __attribute__((unused)) void pulse_input_task(void *arg) {
+    pcnt_unit_config_t unit_config = {
+        .low_limit  = -1,
+        .high_limit = 10000, // arbitrary safe ceiling well above any plausible burst; drained every 200ms
+    };
+    if (pcnt_new_unit(&unit_config, &s_pulse_pcnt_unit) != ESP_OK) {
+        ESP_LOGE(TAG, "Pulse input: PCNT unit init failed — feature disabled");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    pcnt_glitch_filter_config_t filter_config = { .max_glitch_ns = PULSE_GLITCH_NS };
+    pcnt_unit_set_glitch_filter(s_pulse_pcnt_unit, &filter_config);
+
+    pcnt_chan_config_t chan_config = {
+        .edge_gpio_num  = PIN_PULSE_1,
+        .level_gpio_num = -1,
+    };
+    pcnt_channel_handle_t chan = NULL;
+    if (pcnt_new_channel(s_pulse_pcnt_unit, &chan_config, &chan) != ESP_OK) {
+        ESP_LOGE(TAG, "Pulse input: PCNT channel init failed — feature disabled");
+        vTaskDelete(NULL);
+        return;
+    }
+    // Count rising edges only; falling edge holds the count unchanged.
+    pcnt_channel_set_edge_action(chan, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_HOLD);
+
+    pcnt_unit_enable(s_pulse_pcnt_unit);
+    pcnt_unit_clear_count(s_pulse_pcnt_unit);
+    pcnt_unit_start(s_pulse_pcnt_unit);
+
+    ESP_LOGI(TAG, "Pulse input initialised on GPIO%d (raw edge counting, hardware PCNT)", PIN_PULSE_1);
+
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(PULSE_POLL_MS));
+
+        int count = 0;
+        if (pcnt_unit_get_count(s_pulse_pcnt_unit, &count) == ESP_OK && count > 0) {
+            pcnt_unit_clear_count(s_pulse_pcnt_unit);
+
+            time_t now = time(NULL);
+            ESP_LOGI(TAG, "Pulse input: %d edge(s) in last %dms", count, PULSE_POLL_MS);
+            publish_pulse_event((uint32_t) count, now);
+            debug_log_append(DEBUG_LOG_PULSE, 1, 0, (int32_t) count);
+        }
+    }
+}
+
+//---------------------------- 1-Wire buses (J4/J5/J6) ----------------------//
+//--------------------------------------------------------------------------//
+// Boot call (periodic_track=false) is a one-shot discovery scan, logged
+// only. The periodic 5-min timer (see periodic_sensor_timer_cb) re-calls
+// this with periodic_track=true, which additionally pushes a debug_log
+// entry per DS18B20 whenever its temperature has moved >=0.5C since the
+// last logged reading for that bus (or on the first periodic reading).
+// Family-code dispatch means adding a second device type later (iButton,
+// EEPROM, ...) doesn't require touching the bus enumeration itself.
+#define ONEWIRE_LOG_DELTA_C 0.5f
+static float s_onewire_last_logged_c[2] = { NAN, NAN }; // indexed by bus_num-1
+
+static void onewire_bus_scan_and_read(gpio_num_t pin, uint8_t bus_num, bool periodic_track) {
+    onewire_bus_config_t bus_config = { .bus_gpio_num = pin };
+    onewire_bus_rmt_config_t rmt_config = { .max_rx_bytes = 10 };
+    onewire_bus_handle_t bus;
+
+    esp_err_t err = onewire_new_bus_rmt(&bus_config, &rmt_config, &bus);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "1-Wire bus %u (GPIO%d): init failed (%s)", bus_num, pin, esp_err_to_name(err));
+        return;
+    }
+
+    onewire_device_iter_handle_t iter = NULL;
+    if (onewire_new_device_iter(bus, &iter) != ESP_OK) {
+        ESP_LOGE(TAG, "1-Wire bus %u: failed to start device search", bus_num);
+        onewire_bus_del(bus);
+        return;
+    }
+
+    ESP_LOGI(TAG, "1-Wire bus %u (GPIO%d): scanning for devices...", bus_num, pin);
+    int found = 0;
+    onewire_device_t device;
+
+    while (onewire_device_iter_get_next(iter, &device) == ESP_OK) {
+        found++;
+        uint8_t family_code = (uint8_t)(device.address & 0xFF);
+
+        if (family_code == 0x28) {  // DS18B20 temperature sensor
+            ds18b20_config_t ds_cfg = {};  // reserved/empty config struct — nothing to set yet
+            ds18b20_device_handle_t ds18b20;
+
+            if (ds18b20_new_device(&device, &ds_cfg, &ds18b20) == ESP_OK) {
+                ds18b20_trigger_temperature_conversion(ds18b20);
+                float temp_c = 0;
+                if (ds18b20_get_temperature(ds18b20, &temp_c) == ESP_OK) {
+                    ESP_LOGI(TAG, "1-Wire bus %u: DS18B20 %016llX = %.2f C",
+                             bus_num, (unsigned long long) device.address, temp_c);
+
+                    if (periodic_track) {
+                        float *last = &s_onewire_last_logged_c[bus_num - 1];
+                        if (isnan(*last) || fabsf(temp_c - *last) >= ONEWIRE_LOG_DELTA_C) {
+                            *last = temp_c;
+                            debug_log_append(DEBUG_LOG_ONEWIRE, bus_num, 0, (int32_t)(temp_c * 1000));
+                        }
+                    }
+                } else {
+                    ESP_LOGW(TAG, "1-Wire bus %u: DS18B20 %016llX read failed",
+                              bus_num, (unsigned long long) device.address);
+                }
+                ds18b20_del_device(ds18b20);
+            } else {
+                ESP_LOGW(TAG, "1-Wire bus %u: DS18B20 %016llX init failed",
+                          bus_num, (unsigned long long) device.address);
+            }
+        } else {
+            ESP_LOGI(TAG, "1-Wire bus %u: device %016llX (family 0x%02X) — no driver for this family yet",
+                     bus_num, (unsigned long long) device.address, family_code);
+        }
+    }
+    onewire_del_device_iter(iter);
+
+    if (found == 0) {
+        ESP_LOGI(TAG, "1-Wire bus %u: no devices found", bus_num);
+    }
+
+    onewire_bus_del(bus);
+}
+
+//------------------------ NTC thermistor + periodic tracking --------------//
+//--------------------------------------------------------------------------//
+static adc_oneshot_unit_handle_t s_adc_handle = NULL;
+static adc_cali_handle_t s_adc_cali_handle = NULL;
+#define NTC_LOG_DELTA_C 0.5f
+static float s_ntc_last_logged_c = NAN;
+
+// Inverts the divider (+3V3 -> R15 -> ADC node -> TH1 -> GND) to get Rntc
+// from the measured node voltage, then the single-B-constant NTC equation
+// (Murata catalog R44E, section "Basic Characteristics") to get Celsius.
+static float ntc_mv_to_celsius(int adc_mv) {
+    float v = (float)adc_mv;
+    float v_source = (float)NTC_VDD_MV;
+    if (v <= 0.0f) v = 0.001f;
+    if (v >= v_source) v = v_source - 0.001f;
+
+    float r_ntc = NTC_DIVIDER_R15_OHMS * v / (v_source - v);
+    float inv_t = (1.0f / NTC_T25_KELVIN) + (1.0f / NTC_B_COEFF) * logf(r_ntc / NTC_R25_OHMS);
+    float temp_k = 1.0f / inv_t;
+    return temp_k - 273.15f;
+}
+
+static bool ntc_read_celsius(float *out_celsius) {
+    int raw;
+    if (adc_oneshot_read(s_adc_handle, ADC_CHANNEL_THERMISTOR, &raw) != ESP_OK) return false;
+
+    int mv;
+    if (s_adc_cali_handle && adc_cali_raw_to_voltage(s_adc_cali_handle, raw, &mv) == ESP_OK) {
+        // calibrated
+    } else {
+        // Fallback if the calibration scheme isn't supported on this chip
+        // revision: crude linear estimate over the DB_12 attenuation's
+        // approximate full-scale range. Less accurate but keeps the
+        // feature working rather than silently reporting nothing.
+        mv = (raw * NTC_VDD_MV) / 4095;
+    }
+    *out_celsius = ntc_mv_to_celsius(mv);
+    return true;
+}
+
+// esp_timer periodic callback (5 min). Re-reads the onboard NTC (both
+// board variants) and, on WROOM-1U only, the 1-Wire buses — each gated by
+// its own >=0.5C delta filter so a stable temperature doesn't fill the
+// debug log with near-duplicate readings.
+static void periodic_sensor_timer_cb(void *arg) {
+    float temp_c;
+    if (ntc_read_celsius(&temp_c)) {
+        if (isnan(s_ntc_last_logged_c) || fabsf(temp_c - s_ntc_last_logged_c) >= NTC_LOG_DELTA_C) {
+            s_ntc_last_logged_c = temp_c;
+            debug_log_append(DEBUG_LOG_NTC, 0, 0, (int32_t)(temp_c * 1000));
+        }
+    }
+
+    if (g_board_is_wroom_1u) {
+        onewire_bus_scan_and_read(PIN_ONEWIRE_1, 1, true);
+        onewire_bus_scan_and_read(PIN_ONEWIRE_2, 2, true);
+    }
+}
+
 void app_main(void) {
+
+    bool board_is_wroom_1u = detect_board_variant();
+    g_board_is_wroom_1u = board_is_wroom_1u;
+
 
     /* Silence the chatty IDF subsystems that drown out our own logs.
      * These tags were emitting D-level lines several times per second
@@ -3376,6 +3861,34 @@ void app_main(void) {
 	 * bring-up. */
 	gpio_set_direction(PIN_BUZZER_PWR, GPIO_MODE_OUTPUT);
 	gpio_set_level(PIN_BUZZER_PWR, 0);
+
+	// WROOM-1U only: bind LEDC to the same pin so the buzzer can be driven
+	// with a proper 2700Hz square wave (see BUZZER_LEDC_* above). Idle
+	// duty is 0 (silent) until vTaskBitEvent's BIT_EVT_BUZZER handler
+	// raises it for a beep.
+	if (board_is_wroom_1u) {
+		ledc_timer_config_t buzzer_timer = {
+			.speed_mode      = LEDC_LOW_SPEED_MODE,
+			.duty_resolution = BUZZER_LEDC_DUTY_RES,
+			.timer_num       = BUZZER_LEDC_TIMER,
+			.freq_hz         = BUZZER_LEDC_FREQ_HZ,
+			.clk_cfg         = LEDC_AUTO_CLK,
+		};
+		ledc_timer_config(&buzzer_timer);
+
+		ledc_channel_config_t buzzer_channel = {
+			.gpio_num   = PIN_BUZZER_PWR,
+			.speed_mode = LEDC_LOW_SPEED_MODE,
+			.channel    = BUZZER_LEDC_CHANNEL,
+			.intr_type  = LEDC_INTR_DISABLE,
+			.timer_sel  = BUZZER_LEDC_TIMER,
+			.duty       = 0,
+			.hpoint     = 0,
+		};
+		ledc_channel_config(&buzzer_channel);
+
+		play_boot_chime();
+	}
 
 	//---------------- Strip LED configuration -----------------//
 	//----------------------------------------------------------//
@@ -3417,49 +3930,96 @@ void app_main(void) {
 
 	//--------------- ADC Init (NTC thermistor) ----------------//
 	//----------------------------------------------------------//
-    adc_oneshot_unit_handle_t adc_handle;
     adc_oneshot_unit_init_cfg_t init_config = { .unit_id = ADC_UNIT_THERMISTOR, };
-    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config, &adc_handle));
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config, &s_adc_handle));
 
     adc_oneshot_chan_cfg_t config = { .atten = ADC_ATTEN_DB_12, .bitwidth = ADC_BITWIDTH_DEFAULT, };
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc_handle, ADC_CHANNEL_THERMISTOR, &config));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(s_adc_handle, ADC_CHANNEL_THERMISTOR, &config));
+
+    adc_cali_curve_fitting_config_t cali_config = {
+        .unit_id = ADC_UNIT_THERMISTOR,
+        .chan = ADC_CHANNEL_THERMISTOR,
+        .atten = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_DEFAULT,
+    };
+    if (adc_cali_create_scheme_curve_fitting(&cali_config, &s_adc_cali_handle) != ESP_OK) {
+        ESP_LOGW(TAG, "ADC calibration unavailable — thermistor readings use an uncalibrated linear estimate");
+        s_adc_cali_handle = NULL;
+    }
 
     int adc_raw_value;
-
-    ESP_ERROR_CHECK(adc_oneshot_read(adc_handle, ADC_CHANNEL_THERMISTOR, &adc_raw_value));
+    ESP_ERROR_CHECK(adc_oneshot_read(s_adc_handle, ADC_CHANNEL_THERMISTOR, &adc_raw_value));
     ESP_LOGI(TAG, "ADC Raw Data: %d", adc_raw_value);
+
+	//------------- Relay / custom inputs / 1-Wire (WROOM-1U) --------------//
+	//----------------------------------------------------------------------//
+	// All three are unwired on the original board (GPIO1/2/6/15/16/17/18
+	// are unused there) — only touch them when detect_board_variant()
+	// found the WROOM-1U pull-down, same gating as the DEX/UART1 block
+	// below.
+	if (board_is_wroom_1u) {
+		relay_init();
+
+		xTaskCreate(custom_input_task, "custom_input", 4096, NULL, 5, NULL);
+
+		onewire_bus_scan_and_read(PIN_ONEWIRE_1, 1, false);
+		onewire_bus_scan_and_read(PIN_ONEWIRE_2, 2, false);
+	}
 
 	//---------------- UART1 - EVA DTS DEX/DDCMP ---------------//
 	//----------------------------------------------------------//
-	uart_config_t uart_config_1 = {
-			.baud_rate = 9600,
-			.data_bits = UART_DATA_8_BITS,
-			.parity = UART_PARITY_DISABLE,
-			.stop_bits = UART_STOP_BITS_1,
-			.flow_ctrl = UART_HW_FLOWCTRL_DISABLE };
+	// GPIO8/9 (PIN_DEX_RX/TX) carry DEX telemetry only on the original
+	// board. WROOM-1U has no DEX reader hardware at all — GPIO8/9 are
+	// simply free/unused on that board — so this whole block is skipped
+	// when detect_board_variant() found the WROOM-1U pull-down.
+	if (!board_is_wroom_1u) {
+		uart_config_t uart_config_1 = {
+				.baud_rate = 9600,
+				.data_bits = UART_DATA_8_BITS,
+				.parity = UART_PARITY_DISABLE,
+				.stop_bits = UART_STOP_BITS_1,
+				.flow_ctrl = UART_HW_FLOWCTRL_DISABLE };
 
-	uart_param_config(UART_NUM_1, &uart_config_1);
-	uart_set_pin( UART_NUM_1, PIN_DEX_TX, PIN_DEX_RX, -1, -1);
-	uart_driver_install(UART_NUM_1, 256, 256, 0, NULL, 0);
+		uart_param_config(UART_NUM_1, &uart_config_1);
+		uart_set_pin( UART_NUM_1, PIN_DEX_TX, PIN_DEX_RX, -1, -1);
+		uart_driver_install(UART_NUM_1, 256, 256, 0, NULL, 0);
 
-    // ---
-    dexRingbuf = xRingbufferCreate(8 * 1024 /*8Kb*/, RINGBUF_TYPE_BYTEBUF);
+		// ---
+		dexRingbuf = xRingbufferCreate(8 * 1024 /*8Kb*/, RINGBUF_TYPE_BYTEBUF);
 
-    // DEX audit polled hourly. The backend compares consecutive snapshots
-    // against `sales` counts to detect any vend that escaped the MQTT
-    // pipeline (see dex_reconcile_gaps migration). 12h was too coarse to
-    // catch short outages; 1h trades flash + UART time for meaningful
-    // reconciliation resolution.
-    const double INTERVAL_1H_US = 60ULL * 60 * 1000000; // 1h in microseconds
+		// DEX audit polled hourly. The backend compares consecutive snapshots
+		// against `sales` counts to detect any vend that escaped the MQTT
+		// pipeline (see dex_reconcile_gaps migration). 12h was too coarse to
+		// catch short outages; 1h trades flash + UART time for meaningful
+		// reconciliation resolution.
+		const double INTERVAL_1H_US = 60ULL * 60 * 1000000; // 1h in microseconds
 
-	const esp_timer_create_args_t periodic_timer_args = {
-		.callback = &requestTelemetryData,
-		.name = "task_dex_1h"
-	};
+		const esp_timer_create_args_t periodic_timer_args = {
+			.callback = &requestTelemetryData,
+			.name = "task_dex_1h"
+		};
 
-	esp_timer_handle_t periodic_timer;
-	esp_timer_create(&periodic_timer_args, &periodic_timer);
-	esp_timer_start_periodic(periodic_timer, INTERVAL_1H_US);
+		esp_timer_handle_t periodic_timer;
+		esp_timer_create(&periodic_timer_args, &periodic_timer);
+		esp_timer_start_periodic(periodic_timer, INTERVAL_1H_US);
+	}
+
+	//---------------- Pulse input (J8, original board only) ---------------//
+	//----------------------------------------------------------------------//
+	// GPIO13 was desoldered on the WROOM-1U PCB revision — nothing to read
+	// there. Same gating as the DEX/UART1 block above.
+	// The serial RFID reader (rfid_reader.c) also listens on GPIO13 by
+	// default; PCNT would count its UART frames as pulses, so the pulse
+	// task stays off whenever the reader claims the same pin.
+#if CONFIG_RFID_READER_ENABLE && (CONFIG_RFID_RX_GPIO == 13)
+	if (!board_is_wroom_1u) {
+		ESP_LOGW(TAG, "Pulse input disabled: GPIO%d is used by the RFID reader", PIN_PULSE_1);
+	}
+#else
+	if (!board_is_wroom_1u) {
+		xTaskCreate(pulse_input_task, "pulse_input", 3072, NULL, 5, NULL);
+	}
+#endif
 
 	//-------------------- NETWORK STACK -----------------------//
 	//----------------------------------------------------------//
@@ -3473,6 +4033,21 @@ void app_main(void) {
 	    ESP_LOGE(TAG, "NVS init failed: %s", esp_err_to_name(nvs_err));
 	} else {
 	    ESP_LOGI(TAG, "NVS initialised OK");
+	}
+
+	// Offline-safe debug log (relay/custom-input/1-Wire/NTC): needs NVS for
+	// its write/ack cursors, so it's initialised here rather than alongside
+	// relay_init()/custom_input_task above, which run before nvs_flash_init.
+	debug_log_init();
+
+	{
+		const esp_timer_create_args_t sensor_timer_args = {
+			.callback = &periodic_sensor_timer_cb,
+			.name = "sensor_5m"
+		};
+		esp_timer_handle_t sensor_timer;
+		esp_timer_create(&sensor_timer_args, &sensor_timer);
+		esp_timer_start_periodic(sensor_timer, 5ULL * 60 * 1000000); // 5min
 	}
 	//
 	esp_netif_init();
@@ -3707,6 +4282,7 @@ void app_main(void) {
 	 * vend. */
 	sale_queue_init();
 	sale_queue_start(mqttClient);
+	debug_log_start(mqttClient);
 
 	//--------------- Factory reset (BOOT button) --------------//
 	//----------------------------------------------------------//
@@ -3730,6 +4306,11 @@ void app_main(void) {
 	 * branch, sets up esp_netif + esp_wifi_init + handler registration,
 	 * and calls esp_wifi_start(). Once IP_EVENT_STA_GOT_IP fires, the
 	 * UPLINK_UP callback above starts MQTT/SNTP/watchdog. */
+	/* WROOM-1U is WiFi-only, and the modem probe would drive GPIO17/18
+	 * (custom inputs 2/3 there) as the modem UART for several seconds. */
+	if (g_board_is_wroom_1u) {
+		network_disable_modem_probe();
+	}
 	network_init();
 
 	//------------------------ BLUETOOTH -----------------------//
@@ -3753,9 +4334,15 @@ void app_main(void) {
 	/* Serial RFID reader on the pulse input. Cards are published to the
 	 * /card topic; the backend answers on /credit with the balance of the
 	 * matching card account, which is the same path send-credit uses. */
+#if CONFIG_RFID_READER_ENABLE
+	/* No pulse circuit on WROOM-1U: the reader sits on the J1 UART
+	 * header's RXD pin instead (CONFIG_RFID_RX_GPIO_WROOM_1U). */
+	if (g_board_is_wroom_1u) {
+		rfid_reader_set_rx_gpio(CONFIG_RFID_RX_GPIO_WROOM_1U);
+	}
+#endif
 	rfid_reader_start(rfid_card_handler, NULL);
 
-    xTaskCreatePinnedToCore(vTaskBitEvent, "TaskBitEvent", 2048, NULL, 1, NULL, 0);
     // vTaskBitEvent was already started right after the LED strip driver
     // init, above — just force an immediate repaint now that MDB/network
     // state has moved on.

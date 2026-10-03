@@ -75,6 +75,13 @@ typedef void (*rfid_card_cb_t)(const rfid_card_t *card, void *ctx);
 bool rfid_reader_start(rfid_card_cb_t cb, void *ctx);
 
 /*
+ * Override the RX GPIO (default CONFIG_RFID_RX_GPIO) before
+ * rfid_reader_start(). Used for boards whose reader input sits on another
+ * pin, e.g. CONFIG_RFID_RX_GPIO_WROOM_1U. Ignored once the reader runs.
+ */
+void rfid_reader_set_rx_gpio(int gpio);
+
+/*
  * Forget the last-seen serial so the very next frame is treated as a fresh
  * presentation. Called when a card could not be reported (e.g. the broker
  * was offline) so the customer can simply present the card again instead

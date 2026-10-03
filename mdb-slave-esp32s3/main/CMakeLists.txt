@@ -2,6 +2,7 @@ set(srcs "mdb-slave-esp32s3.c"
         "webui_server.c"
         "nimble.c"
         "sale_queue.c"
+        "debug_log.c"
         "rfid_reader.c"
         "modem.c"
         "modem_https.c"
@@ -12,7 +13,7 @@ idf_component_register(SRCS "${srcs}"
                     EMBED_FILES "../webui/index.html"
                     REQUIRES esp_wifi esp_http_client esp_http_server esp-tls mbedtls
                              mqtt driver nvs_flash lwip esp_adc json bt
-                             app_update esp_https_ota esp_modem esp_netif)
+                             app_update esp_https_ota esp_modem esp_netif esp_partition)
 
 # Capture the build machine's UTC offset (e.g. "+0100", "-0500") at configure time.
 # Passed as a compile definition so the firmware can include timezone info

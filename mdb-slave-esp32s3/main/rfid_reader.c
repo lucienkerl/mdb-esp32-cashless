@@ -46,6 +46,7 @@
 static rfid_card_cb_t   s_cb;
 static void            *s_ctx;
 static bool             s_running;
+static int              s_rx_gpio = CONFIG_RFID_RX_GPIO;
 
 static uint8_t          s_frame[RFID_FRAME_MAX];
 static size_t           s_frame_len;
@@ -240,6 +241,10 @@ static void rfid_reader_task(void *arg) {
     }
 }
 
+void rfid_reader_set_rx_gpio(int gpio) {
+    if (!s_running) s_rx_gpio = gpio;
+}
+
 bool rfid_reader_start(rfid_card_cb_t cb, void *ctx) {
 
     if (s_running) return true;
@@ -264,10 +269,10 @@ bool rfid_reader_start(rfid_card_cb_t cb, void *ctx) {
 
     /* RX only — the reader is a one-way talker. TX stays on whatever pad
      * the port defaults to; nothing ever writes to it. */
-    err = uart_set_pin(CONFIG_RFID_UART_PORT, UART_PIN_NO_CHANGE, CONFIG_RFID_RX_GPIO,
+    err = uart_set_pin(CONFIG_RFID_UART_PORT, UART_PIN_NO_CHANGE, s_rx_gpio,
                        UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "uart_set_pin(rx=%d) failed: %s", CONFIG_RFID_RX_GPIO, esp_err_to_name(err));
+        ESP_LOGE(TAG, "uart_set_pin(rx=%d) failed: %s", s_rx_gpio, esp_err_to_name(err));
         return false;
     }
 
@@ -279,7 +284,7 @@ bool rfid_reader_start(rfid_card_cb_t cb, void *ctx) {
 
     /* An unconnected input floats and spews framing errors; idle-high is
      * also what a TTL serial line looks like between frames. */
-    gpio_set_pull_mode(CONFIG_RFID_RX_GPIO, GPIO_PULLUP_ONLY);
+    gpio_set_pull_mode(s_rx_gpio, GPIO_PULLUP_ONLY);
 
 #if CONFIG_RFID_INVERT_RX
     /* For installations where the pulse input passes through an inverting
@@ -295,7 +300,7 @@ bool rfid_reader_start(rfid_card_cb_t cb, void *ctx) {
 
     s_running = true;
     ESP_LOGW(TAG, "RFID reader started: uart%d rx=GPIO%d %d baud, dedup=%dms",
-             CONFIG_RFID_UART_PORT, CONFIG_RFID_RX_GPIO, CONFIG_RFID_BAUD, CONFIG_RFID_DEDUP_MS);
+             CONFIG_RFID_UART_PORT, s_rx_gpio, CONFIG_RFID_BAUD, CONFIG_RFID_DEDUP_MS);
     return true;
 }
 
@@ -319,6 +324,7 @@ bool rfid_reader_start(rfid_card_cb_t cb, void *ctx) {
     return false;
 }
 
+void     rfid_reader_set_rx_gpio(int gpio) { (void) gpio; }
 void     rfid_reader_reset_dedup(void) {}
 bool     rfid_reader_is_running(void) { return false; }
 uint32_t rfid_frames_ok(void)         { return 0; }

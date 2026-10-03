@@ -93,6 +93,12 @@ typedef void (*network_event_cb_t)(network_event_t event, void *user_data);
  */
 void network_init(void);
 
+/* Tell network_init() this board has no cellular modem fitted, so it
+ * takes the WiFi branch without running modem_probe(). The probe drives
+ * the modem UART/PWRKEY pins (GPIO17/18/14), which other boards reuse for
+ * unrelated I/O. Must be called before network_init(). */
+void network_disable_modem_probe(void);
+
 network_state_t network_get_state(void);
 
 /* Refresh and return current network status. Cheap to call. */

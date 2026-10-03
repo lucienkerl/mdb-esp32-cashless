@@ -1,6 +1,17 @@
 dependencies:
+  espressif/ds18b20:
+    component_hash: 87a753636db56dbb42633b8fdd615c63c5e752ec9c9629e6386d8115f36efc30
+    dependencies:
+    - name: espressif/onewire_bus
+      registry_url: https://components.espressif.com
+      require: private
+      version: ^1.0.0
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.1.2
   espressif/esp_modem:
-    component_hash: 
+    component_hash:
       b541c3f5765d3ba062c0d004b9ca6da6d0af908293421c2dbe046c537fb2a011
     dependencies:
     - name: idf
@@ -11,7 +22,7 @@ dependencies:
       type: service
     version: 1.4.0
   espressif/led_strip:
-    component_hash: 
+    component_hash:
       28621486f77229aaf81c71f5e15d6fbf36c2949cf11094e07090593e659e7639
     dependencies:
     - name: idf
@@ -21,14 +32,26 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 3.0.3
+  espressif/onewire_bus:
+    component_hash: a85dc1ceb71fb87af77c57d5fd4e6f48a504de1fc2b83fc302ec0cea331d05ce
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.1.1
   idf:
     source:
       type: idf
     version: 5.5.1
 direct_dependencies:
+- espressif/ds18b20
 - espressif/esp_modem
 - espressif/led_strip
+- espressif/onewire_bus
 - idf
-manifest_hash: 8896b3703f14971c1cc64dcdbb46218d0801b701235490ea032a1fa7fae66abc
+manifest_hash: ec04f5da574f1431b8136a389908a61929480995bf7061e250f80661cf9797ba
 target: esp32s3
 version: 2.0.0

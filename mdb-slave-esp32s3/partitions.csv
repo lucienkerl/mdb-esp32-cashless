@@ -1,0 +1,13 @@
+# Name,     Type, SubType,  Offset,   Size,    Flags
+# WROOM-1U (16MB flash) partition table. Same nvs/otadata/phy_init offsets
+# as the stock ESP-IDF partitions_two_ota_large.csv the original board uses,
+# so NVS (provisioning, WiFi, sale queue) survives switching tables. The
+# 3MB OTA slots leave headroom over the ~1.6MB image (1500K slots
+# overflowed once the RFID reader landed), and "dbglog" holds the offline
+# debug log (debug_log.c). The rest of the 16MB flash stays free.
+nvs,        data, nvs,      0x9000,   0x6000,
+otadata,    data, ota,      0xf000,   0x2000,
+phy_init,   data, phy,      0x11000,  0x1000,
+ota_0,      app,  ota_0,    0x20000,  3M,
+ota_1,      app,  ota_1,    ,         3M,
+dbglog,     data, 0x40,     ,         800K,

@@ -21,3 +21,7 @@ dependencies:
   # disconnect / status / set_apn / set_pin) but no IDF-v6.0 changes that
   # break v5.5 shared-interrupt allocation.
   espressif/esp_modem: "==1.4.0"
+  # RMT-based 1-Wire bus driver (same RMT peripheral pattern as led_strip
+  # above) — ROM search lets us enumerate mixed device types on one bus.
+  espressif/onewire_bus: "^1.1.1"
+  espressif/ds18b20: "^0.1.2"

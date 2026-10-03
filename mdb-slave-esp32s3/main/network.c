@@ -151,6 +151,8 @@ static void                *s_event_user_data = NULL;
  * returns (regardless of result). Also flips true when the user
  * explicitly skips the wait via network_skip_modem_probe. */
 static volatile bool        s_probe_complete = false;
+/* Set by network_disable_modem_probe() on boards without a modem. */
+static bool                 s_modem_probe_disabled = false;
 static volatile bool        s_user_committed_wifi = false;
 
 /* WiFi STA initialisation tracking — toggled true the first time
@@ -730,6 +732,10 @@ static void network_ppp_event_handler(void *arg, esp_event_base_t event_base,
 
 /* ---- Public API ---- */
 
+void network_disable_modem_probe(void) {
+    s_modem_probe_disabled = true;
+}
+
 void network_init(void) {
     /* PPP IPCP-completion event group — created before any handler
      * registration so the GOT_IP callback always finds a non-NULL handle. */
@@ -796,7 +802,11 @@ void network_init(void) {
      * live in-progress probe, just decided ahead of time from NVS
      * instead of a captive-portal button click. */
     bool modem_present;
-    if (network_get_uplink_preference()) {
+    if (s_modem_probe_disabled) {
+        ESP_LOGI(TAG, "network_init: no modem on this board — skipping modem probe");
+        modem_present = false;
+        s_probe_complete = true;
+    } else if (network_get_uplink_preference()) {
         ESP_LOGI(TAG, "network_init: uplink preference is WiFi — skipping modem probe");
         s_user_committed_wifi = true;
         modem_present = false;
