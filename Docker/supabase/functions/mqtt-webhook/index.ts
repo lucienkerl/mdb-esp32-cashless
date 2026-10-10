@@ -8,6 +8,7 @@ import { decideSuppress, rebootCorroborates, REBOOT_CORRELATION_WINDOW_MS, REBOO
 import { buildTrayMap, mapSlotCounters, resolveItemNumber, type TrayMap } from './tray-mapping.ts';
 import { clampCredit, decodeCardPayload } from './card-payload.ts';
 import { deliverCredit } from '../_shared/deliver-credit.ts';
+import { InvalidTraceError, parseMdbTrace, PRUNE_EVERY_N_BATCHES, TRACE_RETENTION_MS, type MdbTraceBatch } from './mdb-trace.ts';
 
 // Sale payload format version carried in byte 1 of the 19-byte XOR-encrypted
 // payload. v2 adds per-device monotonic sale_seq (bytes 14-17) + time_uncertain
@@ -89,7 +90,7 @@ Deno.serve(async (req) => {
     const { topic, payload: payloadB64 } = body;
 
     // Parse topic: /{company_id}/{device_id}/{event_type}
-    const match = topic.match(/^\/([^/]+)\/([^/]+)\/(sale|status|paxcounter|mdb-log|restart|dex|card)$/);
+    const match = topic.match(/^\/([^/]+)\/([^/]+)\/(sale|status|paxcounter|mdb-log|mdb-trace|restart|dex|card)$/);
     if (!match) {
       return new Response(JSON.stringify({ error: 'invalid topic' }), { status: 400 });
     }
@@ -279,6 +280,65 @@ Deno.serve(async (req) => {
       }
 
       return new Response(JSON.stringify({ ok: true, state_changed: stateChanged }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Live MDB bus trace: plain JSON batches of raw bus words, published by
+    // the firmware only while an operator has a trace running (config cmd 0x33).
+    // Payload: {"drop":0,"f":[[12,"t","10B"],[9,"r","1120"]]} — see mdb-trace.ts.
+    // One row per batch; the management frontend renders them live through
+    // realtime. Short-lived debug data, pruned below.
+    if (eventType === 'mdb-trace') {
+      let batch: MdbTraceBatch;
+      try {
+        batch = parseMdbTrace(new TextDecoder().decode(decodeBase64(payloadB64)));
+      } catch (err) {
+        if (err instanceof InvalidTraceError) {
+          return new Response(JSON.stringify({ error: err.message }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        throw err;
+      }
+
+      const { error: insertErr } = await adminClient
+        .from('mdb_trace')
+        .insert({ embedded_id: deviceId, frames: batch.frames, dropped: batch.dropped });
+
+      if (insertErr) {
+        // 23503 = unknown device in the topic, 22P02 = device id is not a uuid.
+        // Both are permanent: answer 4xx so nothing retries a stale trace.
+        if (insertErr.code === '23503') {
+          return new Response(JSON.stringify({ error: 'device not found' }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        if (insertErr.code === '22P02') {
+          return new Response(JSON.stringify({ error: 'invalid device id' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        throw insertErr;
+      }
+
+      // Retention: a trace is live debugging, not history. Prune on roughly
+      // one batch in PRUNE_EVERY_N_BATCHES so it costs no extra query per batch.
+      if (Math.random() * PRUNE_EVERY_N_BATCHES < 1) {
+        const cutoff = new Date(Date.now() - TRACE_RETENTION_MS).toISOString();
+        const { error: pruneErr } = await adminClient
+          .from('mdb_trace')
+          .delete()
+          .eq('embedded_id', deviceId)
+          .lt('created_at', cutoff);
+        if (pruneErr) console.warn(`mdb-trace prune failed for ${deviceId}: ${pruneErr.message}`);
+      }
+
+      return new Response(JSON.stringify({ ok: true, frames: batch.frames.length }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });

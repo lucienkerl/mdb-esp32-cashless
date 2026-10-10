@@ -21,6 +21,7 @@ const topics = [
   "/+/+/status",
   "/+/+/paxcounter",
   "/+/+/mdb-log",
+  "/+/+/mdb-trace",
   "/+/+/restart",
   "/+/+/dex",
   "/+/+/card",
@@ -39,6 +40,14 @@ const IGNORED_TOPIC_PREFIXES = ["/healthcheck/"];
 
 function isIgnoredTopic(topic: string): boolean {
   return IGNORED_TOPIC_PREFIXES.some((p) => topic.startsWith(p));
+}
+
+// `/mdb-trace` batches are live debugging output published at QoS 0 ~2x/s
+// while an operator watches the console. A batch that could not be delivered
+// is worthless a minute later, so it is never queued in the DLQ (and a
+// successful delivery is not worth a log line each).
+function isLiveOnlyTopic(topic: string): boolean {
+  return topic.endsWith("/mdb-trace");
 }
 
 // Deno KV is the local dead-letter queue. When a webhook call fails with a
@@ -174,8 +183,13 @@ client.on("message", async (topic: string, payload: Buffer) => {
   if (isIgnoredTopic(topic)) return;
   const payload_b64 = encodeBase64(new Uint8Array(payload));
   const { ok, status, error } = await forward(topic, payload_b64);
+  const liveOnly = isLiveOnlyTopic(topic);
   if (ok) {
-    console.log(`${topic} -> ${status}`);
+    if (!liveOnly) console.log(`${topic} -> ${status}`);
+    return;
+  }
+  if (liveOnly) {
+    console.warn(`${topic} -> ${status ?? "ERR"} (live-only, dropping): ${error}`);
     return;
   }
   if (!isRetryable(status)) {

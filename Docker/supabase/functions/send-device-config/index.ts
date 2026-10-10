@@ -1,48 +1,13 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { mqttPublish } from '../_shared/mqtt-publish.ts'
-
-// Config command bytes (must match ESP32 firmware)
-const CMD_RESTART = 0x30
-const CMD_MDB_ADDRESS = 0x31
-const CMD_MDB_RESET = 0x32
-
-/**
- * Build a 19-byte XOR-encrypted config payload.
- * Same binary format as send-credit: cmd(1) + version(1) + param(4) + unused(2) + timestamp(4) + padding(6) + checksum(1)
- * XOR bytes [1..18] with passkey.
- */
-function buildConfigPayload(cmd: number, param: number, passkey: string): Uint8Array {
-  const payload = new Uint8Array(19)
-  crypto.getRandomValues(payload) // fill with random (padding bytes stay random)
-
-  const timestampSec = Math.floor(Date.now() / 1000)
-
-  payload[0] = cmd
-  payload[1] = 0x01                            // version v1
-  payload[2] = (param >> 24) & 0xff            // param (big-endian u32)
-  payload[3] = (param >> 16) & 0xff
-  payload[4] = (param >> 8) & 0xff
-  payload[5] = (param >> 0) & 0xff
-  payload[6] = 0x00                            // itemNumber (unused)
-  payload[7] = 0x00
-  payload[8] = (timestampSec >> 24) & 0xff     // timestamp
-  payload[9] = (timestampSec >> 16) & 0xff
-  payload[10] = (timestampSec >> 8) & 0xff
-  payload[11] = (timestampSec >> 0) & 0xff
-
-  // Checksum: sum of bytes 0..17
-  let chk = 0
-  for (let i = 0; i < 18; i++) chk += payload[i]
-  payload[18] = chk & 0xff
-
-  // XOR bytes 1..18 with passkey
-  const cipher = [...passkey].map((c: string) => c.charCodeAt(0))
-  for (let k = 0; k < cipher.length; k++) {
-    payload[k + 1] ^= cipher[k]
-  }
-
-  return payload
-}
+import {
+  buildConfigPayload,
+  CMD_MDB_ADDRESS,
+  CMD_MDB_RESET,
+  CMD_MDB_TRACE,
+  CMD_RESTART,
+  MDB_TRACE_MAX_SECONDS,
+} from '../_shared/config-payload.ts'
 
 Deno.serve(async (req) => {
   try {
@@ -57,7 +22,7 @@ Deno.serve(async (req) => {
 
     // ── Validate config values ──────────────────────────────────────────────
     const dbUpdate: Record<string, unknown> = {}
-    const configActions: { cmd: number; param: number; label: string }[] = []
+    const configActions: { cmd: number; param: number; item?: number; label: string; summary: unknown }[] = []
 
     if (config.mdb_address !== undefined) {
       if (config.mdb_address !== 1 && config.mdb_address !== 2) {
@@ -66,17 +31,30 @@ Deno.serve(async (req) => {
         })
       }
       dbUpdate.mdb_address = config.mdb_address
-      configActions.push({ cmd: CMD_MDB_ADDRESS, param: config.mdb_address, label: 'mdb_address' })
+      configActions.push({ cmd: CMD_MDB_ADDRESS, param: config.mdb_address, label: 'mdb_address', summary: config.mdb_address })
     }
 
     // Remote restart — no DB update needed
     if (config.restart === true) {
-      configActions.push({ cmd: CMD_RESTART, param: 0, label: 'restart' })
+      configActions.push({ cmd: CMD_RESTART, param: 0, label: 'restart', summary: true })
     }
 
     // MDB soft reset — device announces "Just Reset" on next POLL, VMC re-runs SETUP
     if (config.mdb_reset === true) {
-      configActions.push({ cmd: CMD_MDB_RESET, param: 0, label: 'mdb_reset' })
+      configActions.push({ cmd: CMD_MDB_RESET, param: 0, label: 'mdb_reset', summary: true })
+    }
+
+    // Live MDB bus trace — value is the number of seconds to trace (the device
+    // stops by itself), 0 stops a running trace. Debug output costs uplink
+    // traffic, hence the cap (the firmware enforces the same one).
+    if (config.mdb_trace !== undefined) {
+      const seconds = config.mdb_trace
+      if (!Number.isInteger(seconds) || seconds < 0 || seconds > MDB_TRACE_MAX_SECONDS) {
+        return new Response(JSON.stringify({ error: `mdb_trace must be an integer number of seconds between 0 and ${MDB_TRACE_MAX_SECONDS}` }), {
+          status: 400, headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      configActions.push({ cmd: CMD_MDB_TRACE, param: 0, item: seconds, label: 'mdb_trace', summary: seconds })
     }
 
     if (configActions.length === 0) {
@@ -165,13 +143,13 @@ Deno.serve(async (req) => {
 
     // Send each config action as a separate encrypted message
     for (const action of configActions) {
-      const payload = buildConfigPayload(action.cmd, action.param, device.passkey)
+      const payload = buildConfigPayload(action.cmd, action.param, device.passkey, action.item ?? 0)
       await mqttPublish(topic, payload, { qos: 1 })
     }
 
     // ── Activity log (best-effort) ──────────────────────────────────────────
     const configSummary = Object.fromEntries(
-      configActions.map(a => [a.label, a.param || true])
+      configActions.map(a => [a.label, a.summary])
     )
     try {
       await adminClient.from('activity_log').insert({

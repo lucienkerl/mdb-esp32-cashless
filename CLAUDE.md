@@ -96,7 +96,19 @@ once and compounded: a card balance of 8.20 reached the machine as 8.18.
 Regression tests: `mdb-slave-esp32s3/test/scale/run.sh` and
 `functions/_shared/scale.test.ts`.
 
-**MQTT topics**: `/{company_id}/{device_id}/{event}` where events are: `sale`, `status`, `paxcounter`, `dex`, `mdb-log`, `card`, `credit`, `ota`, `config`
+**MQTT topics**: `/{company_id}/{device_id}/{event}` where events are: `sale`, `status`, `paxcounter`, `dex`, `mdb-log`, `card`, `credit`, `ota`, `config`, `mdb-trace`
+
+**Live MDB bus trace (`mdb_trace.h`)**: on-demand raw capture of every 9-bit word on the bus, shown in the
+machine's MDB tab (admin). Off by default; started by config cmd `0x35` (duration in seconds in the *raw*
+`itemNumber` bytes 6-7 — not the price param, which goes through the scale factor; `0` = stop, capped at 1800 s;
+the device also stops by itself). `read_9`/`read_9_timeout`/`write_payload_9` push into a wait-free SPSC ring
+(`mdb_trace_push`, 32-bit atomics only — Xtensa 8/16-bit atomics take a spinlock) — no lock, no network and no
+logging in the timing-critical path. `mdb_trace_task` drains it every 500 ms into frames and publishes plaintext
+JSON `{"drop":N,"f":[[age_ms,"r"|"t","<3-hex-digit words>"],...]}` to `/{company}/{device}/mdb-trace` at QoS 0
+(needs `topic write /+/+/mdb-trace` in `Docker/mqtt/config/acl` — reload the broker). The forwarder never puts
+trace batches in the DLQ (stale live data is worthless). `mqtt-webhook` stores one `mdb_trace` row per batch
+(pruned to 1 h); the frontend (`useMdbTrace`, `MdbTraceConsole.vue`, decoding in `app/lib/mdbTrace.ts`) reads it
+through realtime and computes the wall time as row `created_at` − `age_ms`. Host test: `mdb-slave-esp32s3/test/trace/run.sh`.
 
 **RFID card reader (`rfid_reader.c` / `rfid_reader.h`)**: serial reader
 (F02DC and compatibles) on the **pulse pin** (GPIO 13) — no added hardware,
@@ -326,6 +338,7 @@ Tables:
 - `low_stock_notifications` – queue table for push alerts when stock drops below minimum; auto-enqueued via trigger
 - `stock_decrement_log` – audit log for stock decrements
 - `mdb_log` – MDB state-change diagnostics history per device
+- `mdb_trace` – short-lived raw bus trace batches per device (`frames` jsonb, `dropped`), written by `mqtt-webhook` only while a trace runs, pruned after 1 h, realtime-published
 - `push_subscriptions` – browser push notification registrations (endpoint, keys, user_agent)
 - `history` – activity log for audit trail
 
@@ -535,6 +548,7 @@ Firmware host-side tests need no board and compile the real sources:
 - `mdb-slave-esp32s3/test/rfid/run.sh` — the F02DC frame parser
   (`main/rfid_reader.c` against a few ESP-IDF stubs): framing, XOR validation,
   duplicate suppression, resync.
+- `mdb-slave-esp32s3/test/trace/run.sh` — `main/mdb_trace.h`: frame grouping, gap splitting, ring overflow accounting, batching without torn frames.
 - `mdb-slave-esp32s3/test/scale/run.sh` — `main/scale_factor.h`: every credit
   and price value over the whole uint16 MDB range converts exactly.
 

@@ -18,6 +18,7 @@ import { usePosterFreshness } from '@/composables/usePosterFreshness'
 import MachineAnalysisPanel from '~/components/analysis/MachineAnalysisPanel.vue'
 import SlotPlanPanel from '~/components/slotplan/SlotPlanPanel.vue'
 import ProductGroupHeader from '~/components/machine/ProductGroupHeader.vue'
+import MdbTraceConsole from '~/components/machine/MdbTraceConsole.vue'
 import TrayStockGrid from '~/components/machine/TrayStockGrid.vue'
 import { buildTrayGroupIndex, productListRows } from '@/lib/trayGroups'
 import {
@@ -2420,6 +2421,13 @@ async function handleAddSale() {
                   {{ t('machineDetail.noMdbDiagnostics') }}
                 </p>
               </div>
+
+              <!-- Live bus trace: raw MDB words as they cross the bus (admin tab, starts on demand) -->
+              <MdbTraceConsole
+                v-if="machine.embeddeds?.id"
+                :embedded-id="machine.embeddeds.id"
+                :mdb-address="machine.embeddeds.mdb_diagnostics?.addr"
+              />
 
               <!-- State Change History -->
               <div>

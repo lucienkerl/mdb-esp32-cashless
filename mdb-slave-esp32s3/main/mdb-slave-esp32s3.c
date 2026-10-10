@@ -42,6 +42,7 @@
 #include "network.h"
 #include "rfid_reader.h"
 #include "scale_factor.h"
+#include "mdb_trace.h"
 
 #include "esp_system.h"
 #include "esp_http_client.h"
@@ -354,6 +355,14 @@ static const char *mdb_last_cmd = "none";
 static machine_state_t mdb_prev_state = INACTIVE_STATE;
 static void publish_mdb_diag(void); // forward declaration
 
+// Live MDB bus trace (see mdb_trace.h). Words are captured in read_9() /
+// write_payload_9() into a lock-free ring and published as /mdb-trace batches
+// by mdb_trace_task(). Completely idle unless an operator started a trace
+// (config cmd 0x35), and it always stops by itself.
+static mdb_trace_ring_t s_mdb_trace;
+#define MDB_TRACE_MAX_SECONDS   1800            // hard cap per start request
+static volatile int64_t s_mdb_trace_until_us = 0;
+
 // LED fault indicator: holds the "fault" LED state for a few seconds after
 // each checksum error so a single glitch is visible without needing a
 // sustained error rate. Read by vTaskBitEvent, written only here.
@@ -480,6 +489,10 @@ uint16_t read_9(uint8_t *checksum) {
 
 	portEXIT_CRITICAL(&mdb_mux);
 
+	// Trace capture: wait-free store into the ring, no-op unless a trace runs.
+	if (mdb_trace_is_active(&s_mdb_trace))
+		mdb_trace_push(&s_mdb_trace, coming_read, MDB_TRACE_RX, (uint32_t) esp_timer_get_time());
+
 	if (!stop_ok)
 		mdb_resync();
 
@@ -517,6 +530,9 @@ int32_t read_9_timeout(uint8_t *checksum, uint32_t timeout_us) {
 	bool stop_ok = gpio_get_level(PIN_MDB_RX) != 0;
 
 	portEXIT_CRITICAL(&mdb_mux);
+
+	if (mdb_trace_is_active(&s_mdb_trace))
+		mdb_trace_push(&s_mdb_trace, coming_read, MDB_TRACE_RX, (uint32_t) esp_timer_get_time());
 
 	if (!stop_ok)
 		mdb_resync();
@@ -576,6 +592,16 @@ void write_payload_9(uint8_t *mdb_payload, uint8_t length) {
 
 	// Release the bus — back to high-Z so we don't interfere with other peripherals
 	gpio_set_direction(PIN_MDB_TX, GPIO_MODE_INPUT);
+
+	// Trace capture of what we just drove: payload + the checksum word (mode
+	// bit set). Done after the bus is released so it can never stretch a
+	// frame; the whole response shares one timestamp (its end).
+	if (mdb_trace_is_active(&s_mdb_trace)) {
+		uint32_t t_us = (uint32_t) esp_timer_get_time();
+		for (int x = 0; x < length; x++)
+			mdb_trace_push(&s_mdb_trace, mdb_payload[x], MDB_TRACE_TX, t_us);
+		mdb_trace_push(&s_mdb_trace, BIT_MODE_SET | checksum, MDB_TRACE_TX, t_us);
+	}
 }
 
 void xorEncodeWithPasskey(uint8_t cmd, uint16_t itemPrice, uint16_t itemNumber, uint16_t paxCounter, uint8_t *payload);
@@ -2414,6 +2440,55 @@ static void mdb_diag_timer_cb(void *arg) {
     publish_mdb_diag();
 }
 
+/* ---------- Live MDB bus trace ----------
+ * Start/stop is driven by config cmd 0x35 (itemNumber field = seconds, 0 =
+ * stop). While active, mdb_trace_task() drains the capture ring every
+ * MDB_TRACE_PUBLISH_MS and publishes plaintext JSON batches (QoS 0, not
+ * retained — a trace is only worth something live) to /{company}/{device}/
+ * mdb-trace. The capture itself lives in read_9()/write_payload_9().
+ */
+#define MDB_TRACE_PUBLISH_MS    500
+#define MDB_TRACE_BATCH_BYTES   1536
+
+static void mdb_trace_start(uint16_t seconds) {
+    if (seconds == 0) {
+        mdb_trace_set_active(&s_mdb_trace, false);
+        ESP_LOGW(TAG, "MDB TRACE: stopped on request");
+        return;
+    }
+    if (seconds > MDB_TRACE_MAX_SECONDS) seconds = MDB_TRACE_MAX_SECONDS;
+    s_mdb_trace_until_us = esp_timer_get_time() + (int64_t) seconds * 1000000LL;
+    mdb_trace_set_active(&s_mdb_trace, true);
+    ESP_LOGW(TAG, "MDB TRACE: started for %us", (unsigned) seconds);
+}
+
+static void mdb_trace_task(void *arg) {
+    static char batch[MDB_TRACE_BATCH_BYTES];   // static: keeps the task stack small
+    char topic[128];
+
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(MDB_TRACE_PUBLISH_MS));
+
+        if (mdb_trace_is_active(&s_mdb_trace) &&
+            esp_timer_get_time() >= s_mdb_trace_until_us) {
+            mdb_trace_set_active(&s_mdb_trace, false);
+            ESP_LOGW(TAG, "MDB TRACE: time limit reached, stopped");
+        }
+
+        // Always drain, even with no uplink: otherwise the ring fills up and
+        // every later word is counted as dropped. While inactive this just
+        // discards, so the task costs two idle wakeups a second.
+        size_t n;
+        while ((n = mdb_trace_drain_json(&s_mdb_trace, (uint32_t) esp_timer_get_time(),
+                                         batch, sizeof(batch))) > 0) {
+            if (!mqttClient || !mqtt_started) continue;
+
+            snprintf(topic, sizeof(topic), "/%s/%s/mdb-trace", my_company_id, my_device_id);
+            mqtt_publish_safe(mqttClient, topic, batch, (int) n, 0, 0);
+        }
+    }
+}
+
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
 
 	esp_mqtt_event_handle_t event = event_data;
@@ -2627,11 +2702,12 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 		    // Try XOR-encrypted config first (cmd 0x30=restart, 0x31=mdb_address)
 		    if (event->data_len == 19) {
 		        uint16_t configParam = 0;
+		        uint16_t configItem = 0;   // raw u16 (bytes 6-7): not run through the scale factor
 		        uint8_t configData[19];
 		        memcpy(configData, event->data, 19);
 		        uint8_t cmd = configData[0];
 
-		        if (xorDecodeWithPasskey(&configParam, NULL, configData)) {
+		        if (xorDecodeWithPasskey(&configParam, &configItem, configData)) {
 		            switch (cmd) {
 		                case 0x30: // Restart
 		                    ESP_LOGW(TAG, "CONFIG: authenticated restart requested");
@@ -2687,6 +2763,11 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 		                    } else {
 		                        ESP_LOGE(TAG, "CONFIG: invalid relay2 state %u (must be 0 or 1)", configParam);
 		                    }
+		                    break;
+		                case 0x35: // Live MDB bus trace — itemNumber = seconds, 0 = stop
+		                    // Read from the raw itemNumber field, not configParam: that one
+		                    // goes through the MDB scale factor and would turn 300 s into 30.
+		                    mdb_trace_start(configItem);
 		                    break;
 		                default:
 		                    ESP_LOGW(TAG, "CONFIG: unknown encrypted cmd 0x%02X", cmd);
@@ -4330,6 +4411,11 @@ void app_main(void) {
 	//----------------------------------------------------------//
 	mdbSessionQueue = xQueueCreate(1 /*queue-length*/, sizeof(uint16_t));
 	xTaskCreatePinnedToCore(vTaskMdbEvent, "TaskMdbEvent", 4096, NULL, 1, NULL, 1);
+
+	/* MDB bus trace publisher. Core 0 (the MDB task owns core 1 and its
+	 * interrupt-disabled bit sampling), lowest priority: it only ever runs
+	 * in the gaps and does nothing unless a trace was started. */
+	xTaskCreatePinnedToCore(mdb_trace_task, "mdb_trace", 4096, NULL, 1, NULL, 0);
 
 	/* Serial RFID reader on the pulse input. Cards are published to the
 	 * /card topic; the backend answers on /credit with the balance of the
