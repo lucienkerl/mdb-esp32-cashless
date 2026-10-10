@@ -175,6 +175,25 @@ static void wifi_reconnect_timer_cb(void *arg) {
     esp_wifi_connect();
 }
 
+/* Arm the periodic STA reconnect timer (create on first use). Safe to call
+ * repeatedly: a timer that is already running is left alone. */
+static void wifi_reconnect_timer_ensure_running(void) {
+    if (s_wifi_reconnect_timer == NULL) {
+        const esp_timer_create_args_t timer_args = {
+            .callback = wifi_reconnect_timer_cb,
+            .name = "wifi_reconnect"
+        };
+        if (esp_timer_create(&timer_args, &s_wifi_reconnect_timer) != ESP_OK) {
+            s_wifi_reconnect_timer = NULL;
+            ESP_LOGE(TAG, "Could not create the WiFi reconnect timer");
+            return;
+        }
+    }
+    if (!esp_timer_is_active(s_wifi_reconnect_timer)) {
+        esp_timer_start_periodic(s_wifi_reconnect_timer, WIFI_RECONNECT_INTERVAL_SEC * 1000000ULL);
+    }
+}
+
 /* ---- WIFI / IP event handler (lifted from mdb-slave-esp32s3.c) ----
  *
  * Behavioural translation rules vs the original:
@@ -274,20 +293,23 @@ static void network_wifi_event_handler(void *arg, esp_event_base_t event_base, i
                 s_softap_active = true;
                 s_state = NETWORK_STATE_SOFTAP_ONLY;
                 network_fire_event(NETWORK_EVENT_SOFTAP_STARTED);
-
-                /* Start periodic reconnect timer */
-                if (s_wifi_reconnect_timer == NULL) {
-                    const esp_timer_create_args_t timer_args = {
-                        .callback = wifi_reconnect_timer_cb,
-                        .name = "wifi_reconnect"
-                    };
-                    esp_timer_create(&timer_args, &s_wifi_reconnect_timer);
-                }
-                esp_timer_start_periodic(s_wifi_reconnect_timer, WIFI_RECONNECT_INTERVAL_SEC * 1000000ULL);
             } else {
-                /* SoftAP already active, timer handles retries — nothing to do */
-                ESP_LOGI(TAG, "WiFi disconnected (SoftAP active, timer will retry)");
+                /* SoftAP already active (it stays up after a successful
+                 * connection, see IP_EVENT_STA_GOT_IP), so the branch above
+                 * did not run. The reconnect timer was stopped when the link
+                 * came up and must be armed again here — see below. */
+                ESP_LOGI(TAG, "WiFi disconnected (SoftAP active, reconnect timer every %ds)", WIFI_RECONNECT_INTERVAL_SEC);
                 s_state = NETWORK_STATE_SOFTAP_ONLY;
+            }
+
+            /* Once the fast retries are used up, keep trying on a timer —
+             * whether or not this outage is the one that started the SoftAP.
+             * GOT_IP stops the timer, and the SoftAP persists afterwards, so
+             * on any later outage the "start SoftAP" branch is skipped; arming
+             * the timer only there left the device offline until a manual
+             * restart. */
+            if (s_wifi_retry_num > WIFI_SOFTAP_AFTER) {
+                wifi_reconnect_timer_ensure_running();
             }
 
             if (was_up) {
