@@ -59,6 +59,8 @@ interface VendingMachine {
   stock_percent?: number
   tray_summary?: { product_name: string; product_id: string | null; deficit: number; image_path: string | null; sellprice: number | null; in_stock: boolean; severity: 'critical' | 'low' | 'fill'; discontinued?: boolean }[]
   critical_product_ids?: Set<string>
+  /** True once at least one warehouse holds stock. Without it "in stock" (= available in a warehouse) says nothing. */
+  warehouse_tracked?: boolean
   no_stock_trays?: number
   no_stock_summary?: { product_name: string; product_id: string | null; deficit: number; image_path: string | null; sellprice: number | null; in_stock: boolean; severity: 'critical' | 'low' | 'fill'; discontinued?: boolean }[]
 }
@@ -360,6 +362,7 @@ export function useMachines() {
           machine.empty_trays = stock.refillableEmpty
           machine.fill_trays = stock.refillableFill
           machine.empty_slots_with_stock = stock.emptySlotsWithStock
+          machine.warehouse_tracked = hasWarehouses
           machine.stock_health = stock.refillableEmpty > 0
             ? 'critical'
             : stock.refillableLow > 0
@@ -380,6 +383,7 @@ export function useMachines() {
           machine.empty_trays = 0
           machine.fill_trays = 0
           machine.empty_slots_with_stock = 0
+          machine.warehouse_tracked = hasWarehouses
           machine.stock_health = 'ok'
           machine.stock_percent = 0
           machine.tray_summary = []

@@ -332,7 +332,7 @@ async function submitCreateMachine() {
                         </span>
                         <span v-if="item.discontinued" class="shrink-0 rounded bg-gray-200 px-1 py-px text-[9px] font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-400">{{ t('warehouse.discontinuedBadge') }}</span>
                       </div>
-                      <span class="shrink-0 text-green-500 text-[10px]">{{ t('machines.inStock') }}</span>
+                      <span v-if="machine.warehouse_tracked" class="shrink-0 text-green-500 text-[10px]">{{ t('machines.inStock') }}</span>
                     </div>
                     <!-- Divider before swap products -->
                     <div
