@@ -16,7 +16,8 @@ struct WarehouseOrderView: View {
     @State private var cancelCandidate: PurchaseOrder?
     /// Line tapped: its batches view with the order section (supplier, carton size).
     @State private var openedProduct: OrderProductRoute?
-    @State private var showAddPicker = false
+    /// "Add" tapped: the products the picker sheet offers (all, or one supplier's).
+    @State private var addPicker: AddPickerContext?
 
     var body: some View {
         let groups = viewModel.orderGroups
@@ -32,7 +33,7 @@ struct WarehouseOrderView: View {
                 .listRowSeparator(.hidden)
                 if !addableProducts.isEmpty {
                     Button {
-                        showAddPicker = true
+                        addPicker = AddPickerContext(title: nil, products: addableProducts)
                     } label: {
                         Label(String(localized: "Add to order list"), systemImage: "cart.badge.plus")
                     }
@@ -71,8 +72,8 @@ struct WarehouseOrderView: View {
             )
             .environmentObject(viewModel)
         }
-        .sheet(isPresented: $showAddPicker) {
-            AddToOrderListSheet(products: addableProducts) { productId in
+        .sheet(item: $addPicker) { ctx in
+            AddToOrderListSheet(title: ctx.title, products: ctx.products) { productId in
                 Task { await viewModel.addToOrderList(productId) }
             }
         }
@@ -146,12 +147,8 @@ struct WarehouseOrderView: View {
             }
 
             if !group.others.isEmpty {
-                Menu {
-                    ForEach(group.others) { p in
-                        Button(p.productName) {
-                            Task { await viewModel.addToOrderList(p.productId) }
-                        }
-                    }
+                Button {
+                    addPicker = AddPickerContext(title: group.supplier?.name, products: group.others)
                 } label: {
                     Label(String(localized: "Add product"), systemImage: "plus")
                 }
@@ -315,8 +312,17 @@ struct OrderProductRoute: Identifiable, Hashable {
     let imagePath: String?
 }
 
-/// Searchable list of the products that can go on the order list.
+private struct AddPickerContext: Identifiable {
+    let id = UUID()
+    /// Supplier name when opened from a supplier's group.
+    let title: String?
+    let products: [OrderProductInput]
+}
+
+/// Searchable product list (image, stock, sales) for putting a product on the
+/// order list.
 private struct AddToOrderListSheet: View {
+    let title: String?
     let products: [OrderProductInput]
     let onPick: (UUID) -> Void
 
@@ -337,15 +343,38 @@ private struct AddToOrderListSheet: View {
                     dismiss()
                 } label: {
                     HStack(spacing: 12) {
-                        ProductImage(imagePath: p.imagePath, size: 32)
-                        Text(p.productName)
-                            .foregroundStyle(.primary)
-                            .lineLimit(2)
+                        ProductImage(imagePath: p.imagePath, size: 44)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(p.productName)
+                                .font(.body)
+                                .foregroundStyle(.primary)
+                                .lineLimit(2)
+                            Text(verbatim: detailText(p))
+                                .font(.caption)
+                                .foregroundStyle(p.warehouseQty == 0 ? Color.red : Color.secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "plus.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(Color.accentColor)
                     }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .listStyle(.plain)
+            .overlay {
+                if shown.isEmpty {
+                    ContentUnavailableView.search(text: query)
                 }
             }
-            .searchable(text: $query, prompt: Text(String(localized: "Search products")))
-            .navigationTitle(String(localized: "Add to order list"))
+            .searchable(
+                text: $query,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: Text(String(localized: "Search products"))
+            )
+            .navigationTitle(title ?? String(localized: "Add to order list"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -353,6 +382,17 @@ private struct AddToOrderListSheet: View {
                 }
             }
         }
+    }
+
+    private func detailText(_ p: OrderProductInput) -> String {
+        var parts = [String(localized: "\(p.warehouseQty) in stock")]
+        if p.avgDailySales > 0 {
+            parts.append(String(format: String(localized: "⌀ %.1f/day"), p.avgDailySales))
+        }
+        if p.onOrder > 0 {
+            parts.append(String(localized: "\(p.onOrder) on the way"))
+        }
+        return parts.joined(separator: " · ")
     }
 }
 

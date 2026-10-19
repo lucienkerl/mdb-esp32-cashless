@@ -97,6 +97,7 @@
     <string name="warehouse_order_no_supplier_hint">Ein Admin kann diesen Produkten einen Lieferanten zuweisen.</string>
     <string name="warehouse_order_has_empty">Enthält leere Produkte</string>
     <string name="warehouse_order_below_min">Mindestbestellwert %1$s noch nicht erreicht</string>
+    <string name="warehouse_order_in_stock">%1$d auf Lager</string>
     <string name="warehouse_order_search_product">Produkt suchen</string>
     <string name="warehouse_order_add_product">Produkt hinzufügen</string>
     <string name="warehouse_order_available">Verfügbar %1$d</string>

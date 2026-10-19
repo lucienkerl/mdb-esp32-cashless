@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.AddShoppingCart
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
@@ -42,15 +42,18 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -143,7 +146,8 @@ fun WarehouseOrderTab(uiState: WarehouseUiState, actions: OrderTabActions) {
                         Text(stringResource(R.string.warehouse_order_list_add))
                     }
                     if (pickerOpen) {
-                        AddToOrderListDialog(
+                        AddToOrderListSheet(
+                            title = null,
                             products = addable,
                             onPick = { id ->
                                 pickerOpen = false
@@ -275,24 +279,22 @@ private fun OrderGroupCard(group: OrderGroup, uiState: WarehouseUiState, actions
             }
 
             if (group.others.isNotEmpty()) {
-                var expanded by remember { mutableStateOf(false) }
-                Box {
-                    TextButton(onClick = { expanded = true }) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(stringResource(R.string.warehouse_order_add_product))
-                    }
-                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                        group.others.forEach { p ->
-                            DropdownMenuItem(
-                                text = { Text(p.productName) },
-                                onClick = {
-                                    expanded = false
-                                    actions.onAdd(p.productId)
-                                }
-                            )
-                        }
-                    }
+                var pickerOpen by remember { mutableStateOf(false) }
+                TextButton(onClick = { pickerOpen = true }) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(stringResource(R.string.warehouse_order_add_product))
+                }
+                if (pickerOpen) {
+                    AddToOrderListSheet(
+                        title = group.supplier?.name,
+                        products = group.others,
+                        onPick = { id ->
+                            pickerOpen = false
+                            actions.onAdd(id)
+                        },
+                        onDismiss = { pickerOpen = false }
+                    )
                 }
             }
 
@@ -481,55 +483,91 @@ private fun OrderLineRow(
     }
 }
 
-/** Searchable list of every product not on the order list yet, whatever its supplier. */
+/**
+ * Bottom sheet with a searchable product list (image, stock, sales) for
+ * putting a product on the order list: every product not on it yet, or one
+ * supplier's ([title]).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddToOrderListDialog(
+private fun AddToOrderListSheet(
+    title: String?,
     products: List<OrderProductInput>,
     onPick: (productId: String) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var query by remember { mutableStateOf("") }
     val shown = products
         .filter { query.isBlank() || it.productName.contains(query.trim(), ignoreCase = true) }
         .sortedBy { it.productName.lowercase() }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.warehouse_order_list_add)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    placeholder = { Text(stringResource(R.string.warehouse_order_search_product)) },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
-                    items(shown, key = { it.productId }) { p ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onPick(p.productId) }
-                                .padding(vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            ProductImage(imagePath = p.imagePath, contentDescription = p.productName, size = 32.dp)
-                            Spacer(Modifier.width(12.dp))
+
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = title ?: stringResource(R.string.warehouse_order_list_add),
+                style = MaterialTheme.typography.titleLarge
+            )
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text(stringResource(R.string.warehouse_order_search_product)) },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(bottom = 32.dp)
+            ) {
+                items(shown, key = { it.productId }) { p ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onPick(p.productId) }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        ProductImage(imagePath = p.imagePath, contentDescription = p.productName, size = 48.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = p.productName,
                                 style = MaterialTheme.typography.bodyLarge,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
                             )
+                            val details = buildList {
+                                add(stringResource(R.string.warehouse_order_in_stock, p.warehouseQty))
+                                if (p.avgDailySales > 0) {
+                                    add(stringResource(R.string.warehouse_stock_per_day, String.format(Locale.getDefault(), "%.1f", p.avgDailySales)))
+                                }
+                                if (p.onOrder > 0) add(stringResource(R.string.warehouse_order_on_the_way_units, p.onOrder))
+                            }
+                            Text(
+                                text = details.joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (p.warehouseQty == 0) StockRed else MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
+                        Icon(
+                            Icons.Default.AddCircle,
+                            contentDescription = stringResource(R.string.warehouse_order_list_add),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
                     }
+                    HorizontalDivider()
                 }
             }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } }
-    )
+        }
+    }
 }
 
 @Composable

@@ -101,6 +101,7 @@
     <string name="warehouse_order_no_supplier_hint">An admin can assign a supplier to these products.</string>
     <string name="warehouse_order_has_empty">Contains empty products</string>
     <string name="warehouse_order_below_min">Minimum order value %1$s not reached yet</string>
+    <string name="warehouse_order_in_stock">%1$d in stock</string>
     <string name="warehouse_order_search_product">Search product</string>
     <string name="warehouse_order_add_product">Add product</string>
     <string name="warehouse_order_available">Available %1$d</string>
