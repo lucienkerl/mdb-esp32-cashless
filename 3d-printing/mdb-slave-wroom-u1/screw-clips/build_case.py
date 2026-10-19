@@ -42,6 +42,9 @@ INSERT_BORE = 3.3     # M2.5 x 5 x OD3.5 heat insert, validated on a test coupon
 INSERT_DEPTH = 5.6
 LID_SCREW = 2.9       # M2.5 clearance hole in the lid
 FIT = 0.25            # lid lip to wall clearance
+TERM_W = 4.0          # terminal wire window width and lid screwdriver hole diameter. Poles sit
+                      # 5.08 mm apart: 4.0 leaves 1.08 mm webs, two lines of a 0.4 mm nozzle
+                      # (4.8 left 0.28 mm, which the slicer drops or prints as loose strands)
 
 BOARD_X, BOARD_Y = 74.91, 19.25
 PCB_HOLES = [(-71.414936, -15.75), (-71.414936, 15.75), (41.4757, -15.7906), (41.4857, 14.7496)]
@@ -127,7 +130,9 @@ for x, y in PCB_HOLES:                                    # board standoffs + in
 for x, y in SCREW_BOSSES:                                 # lid screw bosses + inserts
     base = insert_cut(base.fuse(boss_shape(x, y, 0, H)), x, y, H)
 
-# Mounting ears (short ends): 10 x 4.5 slot (M4 screw) + 2 zip-tie slots + tunnel.
+# Mounting ears (short ends): solid plate, 10 x 4.5 slot (M4 screw) + 2 zip-tie slots.
+# No zip-tie tunnel: a hollow ear squeezes when the M4 screw is tightened, and the tie
+# simply goes down one slot and back up the other.
 EAR_T, EAR_L = 4.0, 20.0
 for sgn, xw in ((-1, OX0), (1, OX1)):
     xc = xw + sgn * EAR_L / 2
@@ -137,7 +142,6 @@ for sgn, xw in ((-1, OX0), (1, OX1)):
                   .fuse([cyl(xc, -2.75, 2.25, -1, EAR_T + 1), cyl(xc, 2.75, 2.25, -1, EAR_T + 1)]))
     for y in (-11.0, 11.0):
         ear = ear.cut(box(xc - 4.5, xc + 4.5, y - 1.6, y + 1.6, -1, EAR_T + 1))
-    ear = ear.cut(box(xc - 4.7, xc + 4.7, -12.6, 12.6, -0.1, 1.8))       # zip-tie tunnel
     base = base.fuse(ear)
 
 cuts = []
@@ -149,7 +153,7 @@ cuts.append(wall_window("S", MDB[0] - 0.8, MDB[1] + 0.8, PCB_Z + PCB_T + 0.3, PC
 # Terminal block wire entries (one window per pole)
 for (px, py), side in TERMINALS:
     a = px if side in "NS" else py
-    cuts.append(wall_window(side, a - 2.4, a + 2.4, PCB_Z + WIRE_Z[0], PCB_Z + WIRE_Z[1], 1.0))
+    cuts.append(wall_window(side, a - TERM_W / 2, a + TERM_W / 2, PCB_Z + WIRE_Z[0], PCB_Z + WIRE_Z[1], 1.0))
 # Antenna: 3 x 2 mm slot at the top of the north wall, under the lid
 cuts.append(box(ANTENNA_X - 1.5, ANTENNA_X + 1.5, Y1 - 1, Y1 + WALL + 1, H - 2.0, H + 1))
 # UART debug wires: 8 x 2 mm slot at the top of the north wall, above J1
@@ -200,7 +204,7 @@ lid_cuts = []
 for x, y in SCREW_BOSSES:
     lid_cuts.append(cyl(x, y, LID_SCREW / 2, H - 1, H + LID + 1))
 for (px, py), side in TERMINALS:                  # screwdriver access to terminal screws
-    lid_cuts.append(cyl(px, py, 2.4, H - 1, H + LID + 1))
+    lid_cuts.append(cyl(px, py, TERM_W / 2, H - 1, H + LID + 1))
 for x, y in LEDS:                                 # LED window
     lid_cuts.append(cyl(x, y, 2.0, H - 1, H + LID + 1))
 # High ventilation: 1.6 x 12 slots above the relays and the centre area
