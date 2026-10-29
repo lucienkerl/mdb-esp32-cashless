@@ -305,7 +305,11 @@
     "required": "{field} est requis",
     "failedTo": "Échec de {action}",
     "confirm": "Confirmer",
-    "back": "Retour"
+    "back": "Retour",
+    "optional": "Facultatif",
+    "more": "Plus",
+    "toggleTheme": "Changer de thème",
+    "preview": "Aperçu"
   },
   "nav": {
     "dashboard": "Tableau de bord",
@@ -743,7 +747,13 @@
     "printPoster": "Imprimer une affiche",
     "posterOutdatedTitle": "L'affiche ne montre plus les coordonnées actuelles",
     "posterOutdatedBody": "Les coordonnées ont changé depuis la dernière impression. Réimprimez et remplacez la feuille.",
-    "slotPlan": "Réaménager"
+    "slotPlan": "Réaménager",
+    "selectProduct": "Sélectionner un produit...",
+    "diagnosticsUpdated": "Mis à jour {time}",
+    "stateInitial": "État initial : {state}",
+    "lastCmd": "Commande : {cmd}",
+    "pollsCount": "{n} interrogations",
+    "errorsCount": "{n} erreurs"
   },
   "machineSettings": {
     "title": "Paramètres de la machine",
@@ -968,7 +978,9 @@
       }
     },
     "minAge": "Limite d'âge",
-    "minAgeHint": "S'applique à tous les produits de cette catégorie. Lors de la tournée, un réglage d'âge modifié doit être confirmé sur l'automate."
+    "minAgeHint": "S'applique à tous les produits de cette catégorie. Lors de la tournée, un réglage d'âge modifié doit être confirmé sur l'automate.",
+    "importNoProducts": "Aucun produit trouvé dans le fichier. Vérifiez que le fichier contient une colonne « Product Name ».",
+    "importParseFailed": "Impossible de lire le fichier"
   },
   "warehouse": {
     "title": "Entrepôt",
@@ -1327,7 +1339,11 @@
     "inviteLinkDescription": "Partagez ce lien avec l'utilisateur invité. Il pourra s'inscrire et rejoindre votre organisation en une seule étape.",
     "noPendingInvitations": "Aucune invitation en attente.",
     "loadingMembers": "Chargement des membres…",
-    "sending": "Envoi…"
+    "sending": "Envoi…",
+    "roles": {
+      "admin": "Administrateur",
+      "viewer": "Lecteur"
+    }
   },
   "firmware": {
     "title": "Firmware",
@@ -1628,7 +1644,30 @@
     "imprintSupportHoursPlaceholder": "Lun–ven 8h–18h",
     "imprintLogo": "Logo de l'entreprise",
     "imprintLogoHint": "PNG, JPEG ou WebP, 2 Mo max. Apparaît sur les affiches imprimées.",
-    "imprintLogoRemove": "Supprimer le logo"
+    "imprintLogoRemove": "Supprimer le logo",
+    "notifTypes": {
+      "sale": {
+        "label": "Notifications de vente",
+        "description": "Soyez notifié à chaque vente d’un distributeur."
+      },
+      "low_stock": {
+        "label": "Alertes de stock bas",
+        "description": "Soyez notifié lorsqu’un produit passe sous le seuil de réapprovisionnement."
+      },
+      "inbox": {
+        "label": "Boîte de réception clients",
+        "description": "Soyez notifié lorsqu’un client signale un problème, laisse un avis ou propose un produit."
+      },
+      "new_deals": {
+        "label": "Nouvelles offres",
+        "description": "Recevez une notification quotidienne lorsque de nouvelles offres correspondant à vos produits sont trouvées."
+      }
+    },
+    "testNotificationSent": "Notification de test envoyée ({count} appareil). | Notification de test envoyée ({count} appareils).",
+    "testNotificationFailed": "Échec de l’envoi de la notification de test",
+    "pushUnsupported": "Les notifications push ne sont pas prises en charge par ce navigateur.",
+    "pushNotConfigured": "Les notifications push ne sont pas configurées. VAPID_PUBLIC_KEY est manquant.",
+    "taxNamePlaceholder": "TVA 20 %"
   },
   "softap": {
     "title": "Accès WiFi (SoftAP)",
@@ -2111,7 +2150,9 @@
     "sinceDate": "depuis le {date}",
     "agoDays": "il y a {n} jours",
     "trackPerMachine": "Suivre par machine",
-    "trackPerMachineHint": "Choisissez la machine source pour chaque prélèvement. Généralement peu utile lors d'une collecte sur plusieurs machines en une tournée."
+    "trackPerMachineHint": "Choisissez la machine source pour chaque prélèvement. Généralement peu utile lors d'une collecte sur plusieurs machines en une tournée.",
+    "defaultWithdrawalDescription": "Retrait d’espèces de la machine",
+    "defaultDepositDescription": "Dépôt bancaire"
   },
   "cardAccounts": {
     "title": "Comptes carte",
@@ -2270,7 +2311,8 @@
     "footerDashboard": "Tableau de bord de gestion",
     "fullFlash": "Flash complet",
     "appOnly": "Mise à jour de l'application uniquement",
-    "noVersions": "Aucune version de firmware disponible pour l'instant. Un administrateur doit d'abord publier un firmware."
+    "noVersions": "Aucune version de firmware disponible pour l'instant. Un administrateur doit d'abord publier un firmware.",
+    "loadingFlashTool": "Chargement de l’outil de flashage..."
   },
   "extensions": {
     "pageTitle": "Extensions",
@@ -2719,5 +2761,22 @@
     "packingHint": "Cochez une fois fait. D'ici là, elles s'affichent à chaque tournée.",
     "moreActions": "Plus d'actions",
     "markDone": "Fait"
+  },
+  "pwa": {
+    "updateAvailable": "Nouvelle version disponible",
+    "updateNow": "Mettre à jour",
+    "installTitle": "Installer VMflow",
+    "iosTap": "Touchez",
+    "iosAddToHome": "puis « Sur l’écran d’accueil »",
+    "addToHome": "Ajoutez-la à l’écran d’accueil pour un accès rapide",
+    "install": "Installer"
+  },
+  "barcodeScanner": {
+    "cameraUnavailable": "Caméra indisponible. Utilisez HTTPS ou saisissez le code-barres manuellement.",
+    "cameraDenied": "Accès à la caméra refusé. Autorisez l’accès à la caméra ou saisissez le code-barres manuellement.",
+    "noCamera": "Aucune caméra trouvée. Saisissez le code-barres manuellement.",
+    "cameraError": "Erreur de caméra : {error}",
+    "enterManually": "Saisir manuellement",
+    "placeholder": "Saisir le code-barres..."
   }
 }

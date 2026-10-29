@@ -629,7 +629,7 @@ extension DashboardView {
                 guard let pid = saleItem.sale.productId else { return }
                 selectedProduct = ProductSelection(
                     id: pid,
-                    name: saleItem.productName ?? "Item #\(saleItem.sale.itemNumber ?? 0)",
+                    name: saleItem.productName ?? String(localized: "Item #\(saleItem.sale.itemNumber ?? 0)"),
                     imagePath: saleItem.productImagePath,
                     sellprice: saleItem.sale.itemPrice
                 )
@@ -908,7 +908,7 @@ struct RecentSaleRow: View {
             ProductImage(imagePath: item.productImagePath, size: 36)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(item.productName ?? "Item #\(item.sale.itemNumber ?? 0)")
+                Text(item.productName ?? String(localized: "Item #\(item.sale.itemNumber ?? 0)"))
                     .font(.subheadline.weight(.medium))
                     .lineLimit(1)
                 if let machineName = item.machineName {

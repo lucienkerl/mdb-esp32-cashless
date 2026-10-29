@@ -17,6 +17,7 @@ export interface ImportResult {
 }
 
 export function useImportProducts() {
+  const { t } = useI18n()
   const products = ref<ImportProduct[]>([])
   const parsing = ref(false)
   const importing = ref(false)
@@ -49,10 +50,10 @@ export function useImportProducts() {
         }))
 
       if (products.value.length === 0) {
-        parseError.value = 'No products found in file. Make sure the file has a "Product Name" column.'
+        parseError.value = t('products.importNoProducts')
       }
     } catch (err: unknown) {
-      parseError.value = err instanceof Error ? err.message : 'Failed to parse file'
+      parseError.value = err instanceof Error ? err.message : t('products.importParseFailed')
     } finally {
       parsing.value = false
     }

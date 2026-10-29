@@ -46,6 +46,7 @@ export interface PushDevice {
 export function useNotifications() {
   const supabase = useSupabaseClient()
   const config = useRuntimeConfig()
+  const { t } = useI18n()
 
   // Reactive state
   const permission = ref<NotificationPermission>('default')
@@ -90,12 +91,12 @@ export function useNotifications() {
     error.value = ''
 
     if (!isSupported.value) {
-      error.value = 'Push notifications are not supported in this browser.'
+      error.value = t('settings.pushUnsupported')
       console.warn('[Push] Not supported:', { sw: 'serviceWorker' in navigator, pm: 'PushManager' in window, notif: 'Notification' in window })
       return false
     }
     if (!vapidPublicKey.value) {
-      error.value = 'Push notifications are not configured. VAPID_PUBLIC_KEY is missing.'
+      error.value = t('settings.pushNotConfigured')
       console.warn('[Push] VAPID_PUBLIC_KEY missing')
       return false
     }

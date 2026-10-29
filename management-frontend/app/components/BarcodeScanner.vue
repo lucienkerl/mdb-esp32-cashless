@@ -13,6 +13,8 @@ const emit = defineEmits<{
   close: []
 }>()
 
+const { t } = useI18n()
+
 const videoRef = ref<HTMLVideoElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const stream = ref<MediaStream | null>(null)
@@ -36,7 +38,7 @@ async function startCamera() {
 
   // Camera requires secure context (HTTPS or localhost)
   if (!navigator.mediaDevices?.getUserMedia) {
-    error.value = 'Camera not available. Use HTTPS or enter the barcode manually.'
+    error.value = t('barcodeScanner.cameraUnavailable')
     manualInput.value = true
     return
   }
@@ -52,11 +54,11 @@ async function startCamera() {
     }
   } catch (err: any) {
     if (err.name === 'NotAllowedError') {
-      error.value = 'Camera access denied. Please allow camera access or enter the barcode manually.'
+      error.value = t('barcodeScanner.cameraDenied')
     } else if (err.name === 'NotFoundError') {
-      error.value = 'No camera found. Please enter the barcode manually.'
+      error.value = t('barcodeScanner.noCamera')
     } else {
-      error.value = `Camera error: ${err.message}`
+      error.value = t('barcodeScanner.cameraError', { error: err.message })
     }
     manualInput.value = true
   }
@@ -162,7 +164,7 @@ function close() {
           @click="manualInput = true"
         >
           <IconKeyboard class="size-3.5" />
-          Enter manually
+          {{ t('barcodeScanner.enterManually') }}
         </button>
       </div>
 
@@ -170,7 +172,7 @@ function close() {
         <input
           v-model="manualBarcode"
           type="text"
-          placeholder="Enter barcode..."
+          :placeholder="t('barcodeScanner.placeholder')"
           class="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm font-mono focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           autofocus
           @keydown.enter="submitManual"

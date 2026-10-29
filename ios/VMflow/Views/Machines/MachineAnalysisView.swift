@@ -501,7 +501,7 @@ private struct ReplaceProductSheet: View {
                             } label: {
                                 HStack {
                                     ProductImage(imagePath: product.imagePath, size: 32)
-                                    Text(product.name ?? "Unnamed").foregroundStyle(.primary)
+                                    Text(product.name ?? String(localized: "Unnamed")).foregroundStyle(.primary)
                                 }
                             }
                         }

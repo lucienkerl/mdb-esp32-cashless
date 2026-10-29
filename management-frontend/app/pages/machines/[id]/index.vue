@@ -2393,7 +2393,7 @@ async function handleAddSale() {
                   </div>
 
                   <p class="mt-3 text-xs text-muted-foreground">
-                    Updated {{ timeAgo(machine.embeddeds.mdb_diagnostics.updated_at, t) }}
+                    {{ t('machineDetail.diagnosticsUpdated', { time: timeAgo(machine.embeddeds.mdb_diagnostics.updated_at, t) }) }}
                   </p>
                 </template>
                 <p v-else class="text-sm text-muted-foreground">
@@ -2442,14 +2442,14 @@ async function handleAddSale() {
                           {{ stateLabel(entry.prev_state) }} &rarr; {{ stateLabel(entry.state) }}
                         </template>
                         <template v-else>
-                          Initial: {{ stateLabel(entry.state) }}
+                          {{ t('machineDetail.stateInitial', { state: stateLabel(entry.state) }) }}
                         </template>
                       </p>
                       <p class="text-xs text-muted-foreground">
-                        <span v-if="entry.last_cmd">Cmd: {{ entry.last_cmd }}</span>
+                        <span v-if="entry.last_cmd">{{ t('machineDetail.lastCmd', { cmd: entry.last_cmd }) }}</span>
                         <span v-if="entry.last_cmd && entry.polls != null"> · </span>
-                        <span v-if="entry.polls != null">{{ entry.polls.toLocaleString() }} polls</span>
-                        <span v-if="entry.chk_err"> · {{ entry.chk_err }} errors</span>
+                        <span v-if="entry.polls != null">{{ t('machineDetail.pollsCount', { n: entry.polls.toLocaleString() }) }}</span>
+                        <span v-if="entry.chk_err"> · {{ t('machineDetail.errorsCount', { n: entry.chk_err }) }}</span>
                       </p>
                     </div>
 

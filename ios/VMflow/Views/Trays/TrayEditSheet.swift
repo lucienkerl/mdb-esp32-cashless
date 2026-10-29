@@ -64,7 +64,7 @@ struct TrayEditSheet: View {
                             if let id = selectedProductId,
                                let product = products.first(where: { $0.id == id }) {
                                 ProductImage(imagePath: product.imagePath, size: 28)
-                                Text(product.name ?? "Unnamed")
+                                Text(product.name ?? String(localized: "Unnamed"))
                                     .foregroundStyle(.secondary)
                             } else {
                                 Text("None")
@@ -288,7 +288,7 @@ struct ProductPickerView: View {
                 } label: {
                     HStack(spacing: 12) {
                         ProductImage(imagePath: product.imagePath, size: 36)
-                        Text(product.name ?? "Unnamed")
+                        Text(product.name ?? String(localized: "Unnamed"))
                             .foregroundStyle(.primary)
                         Spacer()
                         if selectedProductId == product.id {

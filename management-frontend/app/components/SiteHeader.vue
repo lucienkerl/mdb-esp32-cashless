@@ -5,6 +5,7 @@ import { Separator } from '@/components/ui/separator'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 
 const { isDark, toggleTheme } = useTheme()
+const { t } = useI18n()
 
 defineProps<{
   hasBannerAbove?: boolean
@@ -29,7 +30,7 @@ defineProps<{
         <Button variant="ghost" size="icon" @click="toggleTheme()">
           <IconSun v-if="isDark" class="size-4" />
           <IconMoon v-else class="size-4" />
-          <span class="sr-only">Toggle theme</span>
+          <span class="sr-only">{{ t('common.toggleTheme') }}</span>
         </Button>
       </div>
     </div>

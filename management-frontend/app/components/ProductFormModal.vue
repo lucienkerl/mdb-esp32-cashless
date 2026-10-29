@@ -287,7 +287,7 @@ async function submitProduct() {
       <div class="space-y-1">
         <label class="text-sm font-medium">{{ t('products.image') }}</label>
         <div v-if="imagePreview" class="relative inline-block">
-          <img :src="imagePreview" alt="Preview" class="h-24 w-24 rounded-lg object-cover border" />
+          <img :src="imagePreview" :alt="t('common.preview')" class="h-24 w-24 rounded-lg object-cover border" />
           <button
             type="button"
             class="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground text-xs shadow"

@@ -1,8 +1,8 @@
 <resources>
-    <string name="app_name">VMflow</string>
+    <string name="app_name" translatable="false">VMflow</string>
     <!-- Supabase configuration (override via gradle properties or BuildConfig) -->
-    <string name="supabase_url">https://supabase.vmflow.xyz</string>
-    <string name="supabase_anon_key">your-anon-key-here</string>
+    <string name="supabase_url" translatable="false">https://supabase.vmflow.xyz</string>
+    <string name="supabase_anon_key" translatable="false">your-anon-key-here</string>
 
     <!-- Navigation bar -->
     <string name="nav_dashboard">Dashboard</string>

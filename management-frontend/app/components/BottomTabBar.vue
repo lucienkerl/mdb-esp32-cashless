@@ -10,12 +10,13 @@ import { useSidebar } from '@/components/ui/sidebar'
 
 const route = useRoute()
 const { toggleSidebar } = useSidebar()
+const { t } = useI18n()
 
 const tabs = [
-  { label: 'Dashboard', icon: IconDashboard, to: '/' },
-  { label: 'Machines', icon: IconDevices, to: '/machines' },
-  { label: 'Products', icon: IconPackage, to: '/products' },
-  { label: 'Warehouse', icon: IconBuildingWarehouse, to: '/warehouse' },
+  { label: 'nav.dashboard', icon: IconDashboard, to: '/' },
+  { label: 'nav.machines', icon: IconDevices, to: '/machines' },
+  { label: 'nav.products', icon: IconPackage, to: '/products' },
+  { label: 'nav.warehouse', icon: IconBuildingWarehouse, to: '/warehouse' },
 ]
 
 function isActive(to: string) {
@@ -38,7 +39,7 @@ const isMoreActive = computed(() => !tabs.some((t) => isActive(t.to)))
         :class="isActive(tab.to) ? 'text-primary font-medium' : 'text-muted-foreground'"
       >
         <component :is="tab.icon" class="size-5" :stroke-width="isActive(tab.to) ? 2.2 : 1.5" />
-        <span>{{ tab.label }}</span>
+        <span>{{ t(tab.label) }}</span>
       </NuxtLink>
       <button
         class="flex flex-col items-center gap-0.5 py-2 text-[11px] transition-colors"
@@ -46,7 +47,7 @@ const isMoreActive = computed(() => !tabs.some((t) => isActive(t.to)))
         @click="toggleSidebar()"
       >
         <IconMenu2 class="size-5" :stroke-width="isMoreActive ? 2.2 : 1.5" />
-        <span>More</span>
+        <span>{{ t('common.more') }}</span>
       </button>
     </div>
   </nav>

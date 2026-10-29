@@ -207,7 +207,7 @@ struct ReviewStepView: View {
                         Image(systemName: "arrow.right.circle.fill")
                             .foregroundStyle(.green)
                         ProductImage(imagePath: product.imagePath, size: 32)
-                        Text(product.name ?? "Unknown")
+                        Text(product.name ?? String(localized: "Unknown"))
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(.green)
                         Spacer()

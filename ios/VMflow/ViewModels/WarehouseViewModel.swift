@@ -285,7 +285,7 @@ final class WarehouseViewModel: ObservableObject {
                 let s = stock[p.id]
                 return WarehouseProductSummary(
                     productId: p.id,
-                    productName: p.name ?? "Unknown",
+                    productName: p.name ?? String(localized: "Unknown"),
                     imagePath: p.imagePath,
                     totalQuantity: s?.total ?? 0,
                     batchCount: s?.count ?? 0,
@@ -456,7 +456,7 @@ final class WarehouseViewModel: ObservableObject {
                 IntakeEntry(
                     id: tx.id,
                     productId: tx.productId,
-                    productName: tx.products?.name ?? "Unknown",
+                    productName: tx.products?.name ?? String(localized: "Unknown"),
                     imagePath: tx.products?.imagePath,
                     quantity: tx.quantityChange,
                     batchNumber: nil,
