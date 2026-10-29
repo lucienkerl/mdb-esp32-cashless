@@ -97,6 +97,7 @@
     <string name="warehouse_order_no_supplier_hint">Een beheerder kan deze producten aan een leverancier toewijzen.</string>
     <string name="warehouse_order_has_empty">Bevat lege producten</string>
     <string name="warehouse_order_below_min">Minimale bestelwaarde %1$s nog niet bereikt</string>
+    <string name="warehouse_order_in_stock">%1$d op voorraad</string>
     <string name="warehouse_order_search_product">Product zoeken</string>
     <string name="warehouse_order_add_product">Product toevoegen</string>
     <string name="warehouse_order_available">Beschikbaar %1$d</string>

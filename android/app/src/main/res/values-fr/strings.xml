@@ -99,6 +99,7 @@
     <string name="warehouse_order_no_supplier_hint">Un administrateur peut attribuer un fournisseur à ces produits.</string>
     <string name="warehouse_order_has_empty">Contient des produits épuisés</string>
     <string name="warehouse_order_below_min">Montant minimum de commande %1$s pas encore atteint</string>
+    <string name="warehouse_order_in_stock">%1$d en stock</string>
     <string name="warehouse_order_search_product">Rechercher un produit</string>
     <string name="warehouse_order_add_product">Ajouter un produit</string>
     <string name="warehouse_order_available">Disponible %1$d</string>
