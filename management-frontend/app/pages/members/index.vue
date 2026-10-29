@@ -168,7 +168,7 @@ async function revokeInvitation(invitationId: string) {
                         class="rounded-full px-2 py-0.5 text-xs font-medium"
                         :class="member.role === 'admin' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'"
                       >
-                        {{ member.role }}
+                        {{ t(`members.roles.${member.role}`) }}
                       </span>
                     </td>
                     <td class="hidden sm:table-cell px-4 py-3 text-muted-foreground">{{ formatDate(member.created_at) }}</td>
@@ -179,8 +179,8 @@ async function revokeInvitation(invitationId: string) {
                           class="rounded border border-input bg-background px-2 py-1 text-xs"
                           @change="changeRole(member.id, ($event.target as HTMLSelectElement).value)"
                         >
-                          <option value="admin">admin</option>
-                          <option value="viewer">viewer</option>
+                          <option value="admin">{{ t('members.roles.admin') }}</option>
+                          <option value="viewer">{{ t('members.roles.viewer') }}</option>
                         </select>
                         <button
                           class="text-xs text-destructive hover:underline"
@@ -219,7 +219,7 @@ async function revokeInvitation(invitationId: string) {
                     <td class="px-4 py-3">{{ invitation.email }}</td>
                     <td class="px-4 py-3">
                       <span class="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                        {{ invitation.role }}
+                        {{ t(`members.roles.${invitation.role}`) }}
                       </span>
                     </td>
                     <td class="hidden sm:table-cell px-4 py-3 text-muted-foreground">{{ formatDate(invitation.expires_at) }}</td>
@@ -266,8 +266,8 @@ async function revokeInvitation(invitationId: string) {
                 v-model="inviteForm.role"
                 class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
-                <option value="viewer">Viewer</option>
-                <option value="admin">Admin</option>
+                <option value="viewer">{{ t('members.roles.viewer') }}</option>
+                <option value="admin">{{ t('members.roles.admin') }}</option>
               </select>
             </div>
             <FormError :message="inviteError" />

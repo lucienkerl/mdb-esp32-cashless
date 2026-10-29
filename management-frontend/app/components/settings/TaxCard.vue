@@ -362,7 +362,7 @@ watch(() => organization.value?.id, (id) => {
           v-model="taxRateForm.name"
           type="text"
           required
-          placeholder="MwSt. 19%"
+          :placeholder="t('settings.taxNamePlaceholder')"
           class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
       </div>
@@ -377,7 +377,7 @@ watch(() => organization.value?.id, (id) => {
           />
         </div>
         <div class="space-y-1">
-          <label class="text-sm font-medium">{{ t('settings.validTo') }} <span class="text-xs text-muted-foreground">({{ t('products.optional') }})</span></label>
+          <label class="text-sm font-medium">{{ t('settings.validTo') }} <span class="text-xs text-muted-foreground">({{ t('common.optional') }})</span></label>
           <input
             v-model="taxRateForm.validTo"
             type="date"

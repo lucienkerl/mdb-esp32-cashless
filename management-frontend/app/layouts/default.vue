@@ -8,6 +8,7 @@ import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 const { showBanner, isIOS, canInstall, dismiss, promptInstall } = useInstallPrompt()
 const { updateAvailable, applyUpdate } = useAppUpdate()
 const { showBanner: showEnvBanner } = useEnvironment()
+const { t } = useI18n()
 </script>
 
 <template>
@@ -38,13 +39,13 @@ const { showBanner: showEnvBanner } = useEnvironment()
             <svg class="h-4 w-4 shrink-0 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
             </svg>
-            <span>New version available</span>
+            <span>{{ t('pwa.updateAvailable') }}</span>
           </div>
           <button
             class="shrink-0 rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
             @click="applyUpdate"
           >
-            Update now
+            {{ t('pwa.updateNow') }}
           </button>
         </div>
       </Transition>
@@ -73,24 +74,24 @@ const { showBanner: showEnvBanner } = useEnvironment()
           <div class="flex items-center gap-3 py-3">
             <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground font-bold text-lg">V</div>
             <div class="min-w-0 flex-1">
-              <p class="text-sm font-medium">Install VMflow</p>
+              <p class="text-sm font-medium">{{ t('pwa.installTitle') }}</p>
               <p v-if="isIOS" class="text-xs text-muted-foreground">
-                Tap
+                {{ t('pwa.iosTap') }}
                 <svg class="inline-block h-4 w-4 align-text-bottom" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 8.25H7.5a2.25 2.25 0 0 0-2.25 2.25v9a2.25 2.25 0 0 0 2.25 2.25h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25H15m0-3-3-3m0 0-3 3m3-3V15" /></svg>
-                then "Add to Home Screen"
+                {{ t('pwa.iosAddToHome') }}
               </p>
-              <p v-else class="text-xs text-muted-foreground">Add to your home screen for quick access</p>
+              <p v-else class="text-xs text-muted-foreground">{{ t('pwa.addToHome') }}</p>
             </div>
             <button
               v-if="canInstall"
               class="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
               @click="promptInstall"
             >
-              Install
+              {{ t('pwa.install') }}
             </button>
             <button
               class="shrink-0 p-1 text-muted-foreground transition-colors hover:text-foreground"
-              aria-label="Dismiss"
+              :aria-label="t('common.close')"
               @click="dismiss"
             >
               <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">

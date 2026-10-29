@@ -316,7 +316,7 @@
       });
   };
 
-  /* Called from the "Réinitialiser cet appareil" button in viewClaimed.
+  /* Called from the "Reset this device" button in viewClaimed.
    * Two-step inline confirm (window.confirm() is suppressed inside most
    * OS captive-portal webviews): first click arms, second click within
    * 6 s fires. Wipes all provisioning + WiFi state on the device and
@@ -330,15 +330,15 @@
 
     if (!resetArmed) {
       resetArmed = true;
-      if (b) b.textContent = "Confirmer : tout effacer et redémarrer";
+      if (b) b.textContent = "Confirm: erase everything and restart";
       if (p) {
         p.style.display = "";
-        p.textContent = "Touche à nouveau le bouton pour confirmer (annulation dans 6 s).";
+        p.textContent = "Tap the button again to confirm (cancels in 6 s).";
       }
       clearTimeout(resetArmTimer);
       resetArmTimer = setTimeout(function () {
         resetArmed = false;
-        if (b) b.textContent = "Réinitialiser cet appareil";
+        if (b) b.textContent = "Reset this device";
         if (p) p.style.display = "none";
       }, 6000);
       return;
@@ -346,12 +346,12 @@
 
     clearTimeout(resetArmTimer);
     resetArmed = false;
-    if (b) { b.disabled = true; b.textContent = "Réinitialisation…"; }
+    if (b) { b.disabled = true; b.textContent = "Resetting…"; }
     if (p) {
       p.style.display = "";
       p.textContent =
-        "L'appareil efface sa configuration et redémarre. Le Wi-Fi va se couper — " +
-        "reconnecte-toi au réseau VMflow-XXXX (ouvert) dans une quinzaine de secondes.";
+        "The device is erasing its configuration and restarting. Wi-Fi will drop — " +
+        "reconnect to the open VMflow-XXXX network in about 15 seconds.";
     }
     postJson("/api/v1/system/reset", {}).catch(function () {});
   };
@@ -484,7 +484,7 @@
         '<div id="uplink_switch" style="margin-top:18px;text-align:left"></div>' +
         '<button type="button" id="reset_btn" class="ghost" onclick="resetDevice()" ' +
                 'style="margin-top:10px;color:#F87171;border-color:#7F1D1D">' +
-          'Réinitialiser cet appareil' +
+          'Reset this device' +
         '</button>' +
         '<div class="info-banner" id="reset_progress" style="display:none;margin-top:10px"></div>' +
       '</div>'

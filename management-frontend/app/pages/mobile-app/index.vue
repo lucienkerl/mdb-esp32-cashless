@@ -58,7 +58,7 @@ async function copyToClipboard(text: string, field: string) {
     <div class="flex justify-center rounded-lg border bg-white p-6">
       <div v-if="qrSvg" v-html="qrSvg" class="h-[280px] w-[280px]" />
       <div v-else class="flex h-[280px] w-[280px] items-center justify-center">
-        <div class="text-muted-foreground">Loading...</div>
+        <div class="text-muted-foreground">{{ t('common.loading') }}</div>
       </div>
     </div>
 

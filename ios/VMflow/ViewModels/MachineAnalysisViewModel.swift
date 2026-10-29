@@ -185,13 +185,13 @@ func buildSuggestionPool(
         }
         .sorted { $0.1 > $1.1 }
         .prefix(maxBestsellers)
-        .map { p, v in Suggestion(productId: p.id, name: p.name ?? "Unknown", imagePath: p.imagePath, kind: .bestseller, velocity: v) }
+        .map { p, v in Suggestion(productId: p.id, name: p.name ?? String(localized: "Unknown"), imagePath: p.imagePath, kind: .bestseller, velocity: v) }
 
     let newcomers = eligible
         .filter { (velocity[$0.id] ?? 0) <= 0 }
         .sorted { ($0.name ?? "").localizedCaseInsensitiveCompare($1.name ?? "") == .orderedAscending }
         .prefix(maxNewcomers)
-        .map { p in Suggestion(productId: p.id, name: p.name ?? "Unknown", imagePath: p.imagePath, kind: .newcomer, velocity: 0) }
+        .map { p in Suggestion(productId: p.id, name: p.name ?? String(localized: "Unknown"), imagePath: p.imagePath, kind: .newcomer, velocity: 0) }
 
     return (Array(bestsellers), Array(newcomers))
 }
@@ -370,7 +370,7 @@ final class MachineAnalysisViewModel: ObservableObject {
 
                 return ProductAnalysis(
                     productId: row.productId,
-                    name: row.productName ?? "Unknown",
+                    name: row.productName ?? String(localized: "Unknown"),
                     imagePath: imageByProduct[row.productId] ?? nil,
                     slots: row.slots ?? [],
                     trayIds: trayIdsByProduct[row.productId] ?? [],

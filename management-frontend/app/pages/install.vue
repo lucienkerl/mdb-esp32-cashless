@@ -104,7 +104,7 @@ useHead({
               <p class="text-sm">{{ t('install.step3Select') }}</p>
 
               <!-- Version dropdown -->
-              <div v-if="status === 'pending'" class="text-sm text-muted-foreground">Loading...</div>
+              <div v-if="status === 'pending'" class="text-sm text-muted-foreground">{{ t('common.loading') }}</div>
               <div v-else-if="!versions?.length" class="text-sm text-muted-foreground">{{ t('install.noVersions') }}</div>
               <select
                 v-else
@@ -146,10 +146,10 @@ useHead({
               </div>
             </template>
             <template v-else>
-              <div class="text-sm text-muted-foreground">Loading flash tool...</div>
+              <div class="text-sm text-muted-foreground">{{ t('install.loadingFlashTool') }}</div>
             </template>
             <template #fallback>
-              <div class="text-sm text-muted-foreground">Loading...</div>
+              <div class="text-sm text-muted-foreground">{{ t('common.loading') }}</div>
             </template>
           </ClientOnly>
         </div>

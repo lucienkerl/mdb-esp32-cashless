@@ -18,7 +18,7 @@ const { t } = useI18n()
 
 const form = ref({
   counted_amount: 0,
-  description: 'Geldentnahme aus Automat',
+  description: t('cashBook.defaultWithdrawalDescription'),
   machine_id: null as string | null,
 })
 const loading = ref(false)
@@ -30,7 +30,7 @@ const difference = computed(() => {
 
 watch(() => props.open, (now) => {
   if (now) {
-    form.value = { counted_amount: 0, description: 'Geldentnahme aus Automat', machine_id: null }
+    form.value = { counted_amount: 0, description: t('cashBook.defaultWithdrawalDescription'), machine_id: null }
   }
 })
 

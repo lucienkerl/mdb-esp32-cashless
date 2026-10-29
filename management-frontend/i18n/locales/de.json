@@ -305,7 +305,11 @@
     "required": "{field} ist erforderlich",
     "failedTo": "{action} fehlgeschlagen",
     "confirm": "Bestätigen",
-    "back": "Zurück"
+    "back": "Zurück",
+    "optional": "Optional",
+    "more": "Mehr",
+    "toggleTheme": "Design wechseln",
+    "preview": "Vorschau"
   },
   "nav": {
     "dashboard": "Übersicht",
@@ -743,7 +747,13 @@
     "printPoster": "Aushang drucken",
     "posterOutdatedTitle": "Der Aushang zeigt nicht mehr die aktuellen Kontaktdaten",
     "posterOutdatedBody": "Seit dem letzten Druck haben sich die Kontaktdaten geändert. Neu drucken und austauschen.",
-    "slotPlan": "Umbelegen"
+    "slotPlan": "Umbelegen",
+    "selectProduct": "Produkt auswählen...",
+    "diagnosticsUpdated": "Aktualisiert {time}",
+    "stateInitial": "Anfangszustand: {state}",
+    "lastCmd": "Befehl: {cmd}",
+    "pollsCount": "{n} Abfragen",
+    "errorsCount": "{n} Fehler"
   },
   "machineSettings": {
     "title": "Automat-Einstellungen",
@@ -968,7 +978,9 @@
       }
     },
     "minAge": "Altersgrenze",
-    "minAgeHint": "Gilt für alle Produkte dieser Kategorie. Bei der Befülltour muss eine geänderte Alterseinstellung am Automaten bestätigt werden."
+    "minAgeHint": "Gilt für alle Produkte dieser Kategorie. Bei der Befülltour muss eine geänderte Alterseinstellung am Automaten bestätigt werden.",
+    "importNoProducts": "Keine Produkte in der Datei gefunden. Prüfen Sie, ob die Datei eine Spalte „Product Name“ enthält.",
+    "importParseFailed": "Datei konnte nicht gelesen werden"
   },
   "warehouse": {
     "title": "Lager",
@@ -1327,7 +1339,11 @@
     "inviteLinkDescription": "Teilen Sie diesen Link mit dem eingeladenen Benutzer. Er kann sich registrieren und in einem Schritt Ihrer Organisation beitreten.",
     "noPendingInvitations": "Keine ausstehenden Einladungen.",
     "loadingMembers": "Mitglieder werden geladen…",
-    "sending": "Wird gesendet…"
+    "sending": "Wird gesendet…",
+    "roles": {
+      "admin": "Admin",
+      "viewer": "Betrachter"
+    }
   },
   "firmware": {
     "title": "Firmware",
@@ -1628,7 +1644,30 @@
     "imprintSupportHoursPlaceholder": "Mo–Fr 8–18 Uhr",
     "imprintLogo": "Firmenlogo",
     "imprintLogoHint": "PNG, JPEG oder WebP, max. 2 MB. Erscheint auf gedruckten Aushängen.",
-    "imprintLogoRemove": "Logo entfernen"
+    "imprintLogoRemove": "Logo entfernen",
+    "notifTypes": {
+      "sale": {
+        "label": "Verkaufsbenachrichtigungen",
+        "description": "Werden Sie bei jedem Verkauf eines Automaten benachrichtigt."
+      },
+      "low_stock": {
+        "label": "Warnungen bei niedrigem Bestand",
+        "description": "Werden Sie benachrichtigt, wenn ein Produkt unter die Nachfüllschwelle fällt."
+      },
+      "inbox": {
+        "label": "Kunden-Posteingang",
+        "description": "Werden Sie benachrichtigt, wenn ein Kunde ein Problem meldet, Feedback gibt oder einen Produktwunsch einreicht."
+      },
+      "new_deals": {
+        "label": "Neue Angebote",
+        "description": "Erhalten Sie täglich eine Push-Nachricht, wenn neue Händlerangebote zu Ihren Produkten gefunden werden."
+      }
+    },
+    "testNotificationSent": "Testbenachrichtigung gesendet ({count} Gerät). | Testbenachrichtigung gesendet ({count} Geräte).",
+    "testNotificationFailed": "Testbenachrichtigung konnte nicht gesendet werden",
+    "pushUnsupported": "Push-Benachrichtigungen werden von diesem Browser nicht unterstützt.",
+    "pushNotConfigured": "Push-Benachrichtigungen sind nicht konfiguriert. VAPID_PUBLIC_KEY fehlt.",
+    "taxNamePlaceholder": "MwSt. 19%"
   },
   "softap": {
     "title": "WLAN-Zugang (SoftAP)",
@@ -2111,7 +2150,9 @@
     "sinceDate": "seit {date}",
     "agoDays": "vor {n} Tagen",
     "trackPerMachine": "Pro Automat erfassen",
-    "trackPerMachineHint": "Bei jeder Entnahme den Automaten auswählen, von dem das Geld stammt. Bei Touren über mehrere Automaten i.d.R. nicht sinnvoll."
+    "trackPerMachineHint": "Bei jeder Entnahme den Automaten auswählen, von dem das Geld stammt. Bei Touren über mehrere Automaten i.d.R. nicht sinnvoll.",
+    "defaultWithdrawalDescription": "Geldentnahme aus Automat",
+    "defaultDepositDescription": "Bankeinzahlung"
   },
   "cardAccounts": {
     "title": "Kartenkonten",
@@ -2270,7 +2311,8 @@
     "footerDashboard": "Management Dashboard",
     "fullFlash": "Vollständiger Flash",
     "appOnly": "Nur App-Update",
-    "noVersions": "Noch keine Firmware-Versionen verfügbar. Ein Admin muss zuerst Firmware veröffentlichen."
+    "noVersions": "Noch keine Firmware-Versionen verfügbar. Ein Admin muss zuerst Firmware veröffentlichen.",
+    "loadingFlashTool": "Flash-Tool wird geladen..."
   },
   "extensions": {
     "pageTitle": "Erweiterungen",
@@ -2719,5 +2761,22 @@
     "packingHint": "Abhaken, sobald erledigt. Bis dahin stehen sie bei jeder Tour hier.",
     "moreActions": "Weitere Aktionen",
     "markDone": "Erledigt"
+  },
+  "pwa": {
+    "updateAvailable": "Neue Version verfügbar",
+    "updateNow": "Jetzt aktualisieren",
+    "installTitle": "VMflow installieren",
+    "iosTap": "Tippen Sie auf",
+    "iosAddToHome": "und dann „Zum Home-Bildschirm“",
+    "addToHome": "Zum Home-Bildschirm hinzufügen für schnellen Zugriff",
+    "install": "Installieren"
+  },
+  "barcodeScanner": {
+    "cameraUnavailable": "Kamera nicht verfügbar. Verwenden Sie HTTPS oder geben Sie den Barcode manuell ein.",
+    "cameraDenied": "Kamerazugriff verweigert. Bitte erlauben Sie den Kamerazugriff oder geben Sie den Barcode manuell ein.",
+    "noCamera": "Keine Kamera gefunden. Bitte geben Sie den Barcode manuell ein.",
+    "cameraError": "Kamerafehler: {error}",
+    "enterManually": "Manuell eingeben",
+    "placeholder": "Barcode eingeben..."
   }
 }

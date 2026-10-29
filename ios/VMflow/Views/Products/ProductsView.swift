@@ -177,7 +177,7 @@ struct ProductRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(product.name ?? "Unnamed")
+                    Text(product.name ?? String(localized: "Unnamed"))
                         .font(.body)
                         .lineLimit(1)
 

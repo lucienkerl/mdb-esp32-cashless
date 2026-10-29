@@ -305,7 +305,11 @@
     "required": "{field} is verplicht",
     "failedTo": "{action} mislukt",
     "confirm": "Bevestigen",
-    "back": "Terug"
+    "back": "Terug",
+    "optional": "Optioneel",
+    "more": "Meer",
+    "toggleTheme": "Thema wisselen",
+    "preview": "Voorbeeld"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -743,7 +747,13 @@
     "printPoster": "Aanplakbiljet afdrukken",
     "posterOutdatedTitle": "Het biljet toont niet meer de actuele contactgegevens",
     "posterOutdatedBody": "De contactgegevens zijn na de laatste afdruk gewijzigd. Druk opnieuw af en vervang het blad.",
-    "slotPlan": "Vakken omdelen"
+    "slotPlan": "Vakken omdelen",
+    "selectProduct": "Selecteer een product...",
+    "diagnosticsUpdated": "Bijgewerkt {time}",
+    "stateInitial": "Begintoestand: {state}",
+    "lastCmd": "Commando: {cmd}",
+    "pollsCount": "{n} bevragingen",
+    "errorsCount": "{n} fouten"
   },
   "machineSettings": {
     "title": "Machine-instellingen",
@@ -968,7 +978,9 @@
       }
     },
     "minAge": "Leeftijdsgrens",
-    "minAgeHint": "Geldt voor alle producten in deze categorie. Tijdens de vulronde moet een gewijzigde leeftijdsinstelling op de automaat worden bevestigd."
+    "minAgeHint": "Geldt voor alle producten in deze categorie. Tijdens de vulronde moet een gewijzigde leeftijdsinstelling op de automaat worden bevestigd.",
+    "importNoProducts": "Geen producten gevonden in het bestand. Controleer of het bestand een kolom „Product Name” bevat.",
+    "importParseFailed": "Bestand kon niet worden gelezen"
   },
   "warehouse": {
     "title": "Magazijn",
@@ -1327,7 +1339,11 @@
     "inviteLinkDescription": "Deel deze link met de uitgenodigde gebruiker. Die kan zich registreren en in één stap uw organisatie vervoegen.",
     "noPendingInvitations": "Geen openstaande uitnodigingen.",
     "loadingMembers": "Leden worden geladen…",
-    "sending": "Bezig met versturen…"
+    "sending": "Bezig met versturen…",
+    "roles": {
+      "admin": "Beheerder",
+      "viewer": "Kijker"
+    }
   },
   "firmware": {
     "title": "Firmware",
@@ -1628,7 +1644,30 @@
     "imprintSupportHoursPlaceholder": "Ma–vr 8–18 uur",
     "imprintLogo": "Bedrijfslogo",
     "imprintLogoHint": "PNG, JPEG of WebP, max. 2 MB. Verschijnt op afgedrukte biljetten.",
-    "imprintLogoRemove": "Logo verwijderen"
+    "imprintLogoRemove": "Logo verwijderen",
+    "notifTypes": {
+      "sale": {
+        "label": "Verkoopmeldingen",
+        "description": "Ontvang een melding bij elke verkoop van een automaat."
+      },
+      "low_stock": {
+        "label": "Meldingen bij lage voorraad",
+        "description": "Ontvang een melding wanneer een product onder de bijvuldrempel zakt."
+      },
+      "inbox": {
+        "label": "Klantinbox",
+        "description": "Ontvang een melding wanneer een klant een probleem meldt, feedback geeft of een productwens indient."
+      },
+      "new_deals": {
+        "label": "Nieuwe aanbiedingen",
+        "description": "Ontvang dagelijks een pushmelding wanneer nieuwe aanbiedingen voor je producten worden gevonden."
+      }
+    },
+    "testNotificationSent": "Testmelding verzonden ({count} apparaat). | Testmelding verzonden ({count} apparaten).",
+    "testNotificationFailed": "Testmelding kon niet worden verzonden",
+    "pushUnsupported": "Pushmeldingen worden niet ondersteund in deze browser.",
+    "pushNotConfigured": "Pushmeldingen zijn niet geconfigureerd. VAPID_PUBLIC_KEY ontbreekt.",
+    "taxNamePlaceholder": "btw 21%"
   },
   "softap": {
     "title": "WiFi-toegang (SoftAP)",
@@ -2111,7 +2150,9 @@
     "sinceDate": "sinds {date}",
     "agoDays": "{n} dagen geleden",
     "trackPerMachine": "Per machine bijhouden",
-    "trackPerMachineHint": "Kies de bronmachine bij elke ophaling. Meestal niet nuttig wanneer u van meerdere machines in één ronde ophaalt."
+    "trackPerMachineHint": "Kies de bronmachine bij elke ophaling. Meestal niet nuttig wanneer u van meerdere machines in één ronde ophaalt.",
+    "defaultWithdrawalDescription": "Geldopname uit machine",
+    "defaultDepositDescription": "Bankstorting"
   },
   "cardAccounts": {
     "title": "Kaartrekeningen",
@@ -2270,7 +2311,8 @@
     "footerDashboard": "Beheerdashboard",
     "fullFlash": "Volledige flash",
     "appOnly": "Enkel app-update",
-    "noVersions": "Nog geen firmwareversies beschikbaar. Een beheerder moet eerst firmware publiceren."
+    "noVersions": "Nog geen firmwareversies beschikbaar. Een beheerder moet eerst firmware publiceren.",
+    "loadingFlashTool": "Flashtool wordt geladen..."
   },
   "extensions": {
     "pageTitle": "Extensies",
@@ -2719,5 +2761,22 @@
     "packingHint": "Vink af zodra het gedaan is. Tot dan staan ze bij elke ronde hier.",
     "moreActions": "Meer acties",
     "markDone": "Gedaan"
+  },
+  "pwa": {
+    "updateAvailable": "Nieuwe versie beschikbaar",
+    "updateNow": "Nu bijwerken",
+    "installTitle": "VMflow installeren",
+    "iosTap": "Tik op",
+    "iosAddToHome": "en dan „Zet op beginscherm”",
+    "addToHome": "Zet op je beginscherm voor snelle toegang",
+    "install": "Installeren"
+  },
+  "barcodeScanner": {
+    "cameraUnavailable": "Camera niet beschikbaar. Gebruik HTTPS of voer de barcode handmatig in.",
+    "cameraDenied": "Cameratoegang geweigerd. Sta cameratoegang toe of voer de barcode handmatig in.",
+    "noCamera": "Geen camera gevonden. Voer de barcode handmatig in.",
+    "cameraError": "Camerafout: {error}",
+    "enterManually": "Handmatig invoeren",
+    "placeholder": "Barcode invoeren..."
   }
 }

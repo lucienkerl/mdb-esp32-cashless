@@ -1897,7 +1897,7 @@ final class RefillWizardViewModel: ObservableObject {
                     guard let qty = stockMap[product.id] else { return nil }
                     return WarehouseProductStock(
                         productId: product.id,
-                        productName: product.name ?? "Unknown",
+                        productName: product.name ?? String(localized: "Unknown"),
                         totalQuantity: qty,
                         imagePath: product.imagePath
                     )

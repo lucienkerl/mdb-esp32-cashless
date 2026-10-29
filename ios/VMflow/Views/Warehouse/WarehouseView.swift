@@ -479,7 +479,7 @@ struct WarehouseView: View {
                     if let productId = viewModel.intakeProductId,
                        let product = viewModel.products.first(where: { $0.id == productId }) {
                         ProductImage(imagePath: product.imagePath, size: 28)
-                        Text(product.name ?? "Unnamed")
+                        Text(product.name ?? String(localized: "Unnamed"))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     } else {
@@ -925,7 +925,7 @@ struct IntakeProductPickerView: View {
                 } label: {
                     HStack(spacing: 12) {
                         ProductImage(imagePath: product.imagePath, size: 36)
-                        Text(product.name ?? "Unnamed")
+                        Text(product.name ?? String(localized: "Unnamed"))
                             .foregroundStyle(.primary)
                         Spacer()
                         if selectedProductId == product.id {

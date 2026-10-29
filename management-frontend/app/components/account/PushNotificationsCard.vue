@@ -127,12 +127,12 @@ async function sendTestNotification() {
     if (error) throw error
     const sent = data?.sent ?? 0
     if (sent > 0) {
-      testResult.value = `Test notification sent (${sent} device${sent > 1 ? 's' : ''}).`
+      testResult.value = t('settings.testNotificationSent', { count: sent }, sent)
     } else {
       testResult.value = t('settings.noSubscriptions')
     }
   } catch (err: unknown) {
-    testResult.value = err instanceof Error ? err.message : 'Failed to send test notification'
+    testResult.value = err instanceof Error ? err.message : t('settings.testNotificationFailed')
   } finally {
     testLoading.value = false
   }
@@ -249,8 +249,8 @@ function parseDeviceInfo(device: { endpoint: string; user_agent: string | null }
           class="flex items-center justify-between"
         >
           <div class="space-y-0.5">
-            <label class="text-sm font-medium">{{ nt.label }}</label>
-            <p class="text-sm text-muted-foreground">{{ nt.description }}</p>
+            <label class="text-sm font-medium">{{ t(`settings.notifTypes.${nt.key}.label`) }}</label>
+            <p class="text-sm text-muted-foreground">{{ t(`settings.notifTypes.${nt.key}.description`) }}</p>
           </div>
           <Switch
             :checked="isTypeEnabled(nt.key)"

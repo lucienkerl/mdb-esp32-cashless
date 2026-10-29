@@ -13,11 +13,11 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
-const form = ref({ amount: 0, description: 'Bankeinzahlung' })
+const form = ref({ amount: 0, description: t('cashBook.defaultDepositDescription') })
 const loading = ref(false)
 
 watch(() => props.open, (now) => {
-  if (now) form.value = { amount: 0, description: 'Bankeinzahlung' }
+  if (now) form.value = { amount: 0, description: t('cashBook.defaultDepositDescription') }
 })
 
 function fillFullAmount() {

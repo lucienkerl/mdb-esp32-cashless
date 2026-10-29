@@ -476,7 +476,7 @@ struct ReplacementProductPicker: View {
                 ProductImage(imagePath: product.imagePath, size: 36)
                     .opacity(outOfStock ? 0.45 : 1.0)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(product.name ?? "Unnamed")
+                    Text(product.name ?? String(localized: "Unnamed"))
                         .foregroundStyle(outOfStock ? .secondary : .primary)
                     if let removal = recentRemovals[product.id] {
                         removalInfo(removal)

@@ -305,7 +305,11 @@
     "required": "{field} is required",
     "failedTo": "Failed to {action}",
     "confirm": "Confirm",
-    "back": "Back"
+    "back": "Back",
+    "optional": "Optional",
+    "more": "More",
+    "toggleTheme": "Toggle theme",
+    "preview": "Preview"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -743,7 +747,13 @@
     "printPoster": "Print a sign",
     "posterOutdatedTitle": "The printed sign no longer shows the current contact details",
     "posterOutdatedBody": "The contact details changed after the last print. Reprint it and swap the sheet.",
-    "slotPlan": "Rearrange slots"
+    "slotPlan": "Rearrange slots",
+    "selectProduct": "Select a product...",
+    "diagnosticsUpdated": "Updated {time}",
+    "stateInitial": "Initial: {state}",
+    "lastCmd": "Cmd: {cmd}",
+    "pollsCount": "{n} polls",
+    "errorsCount": "{n} errors"
   },
   "machineSettings": {
     "title": "Machine settings",
@@ -968,7 +978,9 @@
       }
     },
     "minAge": "Age limit",
-    "minAgeHint": "Applies to every product in this category. On the refill tour, a changed age setting must be confirmed at the machine."
+    "minAgeHint": "Applies to every product in this category. On the refill tour, a changed age setting must be confirmed at the machine.",
+    "importNoProducts": "No products found in file. Make sure the file has a \"Product Name\" column.",
+    "importParseFailed": "Failed to parse file"
   },
   "warehouse": {
     "title": "Warehouse",
@@ -1327,7 +1339,11 @@
     "inviteLinkDescription": "Share this link with the invited user. They can register and join your organization in one step.",
     "noPendingInvitations": "No pending invitations.",
     "loadingMembers": "Loading members…",
-    "sending": "Sending…"
+    "sending": "Sending…",
+    "roles": {
+      "admin": "Admin",
+      "viewer": "Viewer"
+    }
   },
   "firmware": {
     "title": "Firmware",
@@ -1628,7 +1644,30 @@
     "imprintSupportHoursPlaceholder": "Mon–Fri 8am–6pm",
     "imprintLogo": "Company logo",
     "imprintLogoHint": "PNG, JPEG or WebP, max 2 MB. Appears on printed signs.",
-    "imprintLogoRemove": "Remove logo"
+    "imprintLogoRemove": "Remove logo",
+    "notifTypes": {
+      "sale": {
+        "label": "Sale notifications",
+        "description": "Get notified for every vending machine sale."
+      },
+      "low_stock": {
+        "label": "Low stock alerts",
+        "description": "Get notified when a product drops below the refill threshold."
+      },
+      "inbox": {
+        "label": "Customer inbox",
+        "description": "Get notified when a customer reports a problem, leaves feedback, or submits a product wish."
+      },
+      "new_deals": {
+        "label": "New deals",
+        "description": "Get a daily push when new retailer offers matching your products are found."
+      }
+    },
+    "testNotificationSent": "Test notification sent ({count} device). | Test notification sent ({count} devices).",
+    "testNotificationFailed": "Failed to send test notification",
+    "pushUnsupported": "Push notifications are not supported in this browser.",
+    "pushNotConfigured": "Push notifications are not configured. VAPID_PUBLIC_KEY is missing.",
+    "taxNamePlaceholder": "VAT 19%"
   },
   "softap": {
     "title": "WiFi access (SoftAP)",
@@ -2111,7 +2150,9 @@
     "sinceDate": "since {date}",
     "agoDays": "{n} days ago",
     "trackPerMachine": "Track per machine",
-    "trackPerMachineHint": "Pick the source machine on every withdrawal. Usually not useful when collecting from multiple machines on one tour."
+    "trackPerMachineHint": "Pick the source machine on every withdrawal. Usually not useful when collecting from multiple machines on one tour.",
+    "defaultWithdrawalDescription": "Cash withdrawal from machine",
+    "defaultDepositDescription": "Bank deposit"
   },
   "cardAccounts": {
     "title": "Card accounts",
@@ -2270,7 +2311,8 @@
     "footerDashboard": "Management Dashboard",
     "fullFlash": "Full Flash",
     "appOnly": "App update only",
-    "noVersions": "No firmware versions available yet. An admin needs to publish firmware first."
+    "noVersions": "No firmware versions available yet. An admin needs to publish firmware first.",
+    "loadingFlashTool": "Loading flash tool..."
   },
   "extensions": {
     "pageTitle": "Extensions",
@@ -2719,5 +2761,22 @@
     "packingHint": "Tick off once done. Until then they show on every tour.",
     "moreActions": "More actions",
     "markDone": "Done"
+  },
+  "pwa": {
+    "updateAvailable": "New version available",
+    "updateNow": "Update now",
+    "installTitle": "Install VMflow",
+    "iosTap": "Tap",
+    "iosAddToHome": "then \"Add to Home Screen\"",
+    "addToHome": "Add to your home screen for quick access",
+    "install": "Install"
+  },
+  "barcodeScanner": {
+    "cameraUnavailable": "Camera not available. Use HTTPS or enter the barcode manually.",
+    "cameraDenied": "Camera access denied. Please allow camera access or enter the barcode manually.",
+    "noCamera": "No camera found. Please enter the barcode manually.",
+    "cameraError": "Camera error: {error}",
+    "enterManually": "Enter manually",
+    "placeholder": "Enter barcode..."
   }
 }
