@@ -443,17 +443,19 @@ final class RefillWizardViewModel: ObservableObject {
     // MARK: Slot change requests ("Änderungsvermerk")
     //
     // A machine's open change request rides along in
-    // `RefillMachine.changeRequest`. The refiller accepts (default) or declines
-    // each slot while packing; accepted slots leave the normal refill and their
-    // units join the normal packing list (violet). At the machine they are
-    // rebuilt and quit via `apply_slot_change`, before the normal refill of
-    // the other slots; the leftovers are booked at the end of the tour.
-    // Declined / skipped slots stay open server-side for a later tour.
+    // `RefillMachine.changeRequest`. Every planned slot is packed: its units
+    // join the machine's line of the product in the packing list (one tick
+    // for refill and rebuild, `toggleLine`). At the machine each slot is
+    // rebuilt ("done") or skipped ("Not possible today") and quit via
+    // `apply_slot_change`, before the normal refill of the other slots; the
+    // leftovers are booked at the end of the tour. Skipped slots stay open
+    // server-side for a later tour.
     // Mirrors the PWA's `useRefillWizard.ts`.
 
     /// Open requests (pending slots only) by machine id, as last fetched.
     @Published var changeRequests: [UUID: SlotChangeRequest] = [:]
-    /// Item id → accepted. Missing = accepted.
+    /// Item id → accepted. Missing = accepted. Nothing declines a slot at
+    /// packing any more; kept for resumed tour states.
     @Published var rebuildDecisions: [UUID: Bool] = [:]
     /// Machine id → product id → units packed (deducted) for rebuilds.
     @Published var rebuildPacked: [UUID: [UUID: Int]] = [:]
@@ -882,23 +884,17 @@ final class RefillWizardViewModel: ObservableObject {
     /// if fully packed", the bottom bar shows "how many items the tour
     /// will actually deliver".
     func chipItemCount(_ chip: ChipFilter) -> Int {
-        let allMachineIds: [UUID]
+        let machineIds: [UUID]
         switch chip {
         case .all:
-            allMachineIds = machines.map(\.id)
+            machineIds = machines.map(\.id)
         case .machine(let id):
-            allMachineIds = [id]
+            machineIds = [id]
         }
-        var total = 0
-        for item in combinedPackingList {
-            for need in item.machineNeeds where allMachineIds.contains(need.machineId) {
-                let packed = isMachinePacked(machineId: need.machineId, productId: item.productId)
-                let outOfStock = isOutOfStockForMachine(machineId: need.machineId, productId: item.productId)
-                if outOfStock && !packed { continue }
-                total += displayQuantity(machineId: need.machineId, productId: item.productId)
-            }
+        // Same lines and units as the box counter (refill + rebuild).
+        return machineIds.reduce(0) { sum, id in
+            sum + packLines(machineId: id).reduce(0) { $0 + $1.total }
         }
-        return total
     }
 
     /// True when every needed `(machine, product)` pair for the chip is
@@ -1097,17 +1093,6 @@ final class RefillWizardViewModel: ObservableObject {
             && row.machineIds.allSatisfy { rebuildPackTicks[$0]?.contains(row.productId) == true }
     }
 
-    /// Tick / untick a rebuild-only row: only ticked units are taken along
-    /// and booked out of the warehouse.
-    func toggleRebuildRowTick(_ row: RebuildPackRow) {
-        let tick = !isRebuildRowTicked(row)
-        for machineId in row.machineIds {
-            var set = rebuildPackTicks[machineId] ?? []
-            if tick { set.insert(row.productId) } else { set.remove(row.productId) }
-            rebuildPackTicks[machineId] = set
-        }
-    }
-
     /// Whether a specific product is packed for a specific machine.
     func isMachinePacked(machineId: UUID, productId: UUID) -> Bool {
         packedItems[machineId]?.contains(productId) ?? false
@@ -1195,60 +1180,10 @@ final class RefillWizardViewModel: ObservableObject {
         customQuantities[machineId] = machineMap
     }
 
-    /// Toggle packed state for one machine-product pair.
-    /// Skips if out of warehouse stock when trying to pack.
+    /// Tick / untick one machine's line of a product: refill and rebuild
+    /// units together ("ticked = in the box", see `toggleLine`).
     func togglePackedForMachine(productId: UUID, machineId: UUID) {
-        var set = packedItems[machineId] ?? Set()
-        if set.contains(productId) {
-            set.remove(productId)
-            // Clear custom quantity so it recalculates on re-pack
-            customQuantities[machineId]?[productId] = nil
-        } else {
-            // Don't allow packing if out of stock
-            guard !isOutOfStockForMachine(machineId: machineId, productId: productId) else { return }
-            set.insert(productId)
-            // Packed first, so the product's rebuild units (taken along now)
-            // claim their stock before the quantity is capped.
-            packedItems[machineId] = set
-            // Auto-cap the quantity to remaining warehouse stock
-            pinPackingQuantity(machineId: machineId, productId: productId)
-        }
-        packedItems[machineId] = set
-        syncMachinePackedState()
-    }
-
-    /// Toggle packed state for a product across ALL machines that need it.
-    func togglePackedAll(productId: UUID) {
-        guard let item = combinedPackingList.first(where: { $0.productId == productId }) else { return }
-        let allPacked = isProductCompletelyPacked(item)
-
-        // The card's header covers its rebuild lines too.
-        let rebuildMachines = rebuildMachineNeeds(productId: productId, machineIds: machines.map(\.id)).map(\.machineId)
-        for machineId in rebuildMachines {
-            var set = rebuildPackTicks[machineId] ?? []
-            if allPacked { set.remove(productId) } else { set.insert(productId) }
-            rebuildPackTicks[machineId] = set
-        }
-
-        if allPacked {
-            // Unpack all
-            for need in item.machineNeeds {
-                var set = packedItems[need.machineId] ?? Set()
-                set.remove(productId)
-                packedItems[need.machineId] = set
-                customQuantities[need.machineId]?[productId] = nil
-            }
-        } else {
-            // Pack all (with stock-aware capping, in urgency order)
-            for need in item.machineNeeds {
-                guard !isOutOfStockForMachine(machineId: need.machineId, productId: productId) else { continue }
-                var set = packedItems[need.machineId] ?? Set()
-                set.insert(productId)
-                packedItems[need.machineId] = set
-                pinPackingQuantity(machineId: need.machineId, productId: productId)
-            }
-        }
-        syncMachinePackedState()
+        toggleLine(machineId: machineId, productId: productId)
     }
 
     /// Pack all products for all machines (stock-aware).
@@ -2098,46 +2033,6 @@ final class RefillWizardViewModel: ObservableObject {
         machines.filter { !($0.changeRequest?.items.isEmpty ?? true) }
     }
 
-    /// Accept or decline one slot of a machine's change note (packing step).
-    /// A declined slot goes back into the normal refill and stays open
-    /// server-side for a later tour.
-    func toggleRebuildItem(machineId: UUID, itemId: UUID) {
-        guard currentStep == .packing else { return }
-        if isRebuildAccepted(itemId) {
-            rebuildDecisions[itemId] = false
-        } else {
-            rebuildDecisions[itemId] = nil
-        }
-        rebuildTourList()
-        reconcilePacking(machineId: machineId)
-    }
-
-    /// After a slot left or rejoined the normal refill, drop packed products
-    /// the machine no longer needs and cap pinned quantities to the room left
-    /// in its remaining slots.
-    private func reconcilePacking(machineId: UUID) {
-        guard let machine = machines.first(where: { $0.id == machineId }) else {
-            packedItems[machineId] = nil
-            customQuantities[machineId] = nil
-            syncMachinePackedState()
-            return
-        }
-        let needed = Set(machine.trays.filter { $0.deficit > 0 }.compactMap(\.tray.productId))
-        var packed = packedItems[machineId] ?? []
-        for pid in packed where !needed.contains(pid) {
-            packed.remove(pid)
-            customQuantities[machineId]?[pid] = nil
-        }
-        packedItems[machineId] = packed
-        for (pid, qty) in customQuantities[machineId] ?? [:] {
-            let room = machine.trays
-                .filter { $0.tray.productId == pid }
-                .reduce(0) { $0 + max(0, $1.tray.capacity - $1.tray.currentStock) }
-            if qty > room { customQuantities[machineId]?[pid] = room }
-        }
-        syncMachinePackedState()
-    }
-
     /// Units the accepted slots of a machine need for the rebuild. While
     /// packing it is computed from the stock known now (stock that moves
     /// within the machine needs no warehouse stock); once the tour started it
@@ -2163,6 +2058,14 @@ final class RefillWizardViewModel: ObservableObject {
         let restrict = selectedWarehouseId != nil && !warehouseStock.isEmpty
         var remaining: [UUID: Int] = [:]
         for stock in warehouseStock { remaining[stock.productId] = stock.totalQuantity }
+        // A refill already ticked holds its (pinned) units: they lie in the
+        // box, so a rebuild ticked later only gets what is left. A line
+        // ticked as a whole claims its rebuild units first (see `toggleLine`).
+        for machine in machines {
+            for pid in packedItems[machine.id] ?? [] {
+                remaining[pid, default: 0] -= packingQuantity(machineId: machine.id, productId: pid)
+            }
+        }
         var out: [UUID: [UUID: Int]] = [:]
         for machine in machines {
             var machineMap: [UUID: Int] = [:]
@@ -2172,7 +2075,7 @@ final class RefillWizardViewModel: ObservableObject {
                 let wanted = min(custom[pid] ?? need, need)
                 let qty: Int
                 if restrict {
-                    let available = remaining[pid] ?? 0
+                    let available = max(0, remaining[pid] ?? 0)
                     qty = min(wanted, available)
                     remaining[pid] = available - qty
                 } else {
@@ -2190,19 +2093,12 @@ final class RefillWizardViewModel: ObservableObject {
         committedRebuild.values.reduce(0) { $0 + ($1[productId] ?? 0) }
     }
 
-    /// The refiller takes a machine's rebuild units of a product along: their
-    /// own line is ticked ("ticked = in the box"). Ticking the normal refill
-    /// of the same product no longer takes them silently. Unticked units are
-    /// not booked, like a normal product.
+    /// The refiller takes a machine's rebuild units of a product along: the
+    /// machine's line of the product is ticked ("ticked = in the box"). One
+    /// line covers refill and rebuild units alike (`toggleLine`), so both
+    /// ticks always move together. Unticked units are not booked.
     func isRebuildTaken(machineId: UUID, productId: UUID) -> Bool {
         rebuildPackTicks[machineId]?.contains(productId) == true
-    }
-
-    /// Tick / untick the rebuild units of one product for one machine.
-    func toggleRebuildTick(machineId: UUID, productId: UUID) {
-        var set = rebuildPackTicks[machineId] ?? []
-        if set.contains(productId) { set.remove(productId) } else { set.insert(productId) }
-        rebuildPackTicks[machineId] = set
     }
 
     /// Rebuild units shown for a product of one machine (packing step): what
@@ -2217,8 +2113,9 @@ final class RefillWizardViewModel: ObservableObject {
         return min(wanted, maxRebuildQuantity(machineId: machineId, productId: productId))
     }
 
-    /// Tick every rebuild line of the given machines (the "pack all"
-    /// buttons) — refilled products included, each line has its own tick.
+    /// Tick the rebuild units of every line of the given machines (the
+    /// "pack all" buttons; the refill units follow right after) and pin
+    /// their amounts.
     private func tickAllRebuildRows(machineIds: [UUID]) {
         for machineId in machineIds {
             var set = rebuildPackTicks[machineId] ?? []
@@ -2227,6 +2124,18 @@ final class RefillWizardViewModel: ObservableObject {
             }
             rebuildPackTicks[machineId] = set
         }
+        for machineId in machineIds {
+            for (pid, need) in rebuildNeeds(machineId: machineId) where need > 0 {
+                pinRebuildQuantity(machineId: machineId, productId: pid)
+            }
+        }
+    }
+
+    /// Pin the rebuild units of a ticked line, like `pinPackingQuantity`: a
+    /// sale while packing must not change what is in the box.
+    private func pinRebuildQuantity(machineId: UUID, productId: UUID) {
+        let qty = committedRebuild[machineId]?[productId] ?? 0
+        rebuildCustomQuantities[machineId, default: [:]][productId] = qty
     }
 
     /// Machines (of `machineIds`, in that order) whose accepted slots need
@@ -2247,7 +2156,10 @@ final class RefillWizardViewModel: ObservableObject {
         let others = committedRebuild
             .filter { $0.key != machineId }
             .reduce(0) { $0 + ($1.value[productId] ?? 0) }
-        return max(0, min(need, total - others))
+        let otherRefills = machines
+            .filter { $0.id != machineId && packedItems[$0.id]?.contains(productId) == true }
+            .reduce(0) { $0 + packingQuantity(machineId: $1.id, productId: productId) }
+        return max(0, min(need, total - others - otherRefills))
     }
 
     /// Pack fewer (or again more) rebuild units of a product for one machine,
@@ -2387,9 +2299,39 @@ final class RefillWizardViewModel: ObservableObject {
 
     func setRebuildFilled(itemId: UUID, value: Int) {
         guard let i = currentRebuild.firstIndex(where: { $0.item.id == itemId }) else { return }
-        let item = currentRebuild[i].item
-        currentRebuild[i].filled = item.toProductId == nil ? 0 : max(0, min(item.toCapacity, value))
+        currentRebuild[i].filled = max(0, min(maxRebuildFilled(itemId: itemId), value))
         currentRebuild[i].filledTouched = true
+    }
+
+    /// Most units a slot can get: its new spiral, and only goods meant for
+    /// the rebuild — taken out of the machine's other changed slots or packed
+    /// for it — minus what the other slots of the product get. Goods of the
+    /// normal refill are booked with the refill; counting them here too would
+    /// book them twice.
+    func maxRebuildFilled(itemId: UUID) -> Int {
+        guard let slot = currentRebuild.first(where: { $0.item.id == itemId }),
+              let productId = slot.item.toProductId,
+              let machineId = currentRebuildMachineId else { return 0 }
+        let active = currentRebuild.filter { $0.action != .skip }
+        let moved = active
+            .filter { $0.item.fromProductId == productId }
+            .reduce(0) { $0 + $1.removed }
+        let packed = rebuildPacked[machineId]?[productId] ?? 0
+        let others = active
+            .filter { $0.item.id != itemId && $0.item.toProductId == productId }
+            .reduce(0) { $0 + $1.filled }
+        return max(0, min(slot.item.toCapacity, moved + packed - others))
+    }
+
+    /// Slots skipped today ("Not possible today") whose old product was to
+    /// move into this slot — it gets fewer units than planned.
+    func skippedSourceSlots(itemId: UUID) -> [Int] {
+        guard let slot = currentRebuild.first(where: { $0.item.id == itemId }),
+              let productId = slot.item.toProductId else { return [] }
+        return currentRebuild
+            .filter { $0.action == .skip && $0.item.id != itemId && $0.item.fromProductId == productId }
+            .map(\.item.itemNumber)
+            .sorted()
     }
 
     /// Mark a slot rebuilt / not rebuilt; `nil` undoes the decision.
@@ -2821,7 +2763,7 @@ final class RefillWizardViewModel: ObservableObject {
     /// button shown when the Pack step has a machine chip active.
     ///
     /// Note: does NOT call `saveTourState()`. Consistent with the existing
-    /// pack-step helpers (`togglePackedForMachine`, `togglePackedAll`,
+    /// pack-step helpers (`togglePackedForMachine`, `toggleLine`,
     /// `packEverything`/`packAllMachines`) which also skip it. `saveTourState()`
     /// is a no-op during `.packing` anyway (guard at line 361), but matching
     /// the existing pattern keeps future maintenance simple.
@@ -3474,34 +3416,191 @@ struct OpenPackLine: Identifiable, Equatable {
     let imagePath: String?
     let machineName: String
     let quantity: Int
-    /// Rebuild line: the slots the units are for; `nil` for a normal refill.
-    let rebuildSlots: [Int]?
+    /// The slots rebuild units are for; empty when the line is a refill only.
+    let rebuildSlots: [Int]
 
-    var id: String { "\(machineId.uuidString)-\(productId.uuidString)-\(rebuildSlots == nil ? "r" : "u")" }
+    var id: String { "\(machineId.uuidString)-\(productId.uuidString)" }
+}
+
+/// Everything one machine gets of one product on the packing list: the
+/// refill of its slots and the units for its slot rebuilds, under one tick
+/// and one amount ("3 refill + 5 rebuild slot 57").
+struct PackLine: Equatable {
+    let machineId: UUID
+    let productId: UUID
+    /// Units for the refill (0 when the product is not refilled here or the
+    /// warehouse has nothing left for it).
+    let refill: Int
+    /// What the slots holding the product lack.
+    let refillNeed: Int
+    /// The refill can be packed (it has stock or is already ticked).
+    let hasRefill: Bool
+    /// Units for slot rebuilds.
+    let rebuild: Int
+    /// What the rebuilt slots need from the warehouse.
+    let rebuildNeed: Int
+    /// The slots that get the product in a rebuild.
+    let slots: [Int]
+    let ticked: Bool
+    /// Most units the line can pack (slot room and warehouse stock).
+    let maxQuantity: Int
+
+    var total: Int { refill + rebuild }
+    var need: Int { refillNeed + rebuildNeed }
+    var shortfall: Int { max(0, need - total) }
+    /// Nothing to pack: the warehouse has nothing left for this line.
+    var isUnavailable: Bool { !hasRefill && rebuildNeed == 0 }
 }
 
 extension RefillWizardViewModel {
-    /// Units ticked into the box vs. all units on the packing list (refill
-    /// lines and rebuild lines alike).
+    // MARK: - Pack Lines (one tick per machine and product)
+
+    /// What the machine's slots holding the product lack (the refill need).
+    func refillNeed(machineId: UUID, productId: UUID) -> Int {
+        guard let machine = machines.first(where: { $0.id == machineId }) else { return 0 }
+        return machine.trays
+            .filter { $0.tray.productId == productId && $0.deficit > 0 }
+            .reduce(0) { $0 + $1.deficit }
+    }
+
+    /// The refill part of a line can be packed.
+    func hasRefillLine(machineId: UUID, productId: UUID) -> Bool {
+        refillNeed(machineId: machineId, productId: productId) > 0
+            && (isMachinePacked(machineId: machineId, productId: productId)
+                || !isOutOfStockForMachine(machineId: machineId, productId: productId))
+    }
+
+    /// Ticked = every part of the line (refill, rebuild) lies in the box.
+    func isLineTicked(machineId: UUID, productId: UUID) -> Bool {
+        let refill = hasRefillLine(machineId: machineId, productId: productId)
+        let rebuild = (rebuildNeeds(machineId: machineId)[productId] ?? 0) > 0
+        guard refill || rebuild else { return false }
+        return (!refill || isMachinePacked(machineId: machineId, productId: productId))
+            && (!rebuild || isRebuildTaken(machineId: machineId, productId: productId))
+    }
+
+    /// Tick / untick a machine's line of a product. Ticking takes the rebuild
+    /// units first (a planned slot cannot be done without them), then the
+    /// refill, each pinned to what goes into the box.
+    func toggleLine(machineId: UUID, productId: UUID) {
+        let rebuildNeed = rebuildNeeds(machineId: machineId)[productId] ?? 0
+        if isLineTicked(machineId: machineId, productId: productId) {
+            rebuildPackTicks[machineId]?.remove(productId)
+            rebuildCustomQuantities[machineId]?[productId] = nil
+            packedItems[machineId]?.remove(productId)
+            customQuantities[machineId]?[productId] = nil
+        } else {
+            let refill = hasRefillLine(machineId: machineId, productId: productId)
+            if rebuildNeed > 0 {
+                rebuildPackTicks[machineId, default: []].insert(productId)
+                pinRebuildQuantity(machineId: machineId, productId: productId)
+            }
+            if refill, !isMachinePacked(machineId: machineId, productId: productId),
+               !isOutOfStockForMachine(machineId: machineId, productId: productId) {
+                packedItems[machineId, default: []].insert(productId)
+                let qty = packingQuantity(machineId: machineId, productId: productId)
+                setPackingQuantity(machineId: machineId, productId: productId, quantity: qty)
+            }
+        }
+        syncMachinePackedState()
+    }
+
+    /// Refill units of a line. An unticked line also leaves room for its
+    /// own rebuild units, which claim the stock first once ticked.
+    private func lineRefillQuantity(machineId: UUID, productId: UUID) -> Int {
+        let qty = displayQuantity(machineId: machineId, productId: productId)
+        guard !isMachinePacked(machineId: machineId, productId: productId),
+              !isRebuildTaken(machineId: machineId, productId: productId),
+              selectedWarehouseId != nil, !warehouseStock.isEmpty else { return qty }
+        let ownRebuild = rebuildQuantity(machineId: machineId, productId: productId)
+        return max(0, min(qty, maxPackingQuantity(machineId: machineId, productId: productId) - ownRebuild))
+    }
+
+    /// One machine's line of a product.
+    func packLine(machineId: UUID, productId: UUID) -> PackLine {
+        let rebuildNeed = rebuildNeeds(machineId: machineId)[productId] ?? 0
+        let refillNeed = refillNeed(machineId: machineId, productId: productId)
+        let hasRefill = hasRefillLine(machineId: machineId, productId: productId)
+        let refill = hasRefill ? lineRefillQuantity(machineId: machineId, productId: productId) : 0
+        let rebuild = rebuildNeed > 0 ? rebuildQuantity(machineId: machineId, productId: productId) : 0
+        return PackLine(
+            machineId: machineId,
+            productId: productId,
+            refill: refill,
+            refillNeed: refillNeed,
+            hasRefill: hasRefill,
+            rebuild: rebuild,
+            rebuildNeed: rebuildNeed,
+            slots: rebuildNeed > 0 ? rebuildSlots(machineId: machineId, productId: productId) : [],
+            ticked: isLineTicked(machineId: machineId, productId: productId),
+            maxQuantity: lineMaxQuantity(machineId: machineId, productId: productId, rebuildNeed: rebuildNeed, hasRefill: hasRefill)
+        )
+    }
+
+    /// Most units a line can pack: the room in its slots (refill) plus what
+    /// the rebuilt slots need, within the stock the other machines leave.
+    private func lineMaxQuantity(machineId: UUID, productId: UUID, rebuildNeed: Int, hasRefill: Bool) -> Int {
+        var room = 0
+        if hasRefill, let machine = machines.first(where: { $0.id == machineId }) {
+            room = machine.trays
+                .filter { $0.tray.productId == productId }
+                .reduce(0) { $0 + max(0, $1.tray.capacity - $1.tray.currentStock) }
+        }
+        guard selectedWarehouseId != nil, !warehouseStock.isEmpty else { return rebuildNeed + room }
+        let stock = warehouseStockFor(productId: productId)?.totalQuantity ?? 0
+        let otherRefills = machines
+            .filter { $0.id != machineId && packedItems[$0.id]?.contains(productId) == true }
+            .reduce(0) { $0 + packingQuantity(machineId: $1.id, productId: productId) }
+        let otherRebuilds = committedRebuild
+            .filter { $0.key != machineId }
+            .reduce(0) { $0 + ($1.value[productId] ?? 0) }
+        return max(0, min(rebuildNeed + room, stock - otherRefills - otherRebuilds))
+    }
+
+    /// Set a line's amount. The rebuild units are filled first (a planned
+    /// slot needs its goods), the rest goes to the refill — so packing
+    /// less takes it off the refill first.
+    func setLineQuantity(machineId: UUID, productId: UUID, quantity: Int) {
+        let line = packLine(machineId: machineId, productId: productId)
+        let total = max(0, min(quantity, line.maxQuantity))
+        // Free the refill's claim first, so the rebuild can grow into it.
+        if line.hasRefill { setPackingQuantity(machineId: machineId, productId: productId, quantity: 0) }
+        var rebuild = 0
+        if line.rebuildNeed > 0 {
+            rebuild = min(total, maxRebuildQuantity(machineId: machineId, productId: productId))
+            setRebuildQuantity(machineId: machineId, productId: productId, quantity: rebuild)
+        }
+        if line.hasRefill {
+            setPackingQuantity(machineId: machineId, productId: productId, quantity: total - rebuild)
+        }
+    }
+
+    /// Units ticked into the box vs. all units on the packing list.
     var packBox: (packed: Int, total: Int) {
         var packed = 0
         var total = 0
-        for item in combinedPackingList {
-            for need in item.machineNeeds
-            where !isOutOfStockForMachine(machineId: need.machineId, productId: item.productId) {
-                let qty = displayQuantity(machineId: need.machineId, productId: item.productId)
-                total += qty
-                if isMachinePacked(machineId: need.machineId, productId: item.productId) { packed += qty }
-            }
-        }
         for machine in machines {
-            for (pid, need) in rebuildNeeds(machineId: machine.id) where need > 0 {
-                let qty = rebuildQuantity(machineId: machine.id, productId: pid)
-                total += qty
-                if isRebuildTaken(machineId: machine.id, productId: pid) { packed += qty }
+            for line in packLines(machineId: machine.id) {
+                total += line.total
+                if line.ticked { packed += line.total }
             }
         }
         return (packed, total)
+    }
+
+    /// Every line of one machine (products it gets a refill or rebuild units of).
+    func packLines(machineId: UUID) -> [PackLine] {
+        guard let machine = machines.first(where: { $0.id == machineId }) else { return [] }
+        var ids: [UUID] = []
+        for tray in machine.trays where tray.deficit > 0 {
+            if let pid = tray.tray.productId, !ids.contains(pid) { ids.append(pid) }
+        }
+        for (pid, need) in rebuildNeeds(machineId: machineId) where need > 0 && !ids.contains(pid) {
+            ids.append(pid)
+        }
+        return ids
+            .map { packLine(machineId: machineId, productId: $0) }
+            .filter { !$0.isUnavailable }
     }
 
     /// Slots of a machine's change note that get a product (rebuild lines).
@@ -3515,40 +3614,30 @@ extension RefillWizardViewModel {
     /// Lines with units that are not ticked — they stay in the warehouse.
     var openPackLines: [OpenPackLine] {
         var out: [OpenPackLine] = []
-        for item in combinedPackingList {
-            for need in item.machineNeeds
-            where !isOutOfStockForMachine(machineId: need.machineId, productId: item.productId)
-                && !isMachinePacked(machineId: need.machineId, productId: item.productId) {
-                let qty = displayQuantity(machineId: need.machineId, productId: item.productId)
-                guard qty > 0 else { continue }
-                out.append(OpenPackLine(
-                    productId: item.productId,
-                    machineId: need.machineId,
-                    productName: item.productName,
-                    imagePath: item.imagePath,
-                    machineName: need.machineName,
-                    quantity: qty,
-                    rebuildSlots: nil
-                ))
-            }
-        }
         for machine in machines {
-            for (pid, need) in rebuildNeeds(machineId: machine.id)
-            where need > 0 && !isRebuildTaken(machineId: machine.id, productId: pid) {
-                let qty = rebuildQuantity(machineId: machine.id, productId: pid)
-                guard qty > 0 else { continue }
-                let item = acceptedRebuildItems(machineId: machine.id).first { $0.toProductId == pid }
+            for line in packLines(machineId: machine.id) where !line.ticked && line.total > 0 {
+                let name = productName(line.productId, machineId: machine.id)
                 out.append(OpenPackLine(
-                    productId: pid,
+                    productId: line.productId,
                     machineId: machine.id,
-                    productName: item?.toName ?? "",
-                    imagePath: item?.toImagePath,
+                    productName: name.name,
+                    imagePath: name.image,
                     machineName: machine.machine.displayName,
-                    quantity: qty,
-                    rebuildSlots: rebuildSlots(machineId: machine.id, productId: pid)
+                    quantity: line.total,
+                    rebuildSlots: line.rebuild > 0 ? line.slots : []
                 ))
             }
         }
         return out
+    }
+
+    /// Name and image of a product on a machine's packing list (from its
+    /// slots, or from the change note for a product new to the machine).
+    func productName(_ productId: UUID, machineId: UUID) -> (name: String, image: String?) {
+        if let item = combinedPackingList.first(where: { $0.productId == productId }) {
+            return (item.productName, item.imagePath)
+        }
+        let item = acceptedRebuildItems(machineId: machineId).first { $0.toProductId == productId }
+        return (item?.toName ?? "", item?.toImagePath)
     }
 }

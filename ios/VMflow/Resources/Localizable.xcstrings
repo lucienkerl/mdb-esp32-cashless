@@ -743,7 +743,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ · Box: %lld Artikel · %lld/%lld gepackt"
+            "value": "%@ · Box: %lld Stück · %lld/%lld gepackt"
           }
         },
         "en": {
@@ -1452,29 +1452,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld stuks nog in de machine"
-          }
-        }
-      }
-    },
-    "%lld items to pack": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld Artikel zu packen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld articles à emballer"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld stuks in te pakken"
           }
         }
       }
@@ -2563,7 +2540,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "✓ Alle Boxen komplett · %lld Artikel gepackt"
+            "value": "✓ Alle Boxen komplett · %lld Stück"
           }
         },
         "en": {
@@ -3007,7 +2984,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alle Automaten · %lld Artikel · %lld/%lld bereit"
+            "value": "Alle Automaten · %lld Stück · %lld/%lld bereit"
           }
         },
         "en": {
@@ -18510,28 +18487,6 @@
         }
       }
     },
-    "%lld moved over · %lld from the van": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld umgesetzt · %lld aus dem Auto"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld déplacés · %lld du véhicule"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld verplaatst · %lld uit de bus"
-          }
-        }
-      }
-    },
     "%lld of %lld accepted": {
       "localizations": {
         "de": {
@@ -18559,7 +18514,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld Fach/Fächer im Änderungsvermerk vorgemerkt. Das neue Produkt kommt an der Maschine hinein."
+            "value": "%lld Fach/Fächer im Änderungsvermerk vorgemerkt. Das neue Produkt kommt bei der Tour am Automaten hinein."
           }
         },
         "fr": {
@@ -19483,7 +19438,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nicht verbaut (Fahrzeug)"
+            "value": "Nicht gebraucht (Auto)"
           }
         },
         "fr": {
@@ -19505,7 +19460,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aus Automat entnommen"
+            "value": "Aus den Automaten genommen"
           }
         },
         "fr": {
@@ -22926,50 +22881,6 @@
         }
       }
     },
-    "1 spiral for %lld": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 Spirale für %lld"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 spirale pour %lld"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 spiraal voor %lld"
-          }
-        }
-      }
-    },
-    "%lld spirals for %lld": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld Spiralen für %lld"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld spirales pour %lld"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld spiralen voor %lld"
-          }
-        }
-      }
-    },
     "Take along:": {
       "localizations": {
         "de": {
@@ -23173,7 +23084,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ raus"
+            "value": "%@ herausnehmen"
           }
         },
         "fr": {
@@ -23239,7 +23150,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ rein"
+            "value": "%@ einfüllen"
           }
         },
         "fr": {
@@ -23591,7 +23502,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "nicht verbaut + aus Automat"
+            "value": "nicht gebraucht + aus den Automaten"
           }
         },
         "fr": {
@@ -23613,7 +23524,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "aus Automat"
+            "value": "aus den Automaten"
           }
         },
         "fr": {
@@ -23789,7 +23700,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 Zeile nicht in der Box"
+            "value": "1 Position nicht in der Box"
           }
         },
         "fr": {
@@ -23811,7 +23722,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld Zeilen nicht in der Box"
+            "value": "%lld Positionen nicht in der Box"
           }
         },
         "fr": {
@@ -23916,28 +23827,6 @@
         }
       }
     },
-    "Also take along:": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zusätzlich mitnehmen:"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "À emporter aussi :"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ook meenemen:"
-          }
-        }
-      }
-    },
     "Empty the slot": {
       "localizations": {
         "de": {
@@ -23956,6 +23845,194 @@
           "stringUnit": {
             "state": "translated",
             "value": "Vak leegmaken"
+          }
+        }
+      }
+    },
+    "%lld refill": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld auffüllen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld à remplir"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld bijvullen"
+          }
+        }
+      }
+    },
+    "Refill: no stock": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auffüllen: kein Bestand"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplissage : pas de stock"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bijvullen: geen voorraad"
+          }
+        }
+      }
+    },
+    "%lld still missing": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "noch %lld fehlen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "encore %lld manquants"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nog %lld tekort"
+          }
+        }
+      }
+    },
+    "Product details": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Produktdetails"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Détails du produit"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Productdetails"
+          }
+        }
+      }
+    },
+    "%lld× spiral for %lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld× spiral for %2$lld"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld× %2$lder-Spirale"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld× spirale de %2$lld"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld× spiraal van %2$lld"
+          }
+        }
+      }
+    },
+    "%lld from other slots · %lld from the box": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld from other slots · %2$lld from the box"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld aus anderen Fächern · %2$lld aus der Box"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld d'autres cases · %2$lld de la caisse"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld uit andere vakken · %2$lld uit de doos"
+          }
+        }
+      }
+    },
+    "Slot %lld is not rebuilt today, so this slot gets fewer units.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fach %lld wird heute nicht umgebaut, darum kommt hier weniger hinein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La case %lld n'est pas transformée aujourd'hui, celle-ci reçoit donc moins d'unités."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vak %lld wordt vandaag niet omgebouwd, dus dit vak krijgt minder."
+          }
+        }
+      }
+    },
+    "Slots %@ are not rebuilt today, so this slot gets fewer units.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fächer %@ werden heute nicht umgebaut, darum kommt hier weniger hinein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les cases %@ ne sont pas transformées aujourd'hui, celle-ci reçoit donc moins d'unités."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vakken %@ worden vandaag niet omgebouwd, dus dit vak krijgt minder."
           }
         }
       }

@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Packing step: a machine's change note ("Änderungsvermerk") as one violet
-/// banner — "Rebuild 3 slots · 12, 14, 23". It opens in place (no modal) and
+/// banner — "Rebuild 3 slots · 12, 14, 23", plus the spirals to take along
+/// (the only thing not on the packing list). It opens in place (no modal) and
 /// is information only: every planned rebuild is packed (warehouse stock was
 /// checked when it was planned), its goods are ticked into the box in the
 /// packing list like any other goods, and a slot that can't be done is
@@ -38,6 +39,17 @@ struct RefillChangeNoteCard: View {
                             .font(.subheadline)
                             .foregroundStyle(Color.rebuildViolet)
                             .fixedSize(horizontal: false, vertical: true)
+                        // The one thing not on the packing list: spirals.
+                        if let extras = extrasLine {
+                            Label {
+                                Text(verbatim: extras)
+                            } icon: {
+                                Image(systemName: "shippingbox")
+                            }
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
 
                     Spacer(minLength: 0)
@@ -56,19 +68,6 @@ struct RefillChangeNoteCard: View {
                     Divider()
                     slotRow(item)
                 }
-                if let extras = extrasLine {
-                    Divider()
-                    HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: "shippingbox")
-                            .foregroundStyle(Color.rebuildViolet)
-                        Text(verbatim: extras)
-                            .font(.subheadline)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(12)
-                    .background(Color.rebuildVioletFill.opacity(0.07))
-                }
             }
         }
         .background(RoundedRectangle(cornerRadius: 14).fill(.regularMaterial))
@@ -85,17 +84,16 @@ struct RefillChangeNoteCard: View {
         return "\(Self.rebuildCountLabel(items.count)) · \(numbers)"
     }
 
-    /// Besides the goods (in the packing list): spirals to take along.
+    /// Besides the goods (in the packing list): spirals to take along —
+    /// "Take along: 2× 8-spiral" (de: "Mitnehmen: 2× 8er-Spirale").
     private var extrasLine: String? {
         let byCapacity = Dictionary(grouping: items.filter(\.changesCapacity), by: \.toCapacity)
         guard !byCapacity.isEmpty else { return nil }
         let spirals = byCapacity.keys.sorted().map { capacity -> String in
             let count = byCapacity[capacity]?.count ?? 0
-            return count == 1
-                ? String(localized: "1 spiral for \(capacity)")
-                : String(localized: "\(count) spirals for \(capacity)")
+            return String(localized: "\(count)× spiral for \(capacity)")
         }
-        return "\(String(localized: "Also take along:")) \(spirals.joined(separator: ", "))"
+        return "\(String(localized: "Take along:")) \(spirals.joined(separator: ", "))"
     }
 
     /// Slot number, old product (dimmed) over the new one, both in full, and

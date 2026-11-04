@@ -143,8 +143,8 @@ struct RefillRebuildSection: View {
             steps.append(AnyView(taskRow(
                 slot: slot, index: n,
                 title: Text("Put in \(item.toName ?? "")"),
-                subtitle: Text("\(slot.moved) moved over · \(slot.fromVan) from the van"),
-                count: (value: slot.filled, field: .filled, max: item.toCapacity)
+                subtitle: Text("\(slot.moved) from other slots · \(slot.fromVan) from the box"),
+                count: (value: slot.filled, field: .filled, max: viewModel.maxRebuildFilled(itemId: item.id))
             )))
         }
         if item.changesPrice, let price = item.toPrice {
@@ -180,6 +180,21 @@ struct RefillRebuildSection: View {
                 }
             }
             .background(RoundedRectangle(cornerRadius: 16).fill(.regularMaterial))
+
+            let skipped = viewModel.skippedSourceSlots(itemId: item.id)
+            if !skipped.isEmpty && slot.filled < item.toCapacity {
+                Label {
+                    Text(skipped.count == 1
+                         ? String(localized: "Slot \(skipped[0]) is not rebuilt today, so this slot gets fewer units.")
+                         : String(localized: "Slots \(skipped.map { String($0) }.joined(separator: ", ")) are not rebuilt today, so this slot gets fewer units."))
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                }
+                .font(.footnote)
+                .foregroundStyle(.orange)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+            }
 
             if slot.needsAgeConfirmation {
                 Text("Confirm the age setting first")
