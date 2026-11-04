@@ -5,6 +5,7 @@ import {
   ioTestStatus,
   isLive,
   isWroomBoard,
+  newestIoState,
   oneWireFamily,
   remainingSeconds,
   type IoState,
@@ -55,6 +56,18 @@ describe('ioTestStatus', () => {
 
   it('idle once the device answered with an ended test', () => {
     expect(ioTestStatus(snap({ active: false }, T0 + 1_000), T0 + 2_000, T0)).toBe('idle')
+  })
+})
+
+describe('newestIoState', () => {
+  it('keeps the snapshot with the later updated_at', () => {
+    const older = snap({ left: 50 }, T0)
+    const newer = snap({ left: 45 }, T0 + 5_000)
+    expect(newestIoState(older, newer)).toBe(newer)
+    expect(newestIoState(newer, older)).toBe(newer)
+    expect(newestIoState(null, older)).toBe(older)
+    expect(newestIoState(older, null)).toBe(older)
+    expect(newestIoState(null, null)).toBeNull()
   })
 })
 

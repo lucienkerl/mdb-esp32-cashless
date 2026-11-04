@@ -2585,6 +2585,26 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             }
         }
 
+        // One early snapshot 15 s after each (re)connect. Without a VMC on the
+        // bus there is no state change to publish, so the first diagnostics
+        // (and with them the board variant the frontend's I/O test tab keys
+        // off) would otherwise only arrive with the 5-min heartbeat. 15 s
+        // leaves a connected VMC time to run its SETUP first.
+        {
+            static esp_timer_handle_t mdb_diag_early_timer = NULL;
+            if (!mdb_diag_early_timer) {
+                const esp_timer_create_args_t args = {
+                    .callback = mdb_diag_timer_cb,
+                    .name = "mdb_diag_early"
+                };
+                esp_timer_create(&args, &mdb_diag_early_timer);
+            }
+            if (mdb_diag_early_timer) {
+                esp_timer_stop(mdb_diag_early_timer);  // no-op if not armed
+                esp_timer_start_once(mdb_diag_early_timer, 15 * 1000000ULL);
+            }
+        }
+
 		break;
 	case MQTT_EVENT_DISCONNECTED:
 		ESP_LOGW(TAG, "MQTT: disconnected from broker");

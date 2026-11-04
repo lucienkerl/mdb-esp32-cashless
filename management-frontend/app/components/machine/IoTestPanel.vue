@@ -11,6 +11,7 @@ import {
   formatClockSeconds,
   ioTestStatus,
   isLive,
+  newestIoState,
   oneWireFamily,
   remainingSeconds,
   type IoState,
@@ -59,12 +60,50 @@ let ticker: ReturnType<typeof setInterval> | null = null
 onMounted(() => { ticker = setInterval(() => { now.value = Date.now() }, 1000) })
 onBeforeUnmount(() => { if (ticker) clearInterval(ticker) })
 
+// ── Snapshot source ──────────────────────────────────────────────────────────
+// The page forwards embeddeds.io_state from realtime (`ioState` prop). While a
+// test is requested or running, the panel also reads the row itself every 2 s
+// and shows whichever snapshot is newer, so the test keeps working when the
+// realtime feed is late or never delivers.
+const supabase = useSupabaseClient()
+const polled = ref<IoState | null>(null)
+const cur = computed<IoState | null>(() => newestIoState(props.ioState ?? null, polled.value))
+
+const POLL_MS = 2000
+let poller: ReturnType<typeof setInterval> | null = null
+let polling = false
+
+async function pollOnce() {
+  if (polling) return
+  polling = true
+  try {
+    const { data } = await (supabase as any)
+      .from('embeddeds')
+      .select('io_state')
+      .eq('id', props.embeddedId)
+      .maybeSingle()
+    if (data?.io_state) polled.value = data.io_state as IoState
+  } catch { /* next tick retries */ } finally {
+    polling = false
+  }
+}
+
+function startPolling() {
+  if (poller) return
+  pollOnce()
+  poller = setInterval(pollOnce, POLL_MS)
+}
+function stopPolling() {
+  if (poller) { clearInterval(poller); poller = null }
+}
+onBeforeUnmount(stopPolling)
+
 // ── Status ───────────────────────────────────────────────────────────────────
 const requestedAt = ref<number | null>(null)
-const status = computed(() => ioTestStatus(props.ioState, now.value, requestedAt.value))
+const status = computed(() => ioTestStatus(cur.value, now.value, requestedAt.value))
 const running = computed(() => status.value === 'live')
-const live = computed(() => isLive(props.ioState, now.value))
-const remaining = computed(() => remainingSeconds(props.ioState, now.value))
+const live = computed(() => isLive(cur.value, now.value))
+const remaining = computed(() => remainingSeconds(cur.value, now.value))
 
 const statusClass = computed(() => ({
   live: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
@@ -75,12 +114,18 @@ const statusClass = computed(() => ({
 /** A request went out and the device has not answered within the stale window. */
 const silent = computed(() =>
   requestedAt.value !== null && status.value === 'idle' &&
-  (!props.ioState?.updated_at || Date.parse(props.ioState.updated_at) < requestedAt.value))
+  (!cur.value?.updated_at || Date.parse(cur.value.updated_at) < requestedAt.value))
+
+// Poll only while something is expected: a request is pending or a test runs.
+watch(status, (s) => {
+  if (s === 'idle') stopPolling()
+  else startPolling()
+}, { immediate: true })
 
 // ── Input change counters (since the test was started) ──────────────────────
 const changes = ref([0, 0, 0])
 const flash = ref([false, false, false])
-watch(() => props.ioState?.in, (next, prev) => {
+watch(() => cur.value?.in, (next, prev) => {
   const counted = countInputChanges(prev, next, changes.value)
   counted.forEach((c, i) => {
     if (c !== changes.value[i]) {
@@ -155,12 +200,12 @@ async function setRelay(index: number, on: boolean) {
 }
 
 // Clear a pending relay once the device reports it, or give up after 8 s.
-watch([() => props.ioState?.relay, now], () => {
+watch([() => cur.value?.relay, now], () => {
   const next = { ...relayPending.value }
   let changed = false
   for (const [k, p] of Object.entries(next)) {
     const i = Number(k)
-    if (props.ioState?.relay?.[i] === p.want || Date.now() - p.at > 8000) {
+    if (cur.value?.relay?.[i] === p.want || Date.now() - p.at > 8000) {
       delete next[i]
       changed = true
     }
@@ -171,7 +216,7 @@ watch([() => props.ioState?.relay, now], () => {
 function relayChecked(index: number): boolean {
   const p = relayPending.value[index]
   if (p) return p.want === 1
-  return props.ioState?.relay?.[index] === 1
+  return cur.value?.relay?.[index] === 1
 }
 
 async function beep() {
@@ -257,8 +302,8 @@ function formatTemp(c: number | undefined): string {
       <p v-if="error" class="mt-3 text-xs text-red-600 dark:text-red-400">{{ error }}</p>
       <p v-else-if="!online" class="mt-3 text-xs text-amber-600 dark:text-amber-500">{{ t('ioTest.offline') }}</p>
       <p v-else-if="silent" class="mt-3 text-xs text-amber-600 dark:text-amber-500">{{ t('ioTest.silent') }}</p>
-      <p v-if="ioState?.updated_at" class="mt-3 text-xs text-muted-foreground">
-        {{ t('ioTest.updated', { time: timeAgo(ioState.updated_at, t) }) }}
+      <p v-if="cur?.updated_at" class="mt-3 text-xs text-muted-foreground">
+        {{ t('ioTest.updated', { time: timeAgo(cur.updated_at, t) }) }}
       </p>
     </div>
 
@@ -278,17 +323,17 @@ function formatTemp(c: number | undefined): string {
                 {{ t('ioTest.changes', { n: changes[i] }) }}
               </span>
               <span
-                v-if="ioState?.in?.[i] !== undefined"
+                v-if="cur?.in?.[i] !== undefined"
                 class="inline-flex min-w-24 items-center justify-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium transition-shadow"
                 :class="[
-                  ioState.in[i] === 0
+                  cur.in[i] === 0
                     ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
                     : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300',
                   flash[i] ? 'ring-2 ring-primary' : '',
                 ]"
               >
-                <span class="size-2 rounded-full" :class="ioState.in[i] === 0 ? 'bg-green-500' : 'bg-gray-400'" />
-                {{ ioState.in[i] === 0 ? t('ioTest.closed') : t('ioTest.open') }}
+                <span class="size-2 rounded-full" :class="cur.in[i] === 0 ? 'bg-green-500' : 'bg-gray-400'" />
+                {{ cur.in[i] === 0 ? t('ioTest.closed') : t('ioTest.open') }}
               </span>
               <span v-else class="min-w-24 text-center text-xs text-muted-foreground">–</span>
             </div>
@@ -332,21 +377,21 @@ function formatTemp(c: number | undefined): string {
             <p class="text-sm font-medium">{{ t('ioTest.ntc') }}</p>
             <p class="text-xs text-muted-foreground font-mono">TH1 · GPIO7</p>
           </div>
-          <span class="text-sm font-medium tabular-nums">{{ formatTemp(ioState?.ntc) }}</span>
+          <span class="text-sm font-medium tabular-nums">{{ formatTemp(cur?.ntc) }}</span>
         </div>
 
         <div v-for="(bus, b) in BUSES" :key="bus.label" class="mt-4 border-t pt-3">
           <p class="text-sm font-medium">{{ t('ioTest.bus', { n: b + 1 }) }}</p>
           <p class="text-xs text-muted-foreground font-mono">{{ bus.label }} · GPIO{{ bus.gpio }}</p>
 
-          <p v-if="!ioState?.ow" class="mt-2 text-xs text-muted-foreground">
+          <p v-if="!cur?.ow" class="mt-2 text-xs text-muted-foreground">
             {{ running ? t('ioTest.scanning') : '–' }}
           </p>
-          <p v-else-if="(ioState.ow[b] ?? []).length === 0" class="mt-2 text-xs text-muted-foreground">
+          <p v-else-if="(cur.ow[b] ?? []).length === 0" class="mt-2 text-xs text-muted-foreground">
             {{ t('ioTest.noDevices') }}
           </p>
           <ul v-else class="mt-2 space-y-1">
-            <li v-for="dev in ioState.ow[b]" :key="dev.id" class="flex items-center justify-between gap-3 text-xs">
+            <li v-for="dev in cur.ow[b]" :key="dev.id" class="flex items-center justify-between gap-3 text-xs">
               <span class="min-w-0 truncate font-mono text-muted-foreground" :title="dev.id">
                 <span v-if="oneWireFamily(dev.id)" class="mr-1 font-sans text-foreground">{{ oneWireFamily(dev.id) }}</span>{{ dev.id }}
               </span>
@@ -354,7 +399,7 @@ function formatTemp(c: number | undefined): string {
             </li>
           </ul>
         </div>
-        <p v-if="ioState?.ow" class="mt-3 text-xs text-muted-foreground">{{ t('ioTest.rescanHint') }}</p>
+        <p v-if="cur?.ow" class="mt-3 text-xs text-muted-foreground">{{ t('ioTest.rescanHint') }}</p>
       </div>
     </div>
   </div>

@@ -47,6 +47,15 @@ function updatedAtMs(state: IoState | null | undefined): number | null {
   return Number.isNaN(ms) ? null : ms
 }
 
+/** The more recent of two snapshots (realtime vs polled), by `updated_at`. */
+export function newestIoState(a: IoState | null, b: IoState | null): IoState | null {
+  const ta = updatedAtMs(a)
+  const tb = updatedAtMs(b)
+  if (tb === null) return a ?? b
+  if (ta === null) return b
+  return tb > ta ? b : a
+}
+
 /** A snapshot from a running test that is recent enough to trust. */
 export function isLive(state: IoState | null | undefined, now: number): boolean {
   const at = updatedAtMs(state)
