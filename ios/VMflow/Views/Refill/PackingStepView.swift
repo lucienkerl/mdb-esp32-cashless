@@ -5,6 +5,8 @@ import SwiftUI
 struct PackingStepView: View {
     @ObservedObject var viewModel: RefillWizardViewModel
     @State private var selectedProduct: ProductSelection?
+    /// Tour start with lines not ticked yet: show what stays behind.
+    @State private var showsOpenLines = false
 
     fileprivate struct ProductSelection: Identifiable {
         let id: UUID
@@ -34,6 +36,9 @@ struct PackingStepView: View {
                         replacementNoticeBanner(notice)
                     }
 
+                    // "In the box: 20 of 57" — ticked = in the box
+                    PackBoxHeader(viewModel: viewModel)
+
                     // Change notes (slot change requests) of the machines in view
                     changeNotes
 
@@ -53,6 +58,14 @@ struct PackingStepView: View {
 
             // Bottom Bar
             bottomBar
+        }
+        .sheet(isPresented: $showsOpenLines) {
+            OpenPackLinesSheet(viewModel: viewModel) {
+                showsOpenLines = false
+                Task { await viewModel.startTour() }
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
         .sheet(item: $selectedProduct) { sel in
             ProductDetailSheet(
@@ -144,7 +157,11 @@ struct PackingStepView: View {
 
                 Button {
                     HapticFeedback.medium.fire()
-                    Task { await viewModel.startTour() }
+                    if viewModel.openPackLines.isEmpty {
+                        Task { await viewModel.startTour() }
+                    } else {
+                        showsOpenLines = true
+                    }
                 } label: {
                     if viewModel.isSaving {
                         ProgressView()
@@ -202,7 +219,7 @@ private struct AllPackingList: View {
     // MARK: - Product Card
 
     private func productCard(_ item: CombinedPackingItem, rebuild: Int) -> some View {
-        let fullyPacked = viewModel.isProductFullyPacked(item)
+        let fullyPacked = viewModel.isProductCompletelyPacked(item)
         // "Out of stock" should mean: nothing left AND nothing packed yet.
         // If the product is fully committed to one or more machines, the
         // remaining stock is 0 but the card is packed, not unusable.
@@ -300,7 +317,7 @@ private struct AllPackingList: View {
                     // reflect the warehouse cap instead of the raw deficit.
                     let totalQty = item.machineNeeds.reduce(0) { sum, need in
                         sum + viewModel.displayQuantity(machineId: need.machineId, productId: item.productId)
-                    }
+                    } + rebuild
                     VStack(alignment: .trailing, spacing: 2) {
                         Text("\(totalQty)×")
                             .font(.headline.weight(.bold))
@@ -322,9 +339,6 @@ private struct AllPackingList: View {
                                 .font(.caption2.weight(.medium))
                                 .foregroundStyle(.orange)
                                 .monospacedDigit()
-                        }
-                        if rebuild > 0 {
-                            RebuildBadge(units: rebuild)
                         }
                     }
                 }
@@ -1086,7 +1100,8 @@ private struct RebuildPackRowView: View {
                     machineId: entry.machineId,
                     productId: row.productId,
                     need: entry.need,
-                    showsMachine: showsMachines
+                    showsMachine: showsMachines,
+                    showsTick: row.machineIds.count > 1
                 )
             }
         }
@@ -1115,6 +1130,9 @@ private struct RebuildQuantityRow: View {
     let showsMachine: Bool
     /// Horizontal padding: 0 inside a card that already has its own.
     var inset: CGFloat = 14
+    /// Own checkbox ("ticked = in the box"); off when the card's header
+    /// already is the only tick (a rebuild-only product for one machine).
+    var showsTick: Bool = true
 
     @State private var isEditing = false
 
@@ -1123,21 +1141,46 @@ private struct RebuildQuantityRow: View {
         let maxQty = viewModel.maxRebuildQuantity(machineId: machineId, productId: productId)
 
         VStack(spacing: 8) {
+            HStack(spacing: 6) {
+            if showsTick {
+                let ticked = viewModel.isRebuildTaken(machineId: machineId, productId: productId)
+                Button {
+                    HapticFeedback.light.fire()
+                    viewModel.toggleRebuildTick(machineId: machineId, productId: productId)
+                } label: {
+                    Image(systemName: ticked ? "checkmark.square.fill" : "square")
+                        .font(.title3)
+                        .foregroundStyle(ticked ? Color.blue : Color.secondary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(Text("In the box"))
+            }
             Button {
                 HapticFeedback.light.fire()
                 withAnimation(.easeInOut(duration: 0.2)) { isEditing.toggle() }
             } label: {
                 HStack(spacing: 10) {
-                    Group {
+                    VStack(alignment: .leading, spacing: 3) {
                         if showsMachine {
                             Text(verbatim: viewModel.chipName(.machine(machineId)))
-                        } else {
-                            Text("Rebuild")
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
+                        Label {
+                            Text(verbatim: slotLine)
+                        } icon: {
+                            Image(systemName: "arrow.left.arrow.right")
+                        }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.rebuildViolet)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Color.rebuildVioletFill.opacity(0.15)))
+                        .fixedSize(horizontal: false, vertical: true)
                     }
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
-                    .fixedSize(horizontal: false, vertical: true)
 
                     Spacer(minLength: 4)
 
@@ -1156,6 +1199,7 @@ private struct RebuildQuantityRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            }
 
             if isEditing {
                 HStack(spacing: 6) {
@@ -1178,6 +1222,15 @@ private struct RebuildQuantityRow: View {
         }
         .padding(.horizontal, inset)
         .padding(.vertical, 6)
+    }
+
+    /// "new in slot 12" / "new in slots 12, 14".
+    private var slotLine: String {
+        let slots = viewModel.rebuildSlots(machineId: machineId, productId: productId).map { String($0) }
+        guard !slots.isEmpty else { return String(localized: "Rebuild") }
+        return slots.count == 1
+            ? String(localized: "new in slot \(slots[0])")
+            : String(localized: "new in slots \(slots.joined(separator: ", "))")
     }
 
     private func stepButton(systemImage: String, enabled: Bool, action: @escaping () -> Void) -> some View {
@@ -1217,6 +1270,141 @@ private struct RebuildBadgeQty: View {
         .padding(.vertical, 3)
         .background(Capsule().fill(Color.rebuildVioletFill.opacity(0.15)))
         .fixedSize()
+    }
+}
+
+// MARK: - Box Header
+
+/// "In the box: 20 of 57 units" with a progress bar — what is ticked lies in
+/// the box that goes along; nothing is counted without its own tick.
+private struct PackBoxHeader: View {
+    @ObservedObject var viewModel: RefillWizardViewModel
+
+    var body: some View {
+        let box = viewModel.packBox
+        if box.total > 0 {
+            let done = box.packed >= box.total
+            HStack(spacing: 12) {
+                Image(systemName: done ? "shippingbox.fill" : "shippingbox")
+                    .font(.title2)
+                    .foregroundStyle(.green)
+                VStack(alignment: .leading, spacing: 6) {
+                    (Text("In the box: \(box.packed)").bold()
+                        + Text(verbatim: " ")
+                        + Text("of \(box.total) units").foregroundStyle(.secondary))
+                        .font(.subheadline)
+                        .monospacedDigit()
+                    ProgressView(value: Double(box.packed), total: Double(max(box.total, 1)))
+                        .tint(.green)
+                }
+            }
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 14).fill(.regularMaterial))
+        }
+    }
+}
+
+// MARK: - Open Lines Sheet
+
+/// Tour start while lines are not ticked: what stays in the warehouse (not
+/// booked). The refiller goes back to packing or starts without it.
+private struct OpenPackLinesSheet: View {
+    @ObservedObject var viewModel: RefillWizardViewModel
+    let onStartAnyway: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        let lines = viewModel.openPackLines
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: "shippingbox")
+                            .font(.title)
+                            .foregroundStyle(.orange)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(lines.count == 1
+                                 ? String(localized: "1 line not in the box")
+                                 : String(localized: "\(lines.count) lines not in the box"))
+                                .font(.title3.bold())
+                            Text("These goods stay in the warehouse and are not booked.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    VStack(spacing: 0) {
+                        ForEach(lines) { line in
+                            if line.id != lines.first?.id { Divider().padding(.leading, 62) }
+                            HStack(spacing: 12) {
+                                ProductImage(imagePath: line.imagePath, size: 38)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(line.productName)
+                                        .font(.subheadline.weight(.semibold))
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    if let slots = line.rebuildSlots {
+                                        Label {
+                                            Text(verbatim: "\(line.machineName) · \(slotText(slots))")
+                                        } icon: {
+                                            Image(systemName: "arrow.left.arrow.right")
+                                        }
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(Color.rebuildViolet)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    } else {
+                                        Text(verbatim: line.machineName)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                Spacer(minLength: 4)
+                                Text(verbatim: "\(line.quantity)")
+                                    .font(.title3.bold())
+                                    .monospacedDigit()
+                                    .foregroundStyle(line.rebuildSlots == nil ? Color.primary : Color.rebuildViolet)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                        }
+                    }
+                    .background(RoundedRectangle(cornerRadius: 14).fill(Color(.secondarySystemGroupedBackground)))
+
+                    if lines.contains(where: { $0.rebuildSlots != nil }) {
+                        Label("If goods for a slot are missing at the machine, tap “Not possible today” there. The slot comes up again next tour.", systemImage: "arrow.left.arrow.right")
+                            .font(.footnote)
+                            .foregroundStyle(Color.rebuildViolet)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Button {
+                        dismiss()
+                    } label: {
+                        Text("Keep packing")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity, minHeight: 50)
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button {
+                        onStartAnyway()
+                    } label: {
+                        Text("Start without these goods")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding()
+            }
+            .background(Color(.systemGroupedBackground))
+        }
+    }
+
+    private func slotText(_ slots: [Int]) -> String {
+        let list = slots.map { String($0) }
+        return list.count == 1
+            ? String(localized: "slot \(list[0])")
+            : String(localized: "slots \(list.joined(separator: ", "))")
     }
 }
 

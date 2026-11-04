@@ -1113,6 +1113,18 @@ final class RefillWizardViewModel: ObservableObject {
         packedItems[machineId]?.contains(productId) ?? false
     }
 
+    /// Every line of the product's card is ticked: the refill of every
+    /// machine and every rebuild line of the product.
+    func isProductCompletelyPacked(_ item: CombinedPackingItem) -> Bool {
+        let rebuildDone = rebuildMachineNeeds(productId: item.productId, machineIds: machines.map(\.id))
+            .allSatisfy { isRebuildTaken(machineId: $0.machineId, productId: item.productId) }
+        let refillDone = item.machineNeeds.allSatisfy { need in
+            isMachinePacked(machineId: need.machineId, productId: item.productId)
+                || isOutOfStockForMachine(machineId: need.machineId, productId: item.productId)
+        }
+        return refillDone && rebuildDone
+    }
+
     /// Whether a product is fully packed for ALL machines that need it.
     func isProductFullyPacked(_ item: CombinedPackingItem) -> Bool {
         item.machineNeeds.allSatisfy { need in
@@ -1208,7 +1220,15 @@ final class RefillWizardViewModel: ObservableObject {
     /// Toggle packed state for a product across ALL machines that need it.
     func togglePackedAll(productId: UUID) {
         guard let item = combinedPackingList.first(where: { $0.productId == productId }) else { return }
-        let allPacked = isProductFullyPacked(item)
+        let allPacked = isProductCompletelyPacked(item)
+
+        // The card's header covers its rebuild lines too.
+        let rebuildMachines = rebuildMachineNeeds(productId: productId, machineIds: machines.map(\.id)).map(\.machineId)
+        for machineId in rebuildMachines {
+            var set = rebuildPackTicks[machineId] ?? []
+            if allPacked { set.remove(productId) } else { set.insert(productId) }
+            rebuildPackTicks[machineId] = set
+        }
 
         if allPacked {
             // Unpack all
@@ -2170,12 +2190,19 @@ final class RefillWizardViewModel: ObservableObject {
         committedRebuild.values.reduce(0) { $0 + ($1[productId] ?? 0) }
     }
 
-    /// The refiller takes a machine's rebuild units of a product along: the
-    /// rebuild-only row is ticked, or the product is packed for that machine
-    /// anyway. Unticked units are not booked, like a normal product.
+    /// The refiller takes a machine's rebuild units of a product along: their
+    /// own line is ticked ("ticked = in the box"). Ticking the normal refill
+    /// of the same product no longer takes them silently. Unticked units are
+    /// not booked, like a normal product.
     func isRebuildTaken(machineId: UUID, productId: UUID) -> Bool {
         rebuildPackTicks[machineId]?.contains(productId) == true
-            || isMachinePacked(machineId: machineId, productId: productId)
+    }
+
+    /// Tick / untick the rebuild units of one product for one machine.
+    func toggleRebuildTick(machineId: UUID, productId: UUID) {
+        var set = rebuildPackTicks[machineId] ?? []
+        if set.contains(productId) { set.remove(productId) } else { set.insert(productId) }
+        rebuildPackTicks[machineId] = set
     }
 
     /// Rebuild units shown for a product of one machine (packing step): what
@@ -2190,15 +2217,12 @@ final class RefillWizardViewModel: ObservableObject {
         return min(wanted, maxRebuildQuantity(machineId: machineId, productId: productId))
     }
 
-    /// Tick every rebuild-only row of the given machines (the "pack all"
-    /// buttons). Products refilled anyway follow their own packed tick.
+    /// Tick every rebuild line of the given machines (the "pack all"
+    /// buttons) — refilled products included, each line has its own tick.
     private func tickAllRebuildRows(machineIds: [UUID]) {
         for machineId in machineIds {
-            let refilled = Set(combinedPackingList
-                .filter { item in item.machineNeeds.contains { $0.machineId == machineId } }
-                .map(\.productId))
             var set = rebuildPackTicks[machineId] ?? []
-            for (pid, need) in rebuildNeeds(machineId: machineId) where need > 0 && !refilled.contains(pid) {
+            for (pid, need) in rebuildNeeds(machineId: machineId) where need > 0 {
                 set.insert(pid)
             }
             rebuildPackTicks[machineId] = set
@@ -3438,4 +3462,93 @@ final class RefillWizardViewModel: ObservableObject {
 struct TourCashResolution {
     let barkassen: [CashBook]                // those with cashSalesSince > 0
     let cashByCashBookId: [UUID: Double]     // map for O(1) lookup in the UI
+}
+
+// MARK: - Packing Box ("ticked = in the box")
+
+/// A line of the packing list that is not ticked yet (tour-start check).
+struct OpenPackLine: Identifiable, Equatable {
+    let productId: UUID
+    let machineId: UUID
+    let productName: String
+    let imagePath: String?
+    let machineName: String
+    let quantity: Int
+    /// Rebuild line: the slots the units are for; `nil` for a normal refill.
+    let rebuildSlots: [Int]?
+
+    var id: String { "\(machineId.uuidString)-\(productId.uuidString)-\(rebuildSlots == nil ? "r" : "u")" }
+}
+
+extension RefillWizardViewModel {
+    /// Units ticked into the box vs. all units on the packing list (refill
+    /// lines and rebuild lines alike).
+    var packBox: (packed: Int, total: Int) {
+        var packed = 0
+        var total = 0
+        for item in combinedPackingList {
+            for need in item.machineNeeds
+            where !isOutOfStockForMachine(machineId: need.machineId, productId: item.productId) {
+                let qty = displayQuantity(machineId: need.machineId, productId: item.productId)
+                total += qty
+                if isMachinePacked(machineId: need.machineId, productId: item.productId) { packed += qty }
+            }
+        }
+        for machine in machines {
+            for (pid, need) in rebuildNeeds(machineId: machine.id) where need > 0 {
+                let qty = rebuildQuantity(machineId: machine.id, productId: pid)
+                total += qty
+                if isRebuildTaken(machineId: machine.id, productId: pid) { packed += qty }
+            }
+        }
+        return (packed, total)
+    }
+
+    /// Slots of a machine's change note that get a product (rebuild lines).
+    func rebuildSlots(machineId: UUID, productId: UUID) -> [Int] {
+        acceptedRebuildItems(machineId: machineId)
+            .filter { $0.toProductId == productId }
+            .map(\.itemNumber)
+            .sorted()
+    }
+
+    /// Lines with units that are not ticked — they stay in the warehouse.
+    var openPackLines: [OpenPackLine] {
+        var out: [OpenPackLine] = []
+        for item in combinedPackingList {
+            for need in item.machineNeeds
+            where !isOutOfStockForMachine(machineId: need.machineId, productId: item.productId)
+                && !isMachinePacked(machineId: need.machineId, productId: item.productId) {
+                let qty = displayQuantity(machineId: need.machineId, productId: item.productId)
+                guard qty > 0 else { continue }
+                out.append(OpenPackLine(
+                    productId: item.productId,
+                    machineId: need.machineId,
+                    productName: item.productName,
+                    imagePath: item.imagePath,
+                    machineName: need.machineName,
+                    quantity: qty,
+                    rebuildSlots: nil
+                ))
+            }
+        }
+        for machine in machines {
+            for (pid, need) in rebuildNeeds(machineId: machine.id)
+            where need > 0 && !isRebuildTaken(machineId: machine.id, productId: pid) {
+                let qty = rebuildQuantity(machineId: machine.id, productId: pid)
+                guard qty > 0 else { continue }
+                let item = acceptedRebuildItems(machineId: machine.id).first { $0.toProductId == pid }
+                out.append(OpenPackLine(
+                    productId: pid,
+                    machineId: machine.id,
+                    productName: item?.toName ?? "",
+                    imagePath: item?.toImagePath,
+                    machineName: machine.machine.displayName,
+                    quantity: qty,
+                    rebuildSlots: rebuildSlots(machineId: machine.id, productId: pid)
+                ))
+            }
+        }
+        return out
+    }
 }

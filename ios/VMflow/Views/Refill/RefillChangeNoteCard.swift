@@ -1,217 +1,145 @@
 import SwiftUI
 
-/// Packing step: a machine's change note ("Änderungsvermerk") as one compact
-/// violet banner — "Rebuild 3 slots · 12, 14, 23". Tapping it opens
-/// `RefillChangeNoteSheet`, where the refiller can leave single slots out
-/// for this tour (default: all in). The goods for accepted slots sit in the
-/// normal packing list below, marked with the same violet ⇄.
+/// Packing step: a machine's change note ("Änderungsvermerk") as one violet
+/// banner — "Rebuild 3 slots · 12, 14, 23". It opens in place (no modal) and
+/// is information only: every planned rebuild is packed (warehouse stock was
+/// checked when it was planned), its goods are ticked into the box in the
+/// packing list like any other goods, and a slot that can't be done is
+/// skipped at the machine ("Not possible today").
 struct RefillChangeNoteCard: View {
     @ObservedObject var viewModel: RefillWizardViewModel
     let machine: RefillMachine
     /// Show the machine name — the "All" chip lists the notes of several machines.
     var showsMachineName: Bool = true
 
-    @State private var showsSheet = false
+    @State private var isExpanded = false
 
-    private var items: [SlotChangeRequestItem] { machine.changeRequest?.items ?? [] }
-
-    private var accepted: [SlotChangeRequestItem] {
-        items.filter { viewModel.isRebuildAccepted($0.id) }
+    private var items: [SlotChangeRequestItem] {
+        (machine.changeRequest?.items ?? []).sorted { $0.itemNumber < $1.itemNumber }
     }
 
     var body: some View {
-        Button {
-            HapticFeedback.light.fire()
-            showsSheet = true
-        } label: {
-            HStack(spacing: 12) {
-                RebuildIcon()
+        VStack(spacing: 0) {
+            Button {
+                HapticFeedback.light.fire()
+                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 12) {
+                    RebuildIcon()
 
-                VStack(alignment: .leading, spacing: 2) {
-                    if showsMachineName {
-                        Text(machine.machine.displayName)
-                            .font(.headline)
-                            .foregroundStyle(.primary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        if showsMachineName {
+                            Text(machine.machine.displayName)
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Text(verbatim: summaryLine)
+                            .font(.subheadline)
+                            .foregroundStyle(Color.rebuildViolet)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    Text(verbatim: summaryLine)
-                        .font(.subheadline)
-                        .foregroundStyle(accepted.isEmpty ? Color.secondary : Color.rebuildViolet)
-                        .fixedSize(horizontal: false, vertical: true)
+
+                    Spacer(minLength: 0)
+
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.tertiary)
                 }
-
-                Spacer(minLength: 0)
-
-                Image(systemName: "chevron.right")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.tertiary)
+                .padding(12)
+                .contentShape(Rectangle())
             }
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: 14).fill(.regularMaterial))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14)
-                    .stroke(Color.rebuildVioletFill.opacity(accepted.isEmpty ? 0.2 : 0.5), lineWidth: 1.5)
-            )
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                ForEach(items) { item in
+                    Divider()
+                    slotRow(item)
+                }
+                if let extras = extrasLine {
+                    Divider()
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "shippingbox")
+                            .foregroundStyle(Color.rebuildViolet)
+                        Text(verbatim: extras)
+                            .font(.subheadline)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(12)
+                    .background(Color.rebuildVioletFill.opacity(0.07))
+                }
+            }
         }
-        .buttonStyle(.plain)
-        .sheet(isPresented: $showsSheet) {
-            RefillChangeNoteSheet(viewModel: viewModel, machineId: machine.id)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
+        .background(RoundedRectangle(cornerRadius: 14).fill(.regularMaterial))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.rebuildVioletFill.opacity(0.5), lineWidth: 1.5)
+        )
     }
 
-    /// "Rebuild 3 slots · 12, 14, 23" — or "Not this tour" when every slot
-    /// was left out.
+    /// "Rebuild 3 slots · 12, 14, 23".
     private var summaryLine: String {
-        guard !accepted.isEmpty else { return String(localized: "Not this tour") }
-        let numbers = accepted.map { String($0.itemNumber) }.joined(separator: ", ")
-        return "\(Self.rebuildCountLabel(accepted.count)) · \(numbers)"
+        let numbers = items.map { String($0.itemNumber) }.joined(separator: ", ")
+        return "\(Self.rebuildCountLabel(items.count)) · \(numbers)"
+    }
+
+    /// Besides the goods (in the packing list): spirals to take along.
+    private var extrasLine: String? {
+        let byCapacity = Dictionary(grouping: items.filter(\.changesCapacity), by: \.toCapacity)
+        guard !byCapacity.isEmpty else { return nil }
+        let spirals = byCapacity.keys.sorted().map { capacity -> String in
+            let count = byCapacity[capacity]?.count ?? 0
+            return count == 1
+                ? String(localized: "1 spiral for \(capacity)")
+                : String(localized: "\(count) spirals for \(capacity)")
+        }
+        return "\(String(localized: "Also take along:")) \(spirals.joined(separator: ", "))"
+    }
+
+    /// Slot number, old product (dimmed) over the new one, both in full, and
+    /// what else changes (spiral, price, age).
+    private func slotRow(_ item: SlotChangeRequestItem) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            SlotNumberBadge(number: item.itemNumber, size: 40)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    if item.fromProductId != nil {
+                        ProductImage(imagePath: item.fromImagePath, size: 26)
+                            .opacity(0.5)
+                    }
+                    Text(item.fromName ?? String(localized: "Empty"))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                HStack(spacing: 8) {
+                    if item.toProductId != nil {
+                        ProductImage(imagePath: item.toImagePath, size: 26)
+                    } else {
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [3]))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 26, height: 26)
+                    }
+                    Text(item.toName ?? String(localized: "Empty the slot"))
+                        .font(.body.weight(.semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                SlotChangeTags(item: item)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(12)
     }
 
     static func rebuildCountLabel(_ count: Int) -> String {
         count == 1
             ? String(localized: "Rebuild 1 slot")
             : String(localized: "Rebuild \(count) slots")
-    }
-}
-
-// MARK: - Details Sheet
-
-/// The slots of one machine's change note with a switch each, plus what to
-/// take along. Declined slots stay open server-side for a later tour.
-struct RefillChangeNoteSheet: View {
-    @ObservedObject var viewModel: RefillWizardViewModel
-    let machineId: UUID
-    @Environment(\.dismiss) private var dismiss
-
-    private var machine: RefillMachine? {
-        viewModel.machines.first { $0.id == machineId }
-    }
-
-    private var items: [SlotChangeRequestItem] { machine?.changeRequest?.items ?? [] }
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    let acceptedCount = items.filter { viewModel.isRebuildAccepted($0.id) }.count
-                    Text(verbatim: acceptedCount == 0
-                         ? String(localized: "Not this tour")
-                         : RefillChangeNoteCard.rebuildCountLabel(acceptedCount))
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Color.rebuildViolet)
-
-                    ForEach(items) { item in
-                        slotRow(item)
-                    }
-
-                    takeAlong
-                }
-                .padding()
-            }
-            .background(Color(.systemGroupedBackground))
-            .navigationTitle(machine?.machine.displayName ?? "")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-        }
-    }
-
-    private func slotRow(_ item: SlotChangeRequestItem) -> some View {
-        let accepted = viewModel.isRebuildAccepted(item.id)
-
-        return HStack(spacing: 12) {
-            SlotNumberBadge(number: item.itemNumber, muted: !accepted)
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    if item.fromProductId != nil {
-                        ProductImage(imagePath: item.fromImagePath, size: 26)
-                            .opacity(0.5)
-                        Image(systemName: "arrow.right")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                    if item.toProductId != nil {
-                        ProductImage(imagePath: item.toImagePath, size: 32)
-                    }
-                    Text(item.toName ?? String(localized: "Leave empty"))
-                        .font(.body.weight(.semibold))
-                        .lineLimit(2)
-                }
-                if accepted {
-                    SlotChangeTags(item: item)
-                } else {
-                    Text("Not this time · comes up again next tour")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            Spacer(minLength: 0)
-
-            Toggle("", isOn: Binding(
-                get: { viewModel.isRebuildAccepted(item.id) },
-                set: { newValue in
-                    guard newValue != viewModel.isRebuildAccepted(item.id) else { return }
-                    HapticFeedback.light.fire()
-                    viewModel.toggleRebuildItem(machineId: machineId, itemId: item.id)
-                }
-            ))
-            .labelsHidden()
-            .tint(.green)
-        }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color(.secondarySystemGroupedBackground)))
-        .opacity(accepted ? 1 : 0.6)
-    }
-
-    /// "Take along: 10× Club-Mate, 2 spirals for 10".
-    @ViewBuilder
-    private var takeAlong: some View {
-        let needs = viewModel.rebuildNeeds(machineId: machineId)
-        let accepted = items.filter { viewModel.isRebuildAccepted($0.id) }
-        let goods: [String] = {
-            var seen: Set<UUID> = []
-            var out: [String] = []
-            for item in accepted {
-                guard let pid = item.toProductId, !seen.contains(pid) else { continue }
-                seen.insert(pid)
-                let qty = viewModel.rebuildQuantity(machineId: machineId, productId: pid)
-                let need = needs[pid] ?? 0
-                guard need > 0 else { continue }
-                out.append("\(qty)× \(item.toName ?? "")")
-            }
-            return out
-        }()
-        let spirals: [String] = {
-            let byCapacity = Dictionary(grouping: accepted.filter(\.changesCapacity), by: \.toCapacity)
-            return byCapacity.keys.sorted().map { capacity in
-                let count = byCapacity[capacity]?.count ?? 0
-                return count == 1
-                    ? String(localized: "1 spiral for \(capacity)")
-                    : String(localized: "\(count) spirals for \(capacity)")
-            }
-        }()
-        let parts = goods + spirals
-        if !parts.isEmpty {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "shippingbox")
-                    .foregroundStyle(Color.rebuildViolet)
-                (Text("Take along:") + Text(verbatim: " ") + Text(verbatim: parts.joined(separator: ", ")).bold())
-                    .font(.subheadline)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
-            }
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: 14).fill(Color(.secondarySystemGroupedBackground)))
-        }
     }
 }
 
