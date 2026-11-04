@@ -1,0 +1,14 @@
+-- Last I/O test snapshot of a device (WROOM-1U boards only).
+--
+-- Written by mqtt-webhook from the plaintext `/{company}/{device}/io` topic,
+-- which the firmware only publishes while an operator runs the machine's
+-- "I/O test" tab (config cmd 0x36). Shape:
+--   {"active":true,"left":118,"in":[1,1,0],"relay":[0,1],"ntc":24.6,
+--    "ow":[[{"id":"28FF64A1B2C30405","t":21.5}],[]],"updated_at":"..."}
+--
+-- Its own column rather than a key in mdb_diagnostics: snapshots arrive every
+-- few hundred ms while a test runs, and the read-modify-write merges of the
+-- mdb-log/status handlers on mdb_diagnostics would race with them.
+-- embeddeds is already in the supabase_realtime publication and covered by
+-- the existing RLS policies, so the frontend gets it live without changes.
+ALTER TABLE public.embeddeds ADD COLUMN IF NOT EXISTS io_state jsonb;

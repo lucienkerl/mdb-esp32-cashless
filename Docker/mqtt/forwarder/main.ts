@@ -25,6 +25,7 @@ const topics = [
   "/+/+/restart",
   "/+/+/dex",
   "/+/+/card",
+  "/+/+/io",
 ];
 
 // Topic prefixes that we deliberately drop without forwarding.
@@ -45,9 +46,10 @@ function isIgnoredTopic(topic: string): boolean {
 // `/mdb-trace` batches are live debugging output published at QoS 0 ~2x/s
 // while an operator watches the console. A batch that could not be delivered
 // is worthless a minute later, so it is never queued in the DLQ (and a
-// successful delivery is not worth a log line each).
+// successful delivery is not worth a log line each). `/io` snapshots of the
+// machine's I/O test tab are the same kind of live-only output.
 function isLiveOnlyTopic(topic: string): boolean {
-  return topic.endsWith("/mdb-trace");
+  return topic.endsWith("/mdb-trace") || topic.endsWith("/io");
 }
 
 // Deno KV is the local dead-letter queue. When a webhook call fails with a

@@ -20,6 +20,8 @@ import MachineAnalysisPanel from '~/components/analysis/MachineAnalysisPanel.vue
 import SlotPlanPanel from '~/components/slotplan/SlotPlanPanel.vue'
 import ProductGroupHeader from '~/components/machine/ProductGroupHeader.vue'
 import MdbTraceConsole from '~/components/machine/MdbTraceConsole.vue'
+import IoTestPanel from '~/components/machine/IoTestPanel.vue'
+import { isWroomBoard } from '~/lib/ioTest'
 import TrayStockGrid from '~/components/machine/TrayStockGrid.vue'
 import { buildTrayGroupIndex, productListRows } from '@/lib/trayGroups'
 import {
@@ -36,6 +38,7 @@ const defaultTab = computed(() => {
   if (tab === 'stock') return 'trays'
   if (tab === 'mdb') return 'mdb'
   if (tab === 'health') return 'health'
+  if (tab === 'io') return 'io'
   if (tab === 'analysis') return 'analysis'
   if (tab === 'slots') return 'slots'
   return 'sales'
@@ -53,6 +56,12 @@ const { rows: suppressedRows, loading: suppressedLoading, hasMore: suppressedHas
 const { onResume } = useAppResume()
 
 const isAdmin = computed(() => role.value === 'admin')
+
+// I/O test tab: admins only (it drives the relays), and only for a WROOM-1U
+// board — the only one with relays, custom inputs and 1-Wire buses. The
+// board is reported in the mdb-log diagnostics by recent firmware.
+const showIoTest = computed(() =>
+  isAdmin.value && isWroomBoard(machine.value?.embeddeds?.mdb_diagnostics))
 
 // ── SoftAP credentials modal ────────────────────────────────────────────
 // Triggered from inside the device-info modal, so we close the parent modal
@@ -235,7 +244,7 @@ const errorMsg = ref('')
 async function fetchMachine() {
   const { data, error } = await supabase
     .from('vendingMachine')
-    .select('id, name, location_lat, location_lon, embedded, country_code, public_listing, address_street, address_house_number, address_postal_code, address_city, formatted_address, nayax_machine_id, item_number_offset, linked_selections, embeddeds(id, status, status_at, subdomain, mac_address, firmware_version, firmware_build_date, mdb_address, mdb_diagnostics, last_restart_reason, last_restart_at, online_since, softap_password)')
+    .select('id, name, location_lat, location_lon, embedded, country_code, public_listing, address_street, address_house_number, address_postal_code, address_city, formatted_address, nayax_machine_id, item_number_offset, linked_selections, embeddeds(id, status, status_at, subdomain, mac_address, firmware_version, firmware_build_date, mdb_address, mdb_diagnostics, io_state, last_restart_reason, last_restart_at, online_since, softap_password)')
     .eq('id', route.params.id)
     .single()
   if (error) {
@@ -333,6 +342,9 @@ onMounted(async () => {
               }
               if (payload.new.mdb_diagnostics !== undefined) {
                 machine.value.embeddeds.mdb_diagnostics = payload.new.mdb_diagnostics
+              }
+              if (payload.new.io_state !== undefined) {
+                machine.value.embeddeds.io_state = payload.new.io_state
               }
             }
           }
@@ -1469,6 +1481,7 @@ async function handleAddSale() {
               <TabsTrigger value="analysis">{{ t('machineDetail.analysis') }}</TabsTrigger>
               <TabsTrigger v-if="isAdmin" value="slots">{{ t('machineDetail.slotPlan') }}</TabsTrigger>
               <TabsTrigger v-if="machine?.embeddeds" value="health">{{ t('machineDetail.deviceHealth') }}</TabsTrigger>
+              <TabsTrigger v-if="showIoTest" value="io">{{ t('machineDetail.ioTest') }}</TabsTrigger>
             </TabsList>
 
             <!-- Sales tab -->
@@ -2600,6 +2613,15 @@ async function handleAddSale() {
                   </button>
                 </div>
               </div>
+            </TabsContent>
+
+            <!-- I/O test tab (admin, WROOM-1U boards only) -->
+            <TabsContent v-if="showIoTest && machine?.embeddeds" value="io" class="mt-4">
+              <IoTestPanel
+                :embedded-id="machine.embeddeds.id"
+                :io-state="machine.embeddeds.io_state"
+                :online="machine.embeddeds.status === 'online'"
+              />
             </TabsContent>
 
           </Tabs>

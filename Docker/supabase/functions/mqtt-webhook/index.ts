@@ -9,6 +9,7 @@ import { buildTrayMap, mapSlotCounters, resolveItemNumber, type TrayMap } from '
 import { clampCredit, decodeCardPayload } from './card-payload.ts';
 import { deliverCredit } from '../_shared/deliver-credit.ts';
 import { InvalidTraceError, parseMdbTrace, PRUNE_EVERY_N_BATCHES, TRACE_RETENTION_MS, type MdbTraceBatch } from './mdb-trace.ts';
+import { InvalidIoStateError, parseIoState, type IoState } from './io-state.ts';
 
 // Sale payload format version carried in byte 1 of the 19-byte XOR-encrypted
 // payload. v2 adds per-device monotonic sale_seq (bytes 14-17) + time_uncertain
@@ -90,7 +91,7 @@ Deno.serve(async (req) => {
     const { topic, payload: payloadB64 } = body;
 
     // Parse topic: /{company_id}/{device_id}/{event_type}
-    const match = topic.match(/^\/([^/]+)\/([^/]+)\/(sale|status|paxcounter|mdb-log|mdb-trace|restart|dex|card)$/);
+    const match = topic.match(/^\/([^/]+)\/([^/]+)\/(sale|status|paxcounter|mdb-log|mdb-trace|restart|dex|card|io)$/);
     if (!match) {
       return new Response(JSON.stringify({ error: 'invalid topic' }), { status: 400 });
     }
@@ -339,6 +340,45 @@ Deno.serve(async (req) => {
       }
 
       return new Response(JSON.stringify({ ok: true, frames: batch.frames.length }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // I/O test snapshot (WROOM-1U): plain JSON, published only while an
+    // operator runs the machine's I/O test (config cmd 0x36) — see io-state.ts.
+    // Overwrites embeddeds.io_state; the frontend follows it through realtime.
+    if (eventType === 'io') {
+      let state: IoState;
+      try {
+        state = parseIoState(new TextDecoder().decode(decodeBase64(payloadB64)));
+      } catch (err) {
+        if (err instanceof InvalidIoStateError) {
+          return new Response(JSON.stringify({ error: err.message }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        throw err;
+      }
+
+      const { error: updateErr } = await adminClient
+        .from('embeddeds')
+        .update({ io_state: { ...state, updated_at: new Date().toISOString() } })
+        .eq('id', deviceId);
+
+      if (updateErr) {
+        // 22P02 = device id in the topic is not a uuid: permanent, don't retry.
+        if (updateErr.code === '22P02') {
+          return new Response(JSON.stringify({ error: 'invalid device id' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        throw updateErr;
+      }
+
+      return new Response(JSON.stringify({ ok: true }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });

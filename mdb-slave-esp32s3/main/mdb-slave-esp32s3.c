@@ -606,6 +606,7 @@ void write_payload_9(uint8_t *mdb_payload, uint8_t length) {
 
 void xorEncodeWithPasskey(uint8_t cmd, uint16_t itemPrice, uint16_t itemNumber, uint16_t paxCounter, uint8_t *payload);
 static void set_relay(uint8_t relay_num, bool on);
+static void io_test_start(uint16_t seconds);
 uint8_t xorDecodeWithPasskey(uint16_t *itemPrice, uint16_t *itemNumber, uint8_t *payload);
 
 // Drain any remaining bytes from the MDB bus after a checksum error or
@@ -2427,6 +2428,13 @@ static void publish_mdb_diag(void) {
             (unsigned long) rfid_rx_bytes());
     }
 
+    /* Board variant, so the management frontend only offers the I/O test
+     * tab (relays, custom inputs, 1-Wire) on boards that have that hardware. */
+    if (n > 0 && n < (int) sizeof(msg)) {
+        n += snprintf(msg + n, sizeof(msg) - n, ",\"board\":\"%s\"",
+                      g_board_is_wroom_1u ? "wroom-1u" : "original");
+    }
+
     if (n > 0 && n < (int) sizeof(msg) - 1) {
         msg[n]     = '}';
         msg[n + 1] = '\0';
@@ -2768,6 +2776,18 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 		                    // Read from the raw itemNumber field, not configParam: that one
 		                    // goes through the MDB scale factor and would turn 300 s into 30.
 		                    mdb_trace_start(configItem);
+		                    break;
+		                case 0x36: // I/O test mode (WROOM-1U only) — itemNumber = seconds, 0 = stop
+		                    // Raw itemNumber for the same reason as 0x35.
+		                    if (!g_board_is_wroom_1u) {
+		                        ESP_LOGW(TAG, "CONFIG: I/O test ignored — not a WROOM-1U board");
+		                    } else {
+		                        io_test_start(configItem);
+		                    }
+		                    break;
+		                case 0x37: // Buzzer test beep (both boards)
+		                    ESP_LOGW(TAG, "CONFIG: buzzer test requested");
+		                    xEventGroupSetBits(xLedEventGroup, BIT_EVT_BUZZER | BIT_EVT_TRIGGER);
 		                    break;
 		                default:
 		                    ESP_LOGW(TAG, "CONFIG: unknown encrypted cmd 0x%02X", cmd);
@@ -3601,9 +3621,14 @@ static void relay_init(void) {
 }
 
 // relay_num: 1 or 2. on: true = energize the relay coil.
+// Last commanded state per relay (index relay_num-1). Output-only pins don't
+// read back, so the I/O test snapshot reports what was commanded.
+static volatile bool s_relay_on[2] = { false, false };
+
 static void set_relay(uint8_t relay_num, bool on) {
     gpio_num_t pin = (relay_num == 1) ? PIN_RELAY_1 : PIN_RELAY_2;
     gpio_set_level(pin, on ? 1 : 0);
+    s_relay_on[relay_num == 1 ? 0 : 1] = on;
     ESP_LOGW(TAG, "Relay %u set to %s", relay_num, on ? "ON" : "OFF");
     debug_log_append(DEBUG_LOG_RELAY, relay_num, on ? 1 : 0, 0);
 }
@@ -3780,7 +3805,38 @@ static __attribute__((unused)) void pulse_input_task(void *arg) {
 #define ONEWIRE_LOG_DELTA_C 0.5f
 static float s_onewire_last_logged_c[2] = { NAN, NAN }; // indexed by bus_num-1
 
+/* One device found on a 1-Wire bus, for the I/O test snapshot. */
+typedef struct {
+    uint64_t address;
+    bool     has_temp;   // DS18B20 read OK
+    float    temp_c;
+} onewire_reading_t;
+
+#define ONEWIRE_MAX_READINGS 8
+
+/* The 5-min sensor timer and the I/O test task can both scan the same bus;
+ * two RMT bus instances on one GPIO would fight, so scans are serialised. */
+static SemaphoreHandle_t s_onewire_mutex = NULL;
+
+static void onewire_bus_scan_and_read_locked(gpio_num_t pin, uint8_t bus_num, bool periodic_track,
+                                             onewire_reading_t *out, int max_out, int *out_count);
+
+// out/max_out/out_count are optional (NULL/0/NULL): when given, every device
+// found is also reported back (up to max_out) for the I/O test snapshot.
+static void onewire_bus_scan_and_read_ex(gpio_num_t pin, uint8_t bus_num, bool periodic_track,
+                                         onewire_reading_t *out, int max_out, int *out_count) {
+    if (out_count) *out_count = 0;
+    if (s_onewire_mutex) xSemaphoreTake(s_onewire_mutex, portMAX_DELAY);
+    onewire_bus_scan_and_read_locked(pin, bus_num, periodic_track, out, max_out, out_count);
+    if (s_onewire_mutex) xSemaphoreGive(s_onewire_mutex);
+}
+
 static void onewire_bus_scan_and_read(gpio_num_t pin, uint8_t bus_num, bool periodic_track) {
+    onewire_bus_scan_and_read_ex(pin, bus_num, periodic_track, NULL, 0, NULL);
+}
+
+static void onewire_bus_scan_and_read_locked(gpio_num_t pin, uint8_t bus_num, bool periodic_track,
+                                             onewire_reading_t *out, int max_out, int *out_count) {
     onewire_bus_config_t bus_config = { .bus_gpio_num = pin };
     onewire_bus_rmt_config_t rmt_config = { .max_rx_bytes = 10 };
     onewire_bus_handle_t bus;
@@ -3806,6 +3862,14 @@ static void onewire_bus_scan_and_read(gpio_num_t pin, uint8_t bus_num, bool peri
         found++;
         uint8_t family_code = (uint8_t)(device.address & 0xFF);
 
+        onewire_reading_t *slot = NULL;
+        if (out && out_count && *out_count < max_out) {
+            slot = &out[(*out_count)++];
+            slot->address = device.address;
+            slot->has_temp = false;
+            slot->temp_c = 0;
+        }
+
         if (family_code == 0x28) {  // DS18B20 temperature sensor
             ds18b20_config_t ds_cfg = {};  // reserved/empty config struct — nothing to set yet
             ds18b20_device_handle_t ds18b20;
@@ -3816,6 +3880,10 @@ static void onewire_bus_scan_and_read(gpio_num_t pin, uint8_t bus_num, bool peri
                 if (ds18b20_get_temperature(ds18b20, &temp_c) == ESP_OK) {
                     ESP_LOGI(TAG, "1-Wire bus %u: DS18B20 %016llX = %.2f C",
                              bus_num, (unsigned long long) device.address, temp_c);
+                    if (slot) {
+                        slot->has_temp = true;
+                        slot->temp_c = temp_c;
+                    }
 
                     if (periodic_track) {
                         float *last = &s_onewire_last_logged_c[bus_num - 1];
@@ -3903,6 +3971,155 @@ static void periodic_sensor_timer_cb(void *arg) {
     if (g_board_is_wroom_1u) {
         onewire_bus_scan_and_read(PIN_ONEWIRE_1, 1, true);
         onewire_bus_scan_and_read(PIN_ONEWIRE_2, 2, true);
+    }
+}
+
+//------------------------- I/O test mode (WROOM-1U) ----------------------//
+//--------------------------------------------------------------------------//
+// Started from the management frontend's "I/O test" tab (config cmd 0x36,
+// itemNumber = seconds, 0 = stop). While it runs, the device publishes a
+// plaintext JSON snapshot of every field I/O to /{company}/{device}/io:
+//
+//   {"active":true,"left":118,"in":[1,1,0],"relay":[0,1],"ntc":24.6,
+//    "ow":[[{"id":"28FF64A1B2C30405","t":21.50}],[]]}
+//
+// Published on any input/relay change (polled every 200 ms) and every 5 s
+// otherwise; the 1-Wire buses are rescanned every 15 s ("ow" is omitted until
+// the first scan finishes). It always stops by itself, and the relays are put
+// back the way they were when the test started, so a forgotten test page
+// never leaves a relay energised. Like the MDB trace, nothing runs or
+// publishes unless an operator started a test.
+#define IO_TEST_MAX_SECONDS        600
+#define IO_TEST_POLL_MS            200
+#define IO_TEST_HEARTBEAT_US       (5 * 1000000LL)
+#define IO_TEST_ONEWIRE_PERIOD_US  (15 * 1000000LL)
+
+static volatile int64_t s_io_test_until_us = 0;
+static volatile bool s_io_test_task_running = false;
+
+static onewire_reading_t s_io_ow[2][ONEWIRE_MAX_READINGS];
+static int s_io_ow_count[2] = { 0, 0 };
+static bool s_io_ow_scanned = false;
+
+static void io_test_publish(bool active, const int in_levels[3]) {
+    if (!mqttClient) return;
+
+    char topic[128];
+    snprintf(topic, sizeof(topic), "/%s/%s/io", my_company_id, my_device_id);
+
+    int64_t left_us = s_io_test_until_us - esp_timer_get_time();
+    unsigned long left_s = (active && left_us > 0) ? (unsigned long)((left_us + 999999) / 1000000) : 0;
+
+    char msg[1024];
+    int n = snprintf(msg, sizeof(msg),
+        "{\"active\":%s,\"left\":%lu,\"in\":[%d,%d,%d],\"relay\":[%d,%d]",
+        active ? "true" : "false", left_s,
+        in_levels[0], in_levels[1], in_levels[2],
+        s_relay_on[0] ? 1 : 0, s_relay_on[1] ? 1 : 0);
+
+    float ntc_c;
+    if (n > 0 && n < (int)sizeof(msg) && ntc_read_celsius(&ntc_c)) {
+        n += snprintf(msg + n, sizeof(msg) - n, ",\"ntc\":%.1f", ntc_c);
+    }
+
+    if (s_io_ow_scanned && n > 0 && n < (int)sizeof(msg)) {
+        n += snprintf(msg + n, sizeof(msg) - n, ",\"ow\":[");
+        for (int b = 0; b < 2 && n < (int)sizeof(msg); b++) {
+            n += snprintf(msg + n, sizeof(msg) - n, "%s[", b ? "," : "");
+            for (int i = 0; i < s_io_ow_count[b] && n < (int)sizeof(msg); i++) {
+                const onewire_reading_t *r = &s_io_ow[b][i];
+                n += snprintf(msg + n, sizeof(msg) - n, "%s{\"id\":\"%016llX\"", i ? "," : "",
+                              (unsigned long long) r->address);
+                if (n < (int)sizeof(msg)) {
+                    n += r->has_temp
+                        ? snprintf(msg + n, sizeof(msg) - n, ",\"t\":%.2f}", r->temp_c)
+                        : snprintf(msg + n, sizeof(msg) - n, "}");
+                }
+            }
+            if (n < (int)sizeof(msg)) n += snprintf(msg + n, sizeof(msg) - n, "]");
+        }
+        if (n < (int)sizeof(msg)) n += snprintf(msg + n, sizeof(msg) - n, "]");
+    }
+
+    if (n > 0 && n < (int)sizeof(msg) - 1) {
+        msg[n]     = '}';
+        msg[n + 1] = '\0';
+    } else {
+        ESP_LOGW(TAG, "I/O test: snapshot truncated, not published");
+        return;
+    }
+
+    // QoS 0: live test output, a lost snapshot is replaced by the next one.
+    mqtt_publish_safe(mqttClient, topic, msg, 0, 0, 0);
+}
+
+static void io_test_task(void *arg) {
+    const bool relay_before[2] = { s_relay_on[0], s_relay_on[1] };
+    int last_in[3] = { -1, -1, -1 };
+    bool last_relay[2] = { relay_before[0], relay_before[1] };
+    int64_t last_pub_us = 0;
+    int64_t last_scan_us = 0;
+
+    s_io_ow_scanned = false;
+    ESP_LOGW(TAG, "I/O test: started");
+
+    while (esp_timer_get_time() < s_io_test_until_us) {
+        int64_t now = esp_timer_get_time();
+
+        if (last_scan_us == 0 || now - last_scan_us >= IO_TEST_ONEWIRE_PERIOD_US) {
+            onewire_bus_scan_and_read_ex(PIN_ONEWIRE_1, 1, false, s_io_ow[0], ONEWIRE_MAX_READINGS, &s_io_ow_count[0]);
+            onewire_bus_scan_and_read_ex(PIN_ONEWIRE_2, 2, false, s_io_ow[1], ONEWIRE_MAX_READINGS, &s_io_ow_count[1]);
+            s_io_ow_scanned = true;
+            last_scan_us = esp_timer_get_time();
+            last_pub_us = 0;  // publish the fresh scan right away
+            now = last_scan_us;
+        }
+
+        int in_levels[3];
+        bool changed = false;
+        for (int i = 0; i < 3; i++) {
+            in_levels[i] = gpio_get_level(custom_inputs[i].pin);
+            if (in_levels[i] != last_in[i]) changed = true;
+        }
+        for (int r = 0; r < 2; r++) {
+            if (s_relay_on[r] != last_relay[r]) changed = true;
+        }
+
+        if (changed || last_pub_us == 0 || now - last_pub_us >= IO_TEST_HEARTBEAT_US) {
+            io_test_publish(true, in_levels);
+            memcpy(last_in, in_levels, sizeof(last_in));
+            last_relay[0] = s_relay_on[0];
+            last_relay[1] = s_relay_on[1];
+            last_pub_us = now;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(IO_TEST_POLL_MS));
+    }
+
+    // Put the relays back the way the test found them.
+    for (int r = 0; r < 2; r++) {
+        if (s_relay_on[r] != relay_before[r]) set_relay(r + 1, relay_before[r]);
+    }
+
+    int in_levels[3];
+    for (int i = 0; i < 3; i++) in_levels[i] = gpio_get_level(custom_inputs[i].pin);
+    io_test_publish(false, in_levels);
+
+    ESP_LOGW(TAG, "I/O test: stopped");
+    s_io_test_task_running = false;
+    vTaskDelete(NULL);
+}
+
+// seconds = 0 stops a running test (the task notices within one poll).
+static void io_test_start(uint16_t seconds) {
+    if (seconds > IO_TEST_MAX_SECONDS) seconds = IO_TEST_MAX_SECONDS;
+    s_io_test_until_us = esp_timer_get_time() + (int64_t) seconds * 1000000LL;
+    if (seconds == 0 || s_io_test_task_running) return;
+
+    s_io_test_task_running = true;
+    if (xTaskCreate(io_test_task, "io_test", 6144, NULL, 3, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "I/O test: task create failed");
+        s_io_test_task_running = false;
     }
 }
 
@@ -4040,6 +4257,8 @@ void app_main(void) {
 	// below.
 	if (board_is_wroom_1u) {
 		relay_init();
+
+		s_onewire_mutex = xSemaphoreCreateMutex();
 
 		xTaskCreate(custom_input_task, "custom_input", 4096, NULL, 5, NULL);
 

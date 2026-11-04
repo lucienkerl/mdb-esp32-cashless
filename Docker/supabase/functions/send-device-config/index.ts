@@ -4,8 +4,13 @@ import {
   buildConfigPayload,
   CMD_MDB_ADDRESS,
   CMD_MDB_RESET,
+  CMD_BUZZER,
+  CMD_IO_TEST,
   CMD_MDB_TRACE,
+  CMD_RELAY_1,
+  CMD_RELAY_2,
   CMD_RESTART,
+  IO_TEST_MAX_SECONDS,
   MDB_TRACE_MAX_SECONDS,
 } from '../_shared/config-payload.ts'
 
@@ -55,6 +60,35 @@ Deno.serve(async (req) => {
         })
       }
       configActions.push({ cmd: CMD_MDB_TRACE, param: 0, item: seconds, label: 'mdb_trace', summary: seconds })
+    }
+
+    // I/O test (WROOM-1U): seconds the device publishes /io snapshots, 0 = stop.
+    // The device restores the relays when the test ends.
+    if (config.io_test !== undefined) {
+      const seconds = config.io_test
+      if (!Number.isInteger(seconds) || seconds < 0 || seconds > IO_TEST_MAX_SECONDS) {
+        return new Response(JSON.stringify({ error: `io_test must be an integer number of seconds between 0 and ${IO_TEST_MAX_SECONDS}` }), {
+          status: 400, headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      configActions.push({ cmd: CMD_IO_TEST, param: 0, item: seconds, label: 'io_test', summary: seconds })
+    }
+
+    // Relay outputs (WROOM-1U): 0 = off, 1 = on. Not persisted — the device
+    // boots with both relays off.
+    for (const [key, cmd] of [['relay1', CMD_RELAY_1], ['relay2', CMD_RELAY_2]] as const) {
+      if (config[key] === undefined) continue
+      if (config[key] !== 0 && config[key] !== 1) {
+        return new Response(JSON.stringify({ error: `${key} must be 0 or 1` }), {
+          status: 400, headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      configActions.push({ cmd, param: config[key], label: key, summary: config[key] })
+    }
+
+    // One test beep
+    if (config.buzzer === true) {
+      configActions.push({ cmd: CMD_BUZZER, param: 0, label: 'buzzer', summary: true })
     }
 
     if (configActions.length === 0) {
