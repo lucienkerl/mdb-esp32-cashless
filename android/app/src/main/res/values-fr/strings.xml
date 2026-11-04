@@ -956,4 +956,45 @@
     <string name="product_delete">Supprimer le produit</string>
     <string name="product_delete_confirm">Supprimer « %1$s » ? Cette action est irréversible.</string>
     <string name="warehouse_intake_create_product">Créer un nouveau produit</string>
+    <!-- Device connectivity -->
+    <string name="conn_state_online">En ligne</string>
+    <string name="conn_state_stale">Sans réponse</string>
+    <string name="conn_state_offline">Hors ligne</string>
+    <string name="conn_state_updating">Mise à jour</string>
+    <string name="conn_state_never">Jamais connecté</string>
+    <string name="conn_state_none">Aucun appareil</string>
+    <string name="conn_time_contact">Contact %1$s</string>
+    <string name="conn_time_last_contact">Dernier contact %1$s</string>
+    <string name="conn_time_offline_since">Hors ligne depuis %1$s · %2$s</string>
+    <string name="conn_time_update_started">Mise à jour lancée %1$s</string>
+    <string name="conn_time_never">Ne s\'est jamais manifesté</string>
+    <string name="conn_time_none">Aucun appareil associé</string>
+    <string name="conn_reader_ready">Lecteur prêt</string>
+    <string name="conn_reader_disabled">Lecteur désactivé</string>
+    <string name="conn_reader_inactive">Le distributeur ne répond pas</string>
+    <string name="conn_reader_ready_hint">Le distributeur interroge le lecteur, le paiement sans espèces fonctionne.</string>
+    <string name="conn_reader_disabled_hint">Le distributeur a désactivé le paiement sans espèces pour le moment, par ex. parce qu\'il est hors service.</string>
+    <string name="conn_reader_inactive_hint">L\'appareil est en ligne, mais le distributeur n\'interroge pas le lecteur. Le paiement sans espèces est impossible.</string>
+    <string name="conn_notice_offline">Le serveur a constaté la coupure à %1$s. L\'appareil renverra les ventes de cette période dès qu\'il sera de nouveau en ligne.</string>
+    <string name="conn_notice_offline_check">À vérifier : alimentation du distributeur, réseau sur place, LED d\'état de l\'appareil (jaune clignotant = recherche du réseau).</string>
+    <string name="conn_notice_stale">L\'appareil ne s\'est pas déconnecté, mais n\'envoie plus de heartbeat depuis plus de 12 minutes (normalement toutes les 5 min). Le plus souvent un problème de réseau sur place, plus rarement un problème côté serveur.</string>
+    <string name="conn_notice_stale_check">À vérifier : les autres distributeurs envoient-ils encore des données ? Sinon, c\'est le serveur ; sinon, comme pour « Hors ligne ».</string>
+    <string name="conn_notice_updating">Le nouveau firmware est en cours d\'installation. L\'appareil redémarre ensuite et sera brièvement hors ligne. Au-delà de 10 minutes, l\'état passe à « Sans réponse ».</string>
+    <string name="conn_section_connection">Connexion</string>
+    <string name="conn_online_since">En ligne depuis</string>
+    <string name="conn_offline_since">Hors ligne depuis</string>
+    <string name="conn_online_before">En ligne auparavant</string>
+    <string name="conn_last_contact">Dernier contact</string>
+    <string name="conn_machine_mdb">Distributeur (MDB)</string>
+    <string name="conn_history_title">Dernières 24 heures</string>
+    <string name="conn_history_no_data">Pas encore de données</string>
+    <string name="conn_history_percent">%1$d %% en ligne</string>
+    <string name="conn_history_24h_ago">il y a 24 h</string>
+    <string name="conn_history_now">maintenant</string>
+    <string name="conn_history_outage">Hors ligne %1$s–%2$s (%3$s)</string>
+    <string name="conn_duration_dh">%1$d j %2$d h</string>
+    <string name="conn_duration_hm">%1$d h %2$d min</string>
+    <string name="conn_duration_m">%1$d min</string>
+    <string name="conn_fleet_attention_title">Demande votre attention</string>
+    <string name="conn_fleet_summary">%1$d hors ligne · %2$d sans réponse · %3$d distributeur muet</string>
 </resources>

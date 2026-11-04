@@ -3,7 +3,7 @@ import Foundation
 /// Device connectivity: one definition of "online" for the whole app.
 ///
 /// 1:1 port of the web's `management-frontend/app/lib/connectivity.ts`
-/// (and Android's `models/DeviceConnectivity.kt`). Keep the three in step;
+/// (and Android's `data/DeviceConnectivity.kt`). Keep the three in step;
 /// `ios/HostTests/Connectivity` runs the web test cases against this file.
 ///
 /// `status` is "online" when the device connects, "offline" from the

@@ -7,7 +7,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.datetime.Clock
+import kotlinx.datetime.Instant
 import xyz.vmflow.data.MachineRepository
+import xyz.vmflow.data.StatusLogRow
+import kotlin.time.Duration.Companion.hours
 import xyz.vmflow.models.DeviceRestart
 import xyz.vmflow.models.MdbLogEntry
 
@@ -16,6 +20,10 @@ data class DeviceHealthUiState(
     val mdbLogs: List<MdbLogEntry> = emptyList(),
     val isLoadingRestarts: Boolean = false,
     val isLoadingMdbLogs: Boolean = false,
+    /** Status changes of the last 24 hours, oldest first (for the history bar). */
+    val statusLog: List<StatusLogRow> = emptyList(),
+    /** Start of the window [statusLog] covers; null until loaded. */
+    val statusWindowStart: Instant? = null,
     val error: String? = null
 )
 
@@ -38,6 +46,8 @@ class DeviceHealthViewModel : ViewModel() {
      * last time it was open.
      */
     fun load(embeddedId: String, isAdmin: Boolean) {
+        loadStatusLog(embeddedId)
+
         viewModelScope.launch {
             _uiState.update { it.copy(isLoadingRestarts = true, error = null) }
             MachineRepository.fetchDeviceRestarts(embeddedId).fold(
@@ -53,6 +63,16 @@ class DeviceHealthViewModel : ViewModel() {
                     onSuccess = { logs -> _uiState.update { it.copy(mdbLogs = logs, isLoadingMdbLogs = false) } },
                     onFailure = { e -> _uiState.update { it.copy(isLoadingMdbLogs = false, error = e.message) } }
                 )
+            }
+        }
+    }
+
+    /** Reloaded whenever the device's status changes, so the bar ends in the current state. */
+    fun loadStatusLog(embeddedId: String) {
+        viewModelScope.launch {
+            val windowStart = Clock.System.now() - 24.hours
+            MachineRepository.fetchStatusLog(embeddedId, windowStart.toString()).onSuccess { rows ->
+                _uiState.update { it.copy(statusLog = rows, statusWindowStart = windowStart) }
             }
         }
     }

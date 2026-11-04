@@ -2,7 +2,7 @@
  * Device connectivity: one definition of "online" for the whole app.
  *
  * Ported 1:1 to iOS (`Models/DeviceConnectivity.swift`) and Android
- * (`models/DeviceConnectivity.kt`) — keep the three in step, and the test
+ * (`data/DeviceConnectivity.kt`) — keep the three in step, and the test
  * cases in `__tests__/connectivity.test.ts` with them.
  *
  * Inputs and what they mean:

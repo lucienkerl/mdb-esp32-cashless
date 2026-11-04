@@ -39,12 +39,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import xyz.vmflow.R
+import xyz.vmflow.data.connectivity
 import xyz.vmflow.models.MachineWithStats
 import xyz.vmflow.models.StockSeverity
 import xyz.vmflow.models.TrayDeficit
 import xyz.vmflow.models.WarehouseAvailability
 import xyz.vmflow.ui.components.ProductImage
+import xyz.vmflow.ui.components.ConnectivityTimeLine
 import xyz.vmflow.ui.components.StatusChip
+import xyz.vmflow.ui.components.rememberNow
 import xyz.vmflow.ui.components.StockHealthBar
 import xyz.vmflow.ui.theme.StockGreen
 import xyz.vmflow.ui.theme.StockOrange
@@ -63,6 +66,8 @@ fun MachineCard(
     val currencyFormat = NumberFormat.getCurrencyInstance(Locale.GERMANY).apply {
         currency = java.util.Currency.getInstance("EUR")
     }
+    val now by rememberNow()
+    val connectivity = machineStats.machine.connectivity(now)
 
     Card(
         onClick = onClick,
@@ -87,8 +92,13 @@ fun MachineCard(
                     modifier = Modifier.weight(1f)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                StatusChip(isOnline = machineStats.machine.isOnline)
+                StatusChip(connectivity = connectivity)
             }
+            ConnectivityTimeLine(
+                connectivity = connectivity,
+                now = now,
+                modifier = Modifier.padding(top = 4.dp)
+            )
 
             Spacer(modifier = Modifier.height(12.dp))
 
