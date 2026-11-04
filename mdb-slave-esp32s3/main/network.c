@@ -19,6 +19,7 @@
  */
 
 #include "network.h"
+#include "cred_backup.h"
 
 #include <string.h>
 #include <fcntl.h>
@@ -253,6 +254,10 @@ static void network_wifi_event_handler(void *arg, esp_event_base_t event_base, i
                     s_softap_active = true;
                     s_state = NETWORK_STATE_SOFTAP_ONLY;
                     network_fire_event(NETWORK_EVENT_SOFTAP_STARTED);
+                    /* No STA_DISCONNECTED follows a connect that never
+                     * started, so nothing else would ever retry: keep the
+                     * saved network on the periodic reconnect timer. */
+                    wifi_reconnect_timer_ensure_running();
                 }
             }
             break;
@@ -876,13 +881,26 @@ void network_init(void) {
      * replicate it here explicitly. */
     wifi_branch_init_sta();
 
+    /* A claimed device whose WiFi STA config is empty lost it (NVS erased
+     * or corrupted) — put it back from the credentials backup instead of
+     * sitting on the open SoftAP waiting for someone to re-enter it. */
+    cred_backup_restore_wifi_if_empty();
+
     wifi_config_t sta_cfg = {0};
     esp_wifi_get_config(WIFI_IF_STA, &sta_cfg);
     if (strlen((char *)sta_cfg.sta.ssid) > 0) {
         ESP_LOGI(TAG, "WiFi branch: saved SSID \"%s\" — connecting",
                  (char *)sta_cfg.sta.ssid);
         s_state = NETWORK_STATE_WIFI_CONNECTING;
-        esp_wifi_connect();
+        esp_err_t conn_err = esp_wifi_connect();
+        if (conn_err != ESP_OK) {
+            /* A connect that is refused outright emits no STA_DISCONNECTED,
+             * so the retry logic in the event handler never runs. Fall back
+             * to the periodic reconnect timer instead of giving up. */
+            ESP_LOGW(TAG, "WiFi branch: esp_wifi_connect() → %s — retrying every %ds",
+                     esp_err_to_name(conn_err), WIFI_RECONNECT_INTERVAL_SEC);
+            wifi_reconnect_timer_ensure_running();
+        }
     } else {
         ESP_LOGI(TAG, "WiFi branch: no saved SSID — captive portal awaits creds");
         /* Stay in NETWORK_STATE_SOFTAP_ONLY (already set pre-probe). */

@@ -74,11 +74,19 @@ static int ble_gatt_char_access_cb(uint16_t conn_handle, uint16_t attr_handle, s
 
     case BLE_GATT_ACCESS_OP_WRITE_CHR:
 
-        rc = ble_gatt_char_write(ctxt->om, 1, sizeof(characteristic_received_value), characteristic_received_value, NULL);
+    {
+        /* NUL-terminate at the written length: the handlers strcpy()
+         * string payloads out of this buffer, and without the terminator a
+         * short write would carry the tail of an earlier, longer one. */
+        uint16_t len = 0;
+        memset(characteristic_received_value, 0, sizeof(characteristic_received_value));
+        rc = ble_gatt_char_write(ctxt->om, 1, sizeof(characteristic_received_value) - 1, characteristic_received_value, &len);
+        if (rc != 0) return rc;
 
         ble_event_report_handler( (char*) &characteristic_received_value );
 
-        return rc;
+        return 0;
+    }
 
     default:
         return BLE_ATT_ERR_UNLIKELY;

@@ -152,8 +152,14 @@ no room for a UID. Full write-up: `docs/integrations/rfid-card-reader.md`.
 - `lte_mode` – cellular LTE mode selector u8 (1=Cat-M, 2=NB-IoT, 3=Both)
 
 **Reset paths and what they erase:**
-- **Factory reset** (boot button held 5 s, `factory_reset_task` in main.c) → `nvs_flash_erase()` wipes the **entire NVS partition** including all keys above. The only way to fully clear cellular config without overwriting it.
-- **NVS corruption recovery** (NVS init fails with `NO_FREE_PAGES`/`NEW_VERSION_FOUND`) → also a full `nvs_flash_erase`.
+- **Factory reset** (boot button held 5 s, `factory_reset_task` in main.c, or the captive portal's "Reset this device" → `POST /api/v1/system/reset`) → `cred_backup_erase()` + `nvs_flash_erase()` wipe the **entire NVS partition** including all keys above, and the credentials backup. The only way to fully clear cellular config without overwriting it. The portal reset is refused (403) unless the request came in over the SoftAP itself (the REST server also listens on the STA/LAN side), and on a claimed device whose SoftAP has no password (anyone near the machine can join an open AP).
+- **NVS corruption recovery** (NVS init fails with `NO_FREE_PAGES`/`NEW_VERSION_FOUND`) → also a full `nvs_flash_erase`, **followed by a restore from the credentials backup** (below), so the device comes back claimed and on its WiFi instead of factory-new. The boot also restores when NVS is healthy but `company_id` is gone while a backup exists. Either case sets `restart_reason` to `nvs_erased_restored` / `nvs_lost_restored`.
+
+**Credentials backup (`cred_backup.c` / `cred_backup_format.h`)**: second copy of NVS namespace `vmflow` (all keys except `prov_code`, `restart_reason`, `last_uptime`) plus the WiFi STA SSID/password (pseudo keys `#wifi_ssid`/`#wifi_pass`), CRC-protected, in the **`phy_init` partition** — present in both partition tables but unused because `CONFIG_ESP_PHY_INIT_DATA_IN_PARTITION` is off (`cred_backup.c` refuses to build if it is turned on). No partition table change, so OTA-updated boards get it. Refreshed on every `UPLINK_UP` of a claimed device, rewritten only when the content changed. Restore never overwrites a key that exists; WiFi is restored in `network_init()` only when the STA config is empty. Host test: `mdb-slave-esp32s3/test/cred_backup/run.sh`.
+
+**NVS headroom**: the slow-path sale queue (`sale_queue.c`, 3 NVS entries per sale) stops queueing (counts overflow) once fewer than one page + 48 entries of NVS are free, and erases a slot's blob on PUBACK; `sale_queue_init` erases every non-pending slot key once at boot. Before, drained slot blobs stayed forever and the slot key is `tail % 512`, so every slow-path sale over the device's lifetime left a new key behind — on the original board's 16 KB NVS a few dozen in total fill it, no long outage needed.
+
+**Legacy BLE WiFi commands** (`ble_event_handler` 0x06 SSID / 0x07 password) are ignored on a claimed device: the characteristic is writable by anyone in range without pairing.
 - **Successful claim** (`provision_claim_task`) → erases only `prov_code`. Cellular config persists across the post-claim reboot, which is the intended behaviour (post-claim devices keep their APN).
 - **Soft restarts** (OTA, MQTT watchdog, config cmd 0x30, provision-failure retry loop) → reboot only, no NVS keys touched. Cellular config persists, which is intended (so the device re-attaches to the same APN automatically).
 - **`/api/v1/cellular/configure`** rejects empty APN — once set, an APN can only be **overwritten** (with a new value), not gap-deleted via the captive portal. Factory reset is the only way to fully clear it.
@@ -562,5 +568,8 @@ Firmware host-side tests need no board and compile the real sources:
 - `mdb-slave-esp32s3/test/trace/run.sh` — `main/mdb_trace.h`: frame grouping, gap splitting, ring overflow accounting, batching without torn frames.
 - `mdb-slave-esp32s3/test/scale/run.sh` — `main/scale_factor.h`: every credit
   and price value over the whole uint16 MDB range converts exactly.
+- `mdb-slave-esp32s3/test/cred_backup/run.sh` — `main/cred_backup_format.h`:
+  round trip, erased/torn/bit-flipped images are rejected, identical content
+  gives identical bytes (no needless flash rewrite).
 
 Edge function tests (Deno): `Docker/supabase/functions/mqtt-webhook/*.test.ts` (`mdb-log`, `suppress`, `slot-offset`, `tray-mapping`, `stock-urgency`, `product-stock`, `card-payload`) and `Docker/supabase/functions/_shared/*.test.ts` (`notification-i18n`, `scale`, `mqtt-publish` — the last drives the publisher against an in-process stub broker), run with `deno test -A` from the respective directory
