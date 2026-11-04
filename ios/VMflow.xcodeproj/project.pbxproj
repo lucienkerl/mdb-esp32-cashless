@@ -23,6 +23,7 @@
 		C0FFEE11ABCD22EF33445567 /* MachineStockHealth.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE11ABCD22EF33445566 /* MachineStockHealth.swift */; };
 		45163A517121359541A88C1D /* SlotChange.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCE7796A01E46CBC5B0B535E /* SlotChange.swift */; };
 		9A54122E6D290584B7E741DD /* MachineTourNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = B85B284831920CF7FAB46AF8 /* MachineTourNote.swift */; };
+		8445505E5CF9F519313F223F /* DeviceConnectivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85843FEFEB8E7DEED7D313D /* DeviceConnectivity.swift */; };
 		123DDC46EFE39435A5A69CB5 /* RefillWizardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52A29D496BDB69F848C60674 /* RefillWizardView.swift */; };
 		1254787CC883CE8605189B4B /* PackingStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90BC01B0752A47A20DF699E7 /* PackingStepView.swift */; };
 		14E8E7A13B8FB4BBA2CE3AA1 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C4757F332F815A5F5300AC8 /* SettingsView.swift */; };
@@ -199,6 +200,7 @@
 		C0FFEE11ABCD22EF33445566 /* MachineStockHealth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineStockHealth.swift; sourceTree = "<group>"; };
 		BCE7796A01E46CBC5B0B535E /* SlotChange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlotChange.swift; sourceTree = "<group>"; };
 		B85B284831920CF7FAB46AF8 /* MachineTourNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineTourNote.swift; sourceTree = "<group>"; };
+		C85843FEFEB8E7DEED7D313D /* DeviceConnectivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceConnectivity.swift; sourceTree = "<group>"; };
 		2E4ECAF4493CB619B2F19A90 /* AdaptiveRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdaptiveRootView.swift; sourceTree = "<group>"; };
 		2FAA61B154F7ABC2401C2CCA /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		357877F547C30B7565611780 /* AddServerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerView.swift; sourceTree = "<group>"; };
@@ -343,6 +345,7 @@
 				C0FFEE11ABCD22EF33445566 /* MachineStockHealth.swift */,
 				BCE7796A01E46CBC5B0B535E /* SlotChange.swift */,
 				B85B284831920CF7FAB46AF8 /* MachineTourNote.swift */,
+				C85843FEFEB8E7DEED7D313D /* DeviceConnectivity.swift */,
 				4E7EC46F36DD12575C056A1A /* VendingMachine.swift */,
 				A6908142D65605FE1D58C1AE /* Warehouse.swift */,
 				5DABAE196CC8FD03F2016AC3 /* PurchaseOrder.swift */,
@@ -960,6 +963,7 @@
 				C0FFEE11ABCD22EF33445567 /* MachineStockHealth.swift in Sources */,
 				45163A517121359541A88C1D /* SlotChange.swift in Sources */,
 				9A54122E6D290584B7E741DD /* MachineTourNote.swift in Sources */,
+				8445505E5CF9F519313F223F /* DeviceConnectivity.swift in Sources */,
 				5C989AE6260DDA7137C3A923 /* TrayEditSheet.swift in Sources */,
 				75FC6DAC6BC35B6F78317FBC /* TrayListView.swift in Sources */,
 				A1A27831F396EBCD53E5ED9A /* TrayRow.swift in Sources */,

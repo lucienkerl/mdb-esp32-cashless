@@ -20,7 +20,9 @@ final class DashboardViewModel: ObservableObject {
     @Published var lastMonthSalesCount: Int = 0
 
     @Published var machinesOnline: Int = 0
+    /// Machines that have a device (machines without one are not counted as offline).
     @Published var machinesTotal: Int = 0
+    @Published var fleet = FleetConnectivity()
     @Published var stockCriticalCount: Int = 0
     @Published var stockLowCount: Int = 0
     @Published var newDealsCount: Int = 0
@@ -202,12 +204,14 @@ final class DashboardViewModel: ObservableObject {
     private func loadMachineStats() async throws {
         let machines: [VendingMachine] = try await client
             .from("vendingMachine")
-            .select("id, name, location_lat, location_lon, embedded, country_code, linked_selections, embeddeds(id, status, status_at, subdomain, mac_address, firmware_version)")
+            .select("id, name, location_lat, location_lon, embedded, country_code, linked_selections, embeddeds(id, status, status_at, subdomain, mac_address, firmware_version, mdb_diagnostics, online_since)")
             .execute()
             .value
 
-        machinesTotal = machines.count
-        machinesOnline = machines.filter { $0.isOnline }.count
+        let now = Date()
+        fleet = FleetConnectivity(machines.map { $0.connectivity(now: now) })
+        machinesTotal = fleet.devices
+        machinesOnline = fleet.online
 
         // Load all trays for stock health
         let trays: [Tray] = try await client
