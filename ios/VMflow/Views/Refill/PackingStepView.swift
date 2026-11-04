@@ -973,32 +973,53 @@ private struct MachinePackingList: View {
 
 // MARK: - Rebuild Rows
 
-/// Violet "+N rebuild" badge: units packed on top of the normal refill for
+/// Violet "⇄ N rebuild" pill: units packed on top of the normal refill for
 /// slot rebuilds (committed and deducted together with it).
 private struct RebuildBadge: View {
     let units: Int
 
     var body: some View {
-        Text("+\(units) rebuild")
-            .font(.caption2.weight(.medium))
-            .monospacedDigit()
-            .foregroundStyle(Color.rebuildViolet)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(RoundedRectangle(cornerRadius: 4).fill(Color.rebuildVioletFill.opacity(0.15)))
-            .fixedSize()
+        Label {
+            Text("\(units) rebuild")
+        } icon: {
+            Image(systemName: "arrow.left.arrow.right")
+        }
+        .labelStyle(.titleAndIcon)
+        .font(.caption.weight(.semibold))
+        .monospacedDigit()
+        .foregroundStyle(Color.rebuildViolet)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 2)
+        .background(Capsule().fill(Color.rebuildVioletFill.opacity(0.15)))
+        .fixedSize()
     }
 }
 
-/// A product packed only for slot rebuilds: its own violet row in the packing
-/// list. Like a normal product, only a ticked row is taken along and booked
-/// out of the warehouse at tour start. Mirrors the PWA's
-/// `RefillRebuildPackRow.vue`.
+/// A product packed only for slot rebuilds. Looks like any other card of the
+/// packing list — the violet "⇄ New · slot" pill says what it is for. Like a
+/// normal product, only a ticked row is taken along and booked out of the
+/// warehouse at tour start. Mirrors the PWA's `RefillRebuildPackRow.vue`.
 private struct RebuildPackRowView: View {
     @ObservedObject var viewModel: RefillWizardViewModel
     let row: RebuildPackRow
     /// List the machines the units are for (the "All" chip).
     let showsMachines: Bool
+
+    /// "New · Bahnhof Süd, slot 23" (the slots of every machine in scope).
+    private var forLine: String {
+        let parts: [String] = row.machineIds.compactMap { machineId in
+            guard let machine = viewModel.machines.first(where: { $0.id == machineId }) else { return nil }
+            let slots = viewModel.acceptedRebuildItems(machineId: machineId)
+                .filter { $0.toProductId == row.productId }
+                .map { String($0.itemNumber) }
+            guard !slots.isEmpty else { return nil }
+            let slotText = slots.count == 1
+                ? String(localized: "slot \(slots[0])")
+                : String(localized: "slots \(slots.joined(separator: ", "))")
+            return showsMachines ? "\(machine.machine.displayName), \(slotText)" : slotText
+        }
+        return "\(String(localized: "New")) · \(parts.joined(separator: " · "))"
+    }
 
     var body: some View {
         let ticked = viewModel.isRebuildRowTicked(row)
@@ -1011,17 +1032,25 @@ private struct RebuildPackRowView: View {
                 HStack(spacing: 12) {
                     Image(systemName: ticked ? "checkmark.circle.fill" : "circle")
                         .font(.title3)
-                        .foregroundStyle(ticked ? Color.rebuildVioletFill : Color.rebuildViolet.opacity(0.6))
+                        .foregroundStyle(ticked ? Color.green : Color.secondary)
 
                     ProductImage(imagePath: row.imagePath, size: 36)
 
-                    VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text(row.name ?? "")
                             .font(.subheadline.weight(.semibold))
                             .fixedSize(horizontal: false, vertical: true)
-                        Label("Rebuild", systemImage: "arrow.left.arrow.right")
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(Color.rebuildViolet)
+                        Label {
+                            Text(verbatim: forLine)
+                        } icon: {
+                            Image(systemName: "arrow.left.arrow.right")
+                        }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.rebuildViolet)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.rebuildVioletFill.opacity(0.15)))
+                        .fixedSize(horizontal: false, vertical: true)
                     }
 
                     Spacer(minLength: 4)
@@ -1030,10 +1059,10 @@ private struct RebuildPackRowView: View {
                         Text("\(row.packed)×")
                             .font(.headline.weight(.bold))
                             .monospacedDigit()
-                            .foregroundStyle(Color.rebuildViolet)
+                            .foregroundStyle(Color.blue)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 4)
-                            .background(Capsule().fill(Color.rebuildVioletFill.opacity(0.15)))
+                            .background(Capsule().fill(Color.blue.opacity(0.1)))
                         if row.packed < row.need {
                             Text("(\(row.need) needed)")
                                 .font(.caption2.weight(.medium))
@@ -1047,8 +1076,8 @@ private struct RebuildPackRowView: View {
             }
             .buttonStyle(.plain)
 
-            // What to pack per machine — the refiller can take less, e.g.
-            // only half a spiral of a new product.
+            // Per machine, only when there is something to choose between
+            // (several machines) — the amount itself is changed by tapping.
             ForEach(viewModel.rebuildMachineNeeds(productId: row.productId, machineIds: row.machineIds)) { entry in
                 Divider()
                     .padding(.leading, 14)
@@ -1062,19 +1091,21 @@ private struct RebuildPackRowView: View {
             }
         }
         .padding(.bottom, 2)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color.rebuildVioletFill.opacity(0.07)))
+        .background(RoundedRectangle(cornerRadius: 14).fill(.regularMaterial))
         .overlay(
             RoundedRectangle(cornerRadius: 14)
-                .stroke(Color.rebuildVioletFill.opacity(ticked ? 0.7 : 0.4), lineWidth: 1.5)
+                .stroke(ticked ? Color.green.opacity(0.35) : Color.clear, lineWidth: 1.5)
         )
+        .shadow(color: .black.opacity(0.04), radius: 4, y: 2)
         .animation(.easeInOut(duration: 0.2), value: ticked)
     }
 }
 
-/// Rebuild units of a product for one machine, with a violet −/+ stepper:
+/// Rebuild units of a product for one machine. Collapsed it is one quiet
+/// line — "Bahnhof Süd  ⇄ 10" — and a tap opens the violet −/+ stepper, so
 /// the refiller can pack less than the slots need (e.g. only half a spiral
-/// of a new product to see how it sells, or to spread scarce stock over
-/// several machines). Mirrors the PWA's `RefillRebuildQuantity.vue`.
+/// of a new product) without the list being full of steppers.
+/// Mirrors the PWA's `RefillRebuildQuantity.vue`.
 private struct RebuildQuantityRow: View {
     @ObservedObject var viewModel: RefillWizardViewModel
     let machineId: UUID
@@ -1085,74 +1116,107 @@ private struct RebuildQuantityRow: View {
     /// Horizontal padding: 0 inside a card that already has its own.
     var inset: CGFloat = 14
 
+    @State private var isEditing = false
+
     var body: some View {
         let qty = viewModel.rebuildQuantity(machineId: machineId, productId: productId)
         let maxQty = viewModel.maxRebuildQuantity(machineId: machineId, productId: productId)
 
-        HStack(spacing: 10) {
-            Image(systemName: "arrow.left.arrow.right")
-                .font(.subheadline)
-                .foregroundStyle(Color.rebuildViolet)
-                .frame(width: 28)
+        VStack(spacing: 8) {
+            Button {
+                HapticFeedback.light.fire()
+                withAnimation(.easeInOut(duration: 0.2)) { isEditing.toggle() }
+            } label: {
+                HStack(spacing: 10) {
+                    Group {
+                        if showsMachine {
+                            Text(verbatim: viewModel.chipName(.machine(machineId)))
+                        } else {
+                            Text("Rebuild")
+                        }
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
 
-            VStack(alignment: .leading, spacing: 2) {
-                if showsMachine {
-                    Text(verbatim: viewModel.chipName(.machine(machineId)))
-                        .font(.subheadline)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 4)
+
+                    if qty < need {
+                        Text("of \(need)")
+                            .font(.caption)
+                            .monospacedDigit()
+                            .foregroundStyle(.orange)
+                    }
+                    RebuildBadgeQty(qty: qty)
+                    Image(systemName: isEditing ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
                 }
-                Text("Rebuild · needs \(need)")
-                    .font(.caption2)
-                    .monospacedDigit()
-                    .foregroundStyle(Color.rebuildViolet)
+                .frame(minHeight: 32)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
 
-            Spacer(minLength: 4)
-
-            HStack(spacing: 6) {
-                Button {
-                    HapticFeedback.light.fire()
-                    viewModel.setRebuildQuantity(machineId: machineId, productId: productId, quantity: qty - 1)
-                } label: {
-                    Image(systemName: "minus")
-                        .font(.body.weight(.semibold))
-                        .frame(width: 40, height: 40)
-                        .contentShape(Rectangle())
-                        .background(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(Color.rebuildVioletFill.opacity(0.5), lineWidth: 1.5)
-                        )
-                        .foregroundStyle(qty > 0 ? Color.rebuildViolet : Color.secondary.opacity(0.4))
+            if isEditing {
+                HStack(spacing: 6) {
+                    Spacer()
+                    stepButton(systemImage: "minus", enabled: qty > 0) {
+                        viewModel.setRebuildQuantity(machineId: machineId, productId: productId, quantity: qty - 1)
+                    }
+                    Text(verbatim: "\(qty)")
+                        .font(.body.weight(.bold))
+                        .monospacedDigit()
+                        .frame(minWidth: 44, minHeight: 44)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(Color.rebuildVioletFill.opacity(0.15)))
+                        .foregroundStyle(Color.rebuildViolet)
+                    stepButton(systemImage: "plus", enabled: qty < maxQty) {
+                        viewModel.setRebuildQuantity(machineId: machineId, productId: productId, quantity: qty + 1)
+                    }
                 }
-                .disabled(qty <= 0)
-
-                Text(verbatim: "\(qty)")
-                    .font(.body.weight(.bold))
-                    .monospacedDigit()
-                    .frame(minWidth: 40, minHeight: 40)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.rebuildVioletFill.opacity(0.15)))
-                    .foregroundStyle(Color.rebuildViolet)
-
-                Button {
-                    HapticFeedback.light.fire()
-                    viewModel.setRebuildQuantity(machineId: machineId, productId: productId, quantity: qty + 1)
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.body.weight(.semibold))
-                        .frame(width: 40, height: 40)
-                        .contentShape(Rectangle())
-                        .background(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(Color.rebuildVioletFill.opacity(0.5), lineWidth: 1.5)
-                        )
-                        .foregroundStyle(qty < maxQty ? Color.rebuildViolet : Color.secondary.opacity(0.4))
-                }
-                .disabled(qty >= maxQty)
+                .buttonStyle(.borderless)
             }
-            .buttonStyle(.borderless)
         }
         .padding(.horizontal, inset)
         .padding(.vertical, 6)
+    }
+
+    private func stepButton(systemImage: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button {
+            HapticFeedback.light.fire()
+            action()
+        } label: {
+            Image(systemName: systemImage)
+                .font(.body.weight(.semibold))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.rebuildVioletFill.opacity(0.5), lineWidth: 1.5)
+                )
+                .foregroundStyle(enabled ? Color.rebuildViolet : Color.secondary.opacity(0.4))
+        }
+        .disabled(!enabled)
+    }
+}
+
+/// "⇄ 10" — the rebuild amount of one machine.
+private struct RebuildBadgeQty: View {
+    let qty: Int
+
+    var body: some View {
+        Label {
+            Text(verbatim: "\(qty)")
+        } icon: {
+            Image(systemName: "arrow.left.arrow.right")
+        }
+        .labelStyle(.titleAndIcon)
+        .font(.subheadline.weight(.semibold))
+        .monospacedDigit()
+        .foregroundStyle(Color.rebuildViolet)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(Capsule().fill(Color.rebuildVioletFill.opacity(0.15)))
+        .fixedSize()
     }
 }
 

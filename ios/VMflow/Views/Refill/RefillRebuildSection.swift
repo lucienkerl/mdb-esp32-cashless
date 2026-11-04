@@ -1,25 +1,45 @@
 import SwiftUI
 
-/// Refill step, at the machine: rebuild the slots of the change note. The
-/// refiller counts what comes out (sales since packing are already in the live
-/// stock), fills the new product, sets the price and marks each slot rebuilt or
-/// not. Nothing is booked until the machine is confirmed (`apply_slot_change`).
-/// What is left over rides along in the van and is booked back at the end of
-/// the tour, on the summary step. Mirrors the PWA's `RefillRebuildSection.vue`.
+/// Refill step, at the machine: rebuild the slots of the change note — one
+/// slot at a time. The open slot is shown big (slot number, old → new) with
+/// the hand movements in the order they are done: take out, change spiral,
+/// fill in, set price / age. Amounts are prefilled (taken out = live stock,
+/// filled in = the fill plan) and only changed by tapping the number. One big
+/// "Slot N done" closes the slot, "Not possible today" leaves it for a later
+/// tour. Decided slots collapse into a short list where they can be reopened.
+/// Nothing is booked until the machine is confirmed (`apply_slot_change`);
+/// leftovers ride along in the van and are booked back on the summary step.
 struct RefillRebuildSection: View {
     @ObservedObject var viewModel: RefillWizardViewModel
     let machineId: UUID
 
+    /// Which count is being edited (slot item id + field).
+    @State private var editing: EditTarget?
+    /// Hand movements ticked off — a guide for the refiller only; the age
+    /// setting is the one tick that is recorded (and required).
+    @State private var ticked: Set<TaskKey> = []
+
+    private struct EditTarget: Equatable {
+        let itemId: UUID
+        let field: Field
+    }
+
+    private enum Field: Hashable {
+        case removed
+        case filled
+    }
+
+    private struct TaskKey: Hashable {
+        let itemId: UUID
+        let task: Int
+    }
+
     private var isPrepared: Bool { viewModel.currentRebuildMachineId == machineId }
+    private var slots: [RebuildSlot] { viewModel.currentRebuild }
+    private var openSlot: RebuildSlot? { slots.first { $0.action == nil } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Rebuild slots", systemImage: "arrow.left.arrow.right")
-                .font(.caption.weight(.semibold))
-                .textCase(.uppercase)
-                .foregroundStyle(.orange)
-                .padding(.horizontal, 4)
-
             if !isPrepared {
                 HStack {
                     Spacer()
@@ -27,273 +47,444 @@ struct RefillRebuildSection: View {
                     Spacer()
                 }
                 .padding(.vertical, 12)
-            } else {
-                ForEach(viewModel.currentRebuild) { slot in
-                    slotCard(slot)
+            } else if !slots.isEmpty {
+                progressHeader
+
+                if let slot = openSlot {
+                    focusCard(slot)
                 }
+
+                let decided = slots.filter { $0.action != nil }
+                if !decided.isEmpty {
+                    decidedList(decided)
+                }
+
                 // Without a warehouse nothing was deducted, so nothing is
                 // booked back.
-                if viewModel.selectedWarehouseId != nil {
+                if openSlot == nil && viewModel.selectedWarehouseId != nil {
                     Label("Take removed goods with you – they are booked back at the end of the tour.", systemImage: "shippingbox")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.subheadline)
+                        .foregroundStyle(Color.rebuildViolet)
                         .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 4)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 14).fill(Color.rebuildVioletFill.opacity(0.12)))
                 }
             }
         }
     }
 
-    // MARK: - Slot Card
+    // MARK: - Progress
 
-    private func slotCard(_ slot: RebuildSlot) -> some View {
+    private var progressHeader: some View {
+        let position = (slots.firstIndex { $0.action == nil } ?? slots.count) + 1
+        return HStack(spacing: 10) {
+            if openSlot != nil {
+                Label {
+                    Text("Rebuild · slot \(position) of \(slots.count)")
+                } icon: {
+                    Image(systemName: "arrow.left.arrow.right")
+                }
+                .foregroundStyle(Color.rebuildViolet)
+            } else {
+                Label("Rebuild done", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            }
+            HStack(spacing: 4) {
+                ForEach(slots) { slot in
+                    Capsule()
+                        .fill(segmentColor(slot))
+                        .frame(height: 6)
+                }
+            }
+        }
+        .font(.subheadline.weight(.semibold))
+        .padding(.horizontal, 4)
+    }
+
+    private func segmentColor(_ slot: RebuildSlot) -> Color {
+        switch slot.action {
+        case .done: return .green
+        case .skip: return Color(.systemGray3)
+        case nil:
+            return slot.id == openSlot?.id
+                ? Color.rebuildVioletFill
+                : Color.rebuildVioletFill.opacity(0.25)
+        }
+    }
+
+    // MARK: - Focus Card (the open slot)
+
+    private func focusCard(_ slot: RebuildSlot) -> some View {
         let item = slot.item
-        let emptyLabel = String(localized: "Empty")
-        let borderColor: Color = {
-            switch slot.action {
-            case .done: return .green.opacity(0.6)
-            case .skip: return Color(.systemGray4)
-            case nil: return .orange.opacity(0.5)
-            }
-        }()
+        var steps: [AnyView] = []
+        var number = 0
+        func next() -> Int { number += 1; return number }
 
-        return VStack(alignment: .leading, spacing: 12) {
-            // Slot: old → new
-            HStack(alignment: .center, spacing: 10) {
-                Text(verbatim: "#\(item.itemNumber)")
-                    .font(.caption.bold())
-                    .monospacedDigit()
-                    .frame(minWidth: 36, minHeight: 28)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(.systemGray5)))
+        if item.fromProductId != nil {
+            let n = next()
+            steps.append(AnyView(taskRow(
+                slot: slot, index: n,
+                title: Text("Take out \(item.fromName ?? "")"),
+                subtitle: Text("Into the van"),
+                count: (value: slot.removed, field: .removed, max: nil)
+            )))
+        }
+        if item.changesCapacity {
+            let n = next()
+            steps.append(AnyView(taskRow(
+                slot: slot, index: n,
+                title: Text("Change spiral"),
+                subtitle: Text(verbatim: "\(item.fromCapacity) → \(item.toCapacity)")
+            )))
+        }
+        if item.toProductId != nil {
+            let n = next()
+            steps.append(AnyView(taskRow(
+                slot: slot, index: n,
+                title: Text("Put in \(item.toName ?? "")"),
+                subtitle: Text("\(slot.moved) moved over · \(slot.fromVan) from the van"),
+                count: (value: slot.filled, field: .filled, max: item.toCapacity)
+            )))
+        }
+        if item.changesPrice, let price = item.toPrice {
+            let n = next()
+            steps.append(AnyView(taskRow(
+                slot: slot, index: n,
+                title: Text("Set price"),
+                subtitle: Text("Selection \(item.itemNumber)"),
+                trailing: AnyView(pill(Text(verbatim: String(format: "%.2f \u{20AC}", price)), color: .blue)),
+                isTicked: slot.priceSet,
+                onTick: { viewModel.setRebuildPriceSet(itemId: item.id, value: !slot.priceSet) }
+            )))
+        }
+        if item.changesAge {
+            let n = next()
+            steps.append(AnyView(taskRow(
+                slot: slot, index: n,
+                title: Text("Change age setting"),
+                subtitle: Text(verbatim: item.ageChangeLabel),
+                trailing: AnyView(pill(Text(verbatim: SlotChangeRequestItem.ageLabel(item.toMinAge)), color: .red)),
+                isTicked: slot.ageSet,
+                onTick: { viewModel.setRebuildAgeSet(itemId: item.id, value: !slot.ageSet) }
+            )))
+        }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        if item.fromProductId != nil {
-                            ProductImage(imagePath: item.fromImagePath, size: 28)
-                        }
-                        Text(item.fromName ?? emptyLabel)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.turn.down.right")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        if item.toProductId != nil {
-                            ProductImage(imagePath: item.toImagePath, size: 28)
-                        }
-                        Text(item.toName ?? emptyLabel)
-                            .font(.subheadline.weight(.semibold))
-                            .lineLimit(2)
-                    }
-                }
-                Spacer(minLength: 0)
-            }
+        return VStack(spacing: 12) {
+            hero(item)
 
-            // Live stock + spiral change
-            VStack(alignment: .leading, spacing: 2) {
-                Text("In the slot now: \(slot.liveStock) of \(item.fromCapacity) (sales since packing included)")
-                    .foregroundStyle(.secondary)
-                if item.changesCapacity {
-                    Text("Change spiral (\(item.fromCapacity) → \(item.toCapacity))")
-                        .foregroundStyle(.orange)
-                }
-            }
-            .font(.caption)
-            .monospacedDigit()
-            .fixedSize(horizontal: false, vertical: true)
-
-            if slot.action != .skip {
-                // Taken out / filled in
-                HStack(alignment: .top, spacing: 12) {
-                    countField(
-                        title: Text("Taken out"),
-                        value: slot.removed,
-                        maxValue: nil,
-                        onChange: { viewModel.setRebuildRemoved(itemId: item.id, value: $0) }
-                    )
-                    if item.toProductId != nil {
-                        VStack(alignment: .leading, spacing: 4) {
-                            countField(
-                                title: Text("Filled in (max \(item.toCapacity))"),
-                                value: slot.filled,
-                                maxValue: item.toCapacity,
-                                onChange: { viewModel.setRebuildFilled(itemId: item.id, value: $0) }
-                            )
-                            Text("\(slot.moved) moved over · \(slot.fromVan) from the van")
-                                .font(.caption2)
-                                .monospacedDigit()
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                // New price at the selection
-                if item.changesPrice, let price = item.toPrice {
-                    Button {
-                        HapticFeedback.light.fire()
-                        viewModel.setRebuildPriceSet(itemId: item.id, value: !slot.priceSet)
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: slot.priceSet ? "checkmark.square.fill" : "square")
-                                .font(.title3)
-                                .foregroundStyle(slot.priceSet ? Color.blue : Color.secondary)
-                            Text("Price at selection \(item.itemNumber) set to")
-                                + Text(verbatim: " ")
-                                + Text(verbatim: String(format: "%.2f \u{20AC}", price)).bold()
-                            Spacer(minLength: 0)
-                        }
-                        .font(.subheadline)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.1)))
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                // New age restriction at the selection
-                if item.changesAge {
-                    Button {
-                        HapticFeedback.light.fire()
-                        viewModel.setRebuildAgeSet(itemId: item.id, value: !slot.ageSet)
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: slot.ageSet ? "checkmark.square.fill" : "square")
-                                .font(.title3)
-                                .foregroundStyle(slot.ageSet ? Color.blue : Color.secondary)
-                            Text("Age setting changed on the machine")
-                                + Text(verbatim: " ")
-                                + Text(verbatim: item.ageChangeLabel).bold()
-                            Spacer(minLength: 0)
-                        }
-                        .font(.subheadline)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.red.opacity(0.1)))
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+            VStack(spacing: 0) {
+                ForEach(steps.indices, id: \.self) { i in
+                    if i > 0 { Divider().padding(.leading, 54) }
+                    steps[i]
                 }
             }
+            .background(RoundedRectangle(cornerRadius: 16).fill(.regularMaterial))
 
-            // Rebuilt / not rebuilt
-            HStack(spacing: 8) {
-                actionButton(
-                    title: Text("Rebuilt"),
-                    systemImage: "checkmark",
-                    isSelected: slot.action == .done,
-                    tint: .green,
-                    isDisabled: slot.action != .done && slot.needsAgeConfirmation
-                ) {
-                    viewModel.setRebuildAction(itemId: item.id, action: slot.action == .done ? nil : .done)
-                }
-                actionButton(
-                    title: Text("Not rebuilt"),
-                    systemImage: "xmark",
-                    isSelected: slot.action == .skip,
-                    tint: .gray
-                ) {
-                    viewModel.setRebuildAction(itemId: item.id, action: slot.action == .skip ? nil : .skip)
-                }
-            }
-
-            if slot.action == nil && slot.needsAgeConfirmation {
+            if slot.needsAgeConfirmation {
                 Text("Confirm the age setting first")
-                    .font(.caption)
+                    .font(.footnote)
                     .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
+            } else if item.fromProductId != nil || item.toProductId != nil {
+                Text("Tap a number if it is not right.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
             }
 
-            if slot.action == .skip {
-                Text("Stays as it is and comes up again on the next tour.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            Button {
+                HapticFeedback.success.fire()
+                editing = nil
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    viewModel.setRebuildAction(itemId: item.id, action: .done)
+                }
+            } label: {
+                Label("Slot \(item.itemNumber) done", systemImage: "checkmark")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 52)
             }
+            .buttonStyle(.borderedProminent)
+            .tint(.green)
+            .disabled(slot.needsAgeConfirmation)
+
+            Button {
+                HapticFeedback.light.fire()
+                editing = nil
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    viewModel.setRebuildAction(itemId: item.id, action: .skip)
+                }
+            } label: {
+                Text("Not possible today")
+                    .font(.subheadline)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private func hero(_ item: SlotChangeRequestItem) -> some View {
+        HStack(spacing: 14) {
+            VStack(spacing: 0) {
+                Text("Slot")
+                    .font(.caption2.weight(.semibold))
+                    .textCase(.uppercase)
+                    .opacity(0.75)
+                Text(verbatim: "\(item.itemNumber)")
+                    .font(.system(size: 28, weight: .bold))
+                    .monospacedDigit()
+            }
+            .foregroundStyle(.white)
+            .frame(width: 68, height: 68)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Color(.label).opacity(0.88)))
+
+            HStack(spacing: 8) {
+                productTile(imagePath: item.fromImagePath, name: item.fromName, isOld: true, hasProduct: item.fromProductId != nil)
+                Image(systemName: "arrow.right")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(Color.rebuildViolet)
+                productTile(imagePath: item.toImagePath, name: item.toName, isOld: false, hasProduct: item.toProductId != nil)
+            }
+            .frame(maxWidth: .infinity)
         }
         .padding(14)
-        .background {
-            RoundedRectangle(cornerRadius: 14)
-                .fill(.regularMaterial)
-                .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
-        }
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(borderColor, lineWidth: 2))
-        .opacity(slot.action == .skip ? 0.75 : 1)
+        .background(RoundedRectangle(cornerRadius: 16).fill(.regularMaterial))
     }
 
-    /// Number with large −/+ buttons (one-handed use, like the refill cards).
-    private func countField(
-        title: Text,
-        value: Int,
-        maxValue: Int?,
-        onChange: @escaping (Int) -> Void
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            title
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            HStack(spacing: 6) {
-                Button {
-                    HapticFeedback.light.fire()
-                    onChange(value - 1)
-                } label: {
-                    Image(systemName: "minus")
-                        .font(.body.weight(.semibold))
-                        .frame(width: 40, height: 40)
-                        .background(Circle().fill(.fill.tertiary))
-                }
-                .buttonStyle(.plain)
-                .disabled(value <= 0)
-
-                Text(verbatim: "\(value)")
-                    .font(.title3.bold())
-                    .monospacedDigit()
-                    .frame(minWidth: 36)
-
-                Button {
-                    HapticFeedback.light.fire()
-                    onChange(value + 1)
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.body.weight(.semibold))
-                        .frame(width: 40, height: 40)
-                        .background(Circle().fill(Color.blue.opacity(0.12)))
-                        .foregroundStyle(.blue)
-                }
-                .buttonStyle(.plain)
-                .disabled(maxValue.map { value >= $0 } ?? false)
+    private func productTile(imagePath: String?, name: String?, isOld: Bool, hasProduct: Bool) -> some View {
+        VStack(spacing: 4) {
+            if hasProduct {
+                ProductImage(imagePath: imagePath, size: 52)
+                    .opacity(isOld ? 0.5 : 1)
+            } else {
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [4]))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 52, height: 52)
             }
+            Text(hasProduct ? (name ?? "") : String(localized: "Empty"))
+                .font(.caption.weight(isOld ? .regular : .semibold))
+                .foregroundStyle(isOld ? Color.secondary : Color.primary)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: 110)
     }
 
-    private func actionButton(
+    // MARK: - Task Row
+
+    private func taskRow(
+        slot: RebuildSlot,
+        index: Int,
         title: Text,
-        systemImage: String,
-        isSelected: Bool,
-        tint: Color,
-        isDisabled: Bool = false,
-        action: @escaping () -> Void
+        subtitle: Text,
+        count: (value: Int, field: Field, max: Int?)? = nil,
+        trailing: AnyView? = nil,
+        isTicked: Bool? = nil,
+        onTick: (() -> Void)? = nil
     ) -> some View {
-        Button {
-            HapticFeedback.light.fire()
-            action()
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: systemImage)
-                title
+        let key = TaskKey(itemId: slot.id, task: index)
+        let done = isTicked ?? ticked.contains(key)
+        let isEditing = count.map { editing == EditTarget(itemId: slot.id, field: $0.field) } ?? false
+
+        return VStack(spacing: 8) {
+            HStack(spacing: 12) {
+                Button {
+                    HapticFeedback.light.fire()
+                    if let onTick {
+                        onTick()
+                    } else if ticked.contains(key) {
+                        ticked.remove(key)
+                    } else {
+                        ticked.insert(key)
+                    }
+                } label: {
+                    HStack(spacing: 12) {
+                        ZStack {
+                            Circle()
+                                .fill(done ? Color.green : Color.clear)
+                            Circle()
+                                .strokeBorder(done ? Color.green : Color(.systemGray3), lineWidth: 2)
+                            if done {
+                                Image(systemName: "checkmark")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(.white)
+                            } else {
+                                Text(verbatim: "\(index)")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .frame(width: 28, height: 28)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            title
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(.primary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            subtitle
+                                .font(.footnote)
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if let count {
+                    Button {
+                        HapticFeedback.light.fire()
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            let target = EditTarget(itemId: slot.id, field: count.field)
+                            editing = editing == target ? nil : target
+                        }
+                    } label: {
+                        Text(verbatim: "\(count.value)")
+                            .font(.title3.weight(.bold))
+                            .monospacedDigit()
+                            .foregroundStyle(Color.rebuildViolet)
+                            .frame(minWidth: 52, minHeight: 44)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(Color.rebuildVioletFill.opacity(isEditing ? 0.25 : 0.13))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+                if let trailing {
+                    trailing
+                }
             }
-            .font(.subheadline.weight(.medium))
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .foregroundStyle(isSelected ? Color.white : Color.primary)
-            .background(RoundedRectangle(cornerRadius: 10).fill(isSelected ? tint : Color.clear))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(isSelected ? tint : Color(.systemGray3), lineWidth: 1))
-            .contentShape(Rectangle())
+
+            if let count, isEditing {
+                stepper(value: count.value, max: count.max) { newValue in
+                    switch count.field {
+                    case .removed: viewModel.setRebuildRemoved(itemId: slot.id, value: newValue)
+                    case .filled: viewModel.setRebuildFilled(itemId: slot.id, value: newValue)
+                    }
+                }
+            }
         }
-        .buttonStyle(.plain)
-        .disabled(isDisabled)
-        .opacity(isDisabled ? 0.4 : 1)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(minHeight: 60)
+    }
+
+    private func stepper(value: Int, max: Int?, onChange: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 12) {
+            Spacer()
+            Button {
+                HapticFeedback.light.fire()
+                onChange(value - 1)
+            } label: {
+                Image(systemName: "minus")
+                    .font(.title3.weight(.semibold))
+                    .frame(width: 52, height: 44)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(.fill.tertiary))
+            }
+            .buttonStyle(.plain)
+            .disabled(value <= 0)
+
+            Text(verbatim: "\(value)")
+                .font(.title2.bold())
+                .monospacedDigit()
+                .frame(minWidth: 44)
+
+            Button {
+                HapticFeedback.light.fire()
+                onChange(value + 1)
+            } label: {
+                Image(systemName: "plus")
+                    .font(.title3.weight(.semibold))
+                    .frame(width: 52, height: 44)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.blue.opacity(0.12)))
+                    .foregroundStyle(.blue)
+            }
+            .buttonStyle(.plain)
+            .disabled(max.map { value >= $0 } ?? false)
+        }
+        .padding(.leading, 40)
+    }
+
+    private func pill(_ text: Text, color: Color) -> some View {
+        text
+            .font(.headline)
+            .monospacedDigit()
+            .foregroundStyle(color)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 10).fill(color.opacity(0.12)))
+    }
+
+    // MARK: - Decided Slots
+
+    private func decidedList(_ decided: [RebuildSlot]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(decided) { slot in
+                if slot.id != decided.first?.id {
+                    Divider().padding(.leading, 62)
+                }
+                decidedRow(slot)
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: 16).fill(.regularMaterial))
+    }
+
+    private func decidedRow(_ slot: RebuildSlot) -> some View {
+        let item = slot.item
+        let isDone = slot.action == .done
+
+        return HStack(spacing: 12) {
+            SlotNumberBadge(number: item.itemNumber, muted: !isDone, size: 36)
+
+            if isDone, item.toProductId != nil {
+                ProductImage(imagePath: item.toImagePath, size: 36)
+            } else if !isDone, item.fromProductId != nil {
+                ProductImage(imagePath: item.fromImagePath, size: 36)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                if isDone {
+                    Text(item.toName ?? String(localized: "Left empty"))
+                        .font(.body.weight(.semibold))
+                    if item.toProductId != nil {
+                        Text("\(slot.filled) filled in")
+                            .font(.footnote)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("\(item.fromName ?? String(localized: "Empty")) stays")
+                        .font(.body.weight(.semibold))
+                    Text("Comes up again on the next tour")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 4)
+
+            Button("Change") {
+                HapticFeedback.light.fire()
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    viewModel.setRebuildAction(itemId: item.id, action: nil)
+                }
+            }
+            .font(.subheadline)
+            .buttonStyle(.borderless)
+
+            if isDone {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.green)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 }

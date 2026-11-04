@@ -33,10 +33,13 @@ struct RefillStepView: View {
                         // not part of the normal refill below.
                         let hasRebuild = viewModel.machineHasRebuild(machine.id)
                         let hasTourTrays = machine.trays.contains { $0.isInTour }
+                        // The normal refill comes after the rebuild — one
+                        // thing at a time at the machine.
+                        let showsRefill = !hasRebuild || rebuildDecided(machine)
                         if hasRebuild {
                             RefillRebuildSection(viewModel: viewModel, machineId: machine.id)
-                            if hasTourTrays {
-                                Text("Refill")
+                            if hasTourTrays && showsRefill {
+                                Text("Now refill")
                                     .font(.caption.weight(.semibold))
                                     .textCase(.uppercase)
                                     .foregroundStyle(.secondary)
@@ -47,7 +50,7 @@ struct RefillStepView: View {
                         }
 
                         // Refill All Button
-                        if hasTourTrays || !hasRebuild {
+                        if showsRefill && (hasTourTrays || !hasRebuild) {
                             Button {
                                 HapticFeedback.medium.fire()
                                 viewModel.fillAllTrays(machineId: machine.id)
@@ -64,13 +67,15 @@ struct RefillStepView: View {
                         // Tray list — show everything that's part of this tour,
                         // regardless of fillAmount. Reducing fillAmount to 0
                         // keeps the card visible so the user can bring it back.
-                        ForEach(machine.trays.filter { $0.isInTour }) { refillTray in
-                            refillTrayCard(refillTray, machineId: machine.id)
+                        if showsRefill {
+                            ForEach(machine.trays.filter { $0.isInTour }) { refillTray in
+                                refillTrayCard(refillTray, machineId: machine.id)
+                            }
                         }
 
                         // Trays that are genuinely full (deficit == 0), not unpacked ones
                         let fullTrays = machine.trays.filter { $0.fillAmount == 0 && $0.deficit == 0 }
-                        if !fullTrays.isEmpty {
+                        if showsRefill && !fullTrays.isEmpty {
                             DisclosureGroup {
                                 ForEach(fullTrays) { tray in
                                     fullTrayRow(tray)
@@ -448,12 +453,17 @@ struct RefillStepView: View {
         return viewModel.currentRebuildMachineId == machine.id && viewModel.rebuildReady
     }
 
+    /// Slots of the change note not yet marked done / not possible.
+    private var openRebuildCount: Int {
+        viewModel.currentRebuild.filter { $0.action == nil }.count
+    }
+
     private func bottomActionBar(_ machine: RefillMachine) -> some View {
         let decided = rebuildDecided(machine)
         return VStack(spacing: 0) {
             Divider()
             if !decided {
-                Text("Mark every slot of the change note as rebuilt or not rebuilt first.")
+                Text("Finish the rebuild first (\(openRebuildCount) open)")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .multilineTextAlignment(.center)
