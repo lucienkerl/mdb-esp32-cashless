@@ -10,6 +10,7 @@ import { getProductImageUrl } from '@/composables/useProducts'
 import { hasSavedTour, clearSavedTourState } from '@/composables/useRefillWizard'
 import LocationPicker, { type LocationModel } from '~/components/LocationPicker.vue'
 import { usePosterFreshness } from '@/composables/usePosterFreshness'
+import MachineTemperatureBadges from '~/components/machine/MachineTemperatureBadges.vue'
 
 const { t, locale } = useI18n()
 const { organization } = useOrganization()
@@ -220,6 +221,13 @@ async function submitCreateMachine() {
               </CardHeader>
 
               <CardContent class="space-y-3">
+                <!-- Temperature sensors picked in the machine settings -->
+                <MachineTemperatureBadges
+                  :settings="machine.temp_sensors"
+                  :diagnostics="machine.embeddeds?.mdb_diagnostics"
+                  :online="machine.embeddeds?.status === 'online'"
+                />
+
                 <!-- Sales analytics -->
                 <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                   <div class="flex justify-between">

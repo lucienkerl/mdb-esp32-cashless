@@ -582,6 +582,20 @@
     "noDevices": "No sensor found",
     "rescanHint": "The 1-Wire buses are read again every 15 s."
   },
+  "tempSensors": {
+    "title": "Temperature sensors",
+    "hint": "Name the board's sensors and tick the ones to show next to the machine name, here and on the Machines panel. Readings refresh every 5 minutes.",
+    "none": "No sensor reported yet. Boards report their sensors with firmware that has this feature, a few seconds after connecting; an I/O test also lists the 1-Wire probes.",
+    "show": "Show next to the machine name",
+    "name": "Sensor name",
+    "notSeen": "not seen",
+    "forget": "Forget this sensor",
+    "ntcDefault": "PCB",
+    "ntcDetail": "Onboard thermistor · TH1",
+    "bus": "bus {n}",
+    "lastReading": "Last reading {time}",
+    "noReading": "No reading yet"
+  },
   "machineDetail": {
     "sales": "Sales",
     "traysAndStock": "Trays & Stock",

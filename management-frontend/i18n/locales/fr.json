@@ -582,6 +582,20 @@
     "noDevices": "Aucun capteur détecté",
     "rescanHint": "Les bus 1-Wire sont relus toutes les 15 s."
   },
+  "tempSensors": {
+    "title": "Sondes de température",
+    "hint": "Nommez les sondes de la carte et cochez celles à afficher à côté du nom de la machine, ici et dans le panneau Machines. Les mesures sont rafraîchies toutes les 5 minutes.",
+    "none": "Aucune sonde signalée pour l'instant. Les cartes signalent leurs sondes avec un firmware qui gère cette fonction, quelques secondes après la connexion ; un test I/O liste aussi les sondes 1-Wire.",
+    "show": "Afficher à côté du nom de la machine",
+    "name": "Nom de la sonde",
+    "notSeen": "non vue",
+    "forget": "Oublier cette sonde",
+    "ntcDefault": "PCB",
+    "ntcDetail": "Thermistance de la carte · TH1",
+    "bus": "bus {n}",
+    "lastReading": "Dernière mesure {time}",
+    "noReading": "Pas encore de mesure"
+  },
   "machineDetail": {
     "sales": "Ventes",
     "traysAndStock": "Plateaux et stock",

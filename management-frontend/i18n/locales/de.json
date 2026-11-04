@@ -582,6 +582,20 @@
     "noDevices": "Kein Sensor gefunden",
     "rescanHint": "Die 1-Wire-Busse werden alle 15 s neu gelesen."
   },
+  "tempSensors": {
+    "title": "Temperatursensoren",
+    "hint": "Benenne die Sensoren der Platine und wähle aus, welche neben dem Automatennamen angezeigt werden, hier und in der Automatenübersicht. Die Werte werden alle 5 Minuten aktualisiert.",
+    "none": "Noch kein Sensor gemeldet. Platinen melden ihre Sensoren mit einer Firmware, die diese Funktion hat, wenige Sekunden nach dem Verbinden; ein I/O-Test listet auch die 1-Wire-Fühler.",
+    "show": "Neben dem Automatennamen anzeigen",
+    "name": "Sensorname",
+    "notSeen": "nicht gesehen",
+    "forget": "Diesen Sensor vergessen",
+    "ntcDefault": "PCB",
+    "ntcDetail": "Thermistor auf der Platine · TH1",
+    "bus": "Bus {n}",
+    "lastReading": "Letzter Messwert {time}",
+    "noReading": "Noch kein Messwert"
+  },
   "machineDetail": {
     "sales": "Verkäufe",
     "traysAndStock": "Fächer & Bestand",

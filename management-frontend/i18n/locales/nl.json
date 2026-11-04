@@ -582,6 +582,20 @@
     "noDevices": "Geen sensor gevonden",
     "rescanHint": "De 1-Wire-bussen worden elke 15 s opnieuw gelezen."
   },
+  "tempSensors": {
+    "title": "Temperatuursensoren",
+    "hint": "Geef de sensoren van de print een naam en vink aan welke naast de automaatnaam getoond worden, hier en in het overzicht Automaten. De metingen worden elke 5 minuten vernieuwd.",
+    "none": "Nog geen sensor gemeld. Printen melden hun sensoren met firmware die deze functie heeft, enkele seconden na het verbinden; een I/O-test toont ook de 1-Wire-sensoren.",
+    "show": "Tonen naast de automaatnaam",
+    "name": "Naam van de sensor",
+    "notSeen": "niet gezien",
+    "forget": "Deze sensor vergeten",
+    "ntcDefault": "PCB",
+    "ntcDetail": "Thermistor op de print · TH1",
+    "bus": "bus {n}",
+    "lastReading": "Laatste meting {time}",
+    "noReading": "Nog geen meting"
+  },
   "machineDetail": {
     "sales": "Verkopen",
     "traysAndStock": "Vakken en voorraad",

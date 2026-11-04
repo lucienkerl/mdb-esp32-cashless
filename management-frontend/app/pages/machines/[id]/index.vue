@@ -21,7 +21,9 @@ import SlotPlanPanel from '~/components/slotplan/SlotPlanPanel.vue'
 import ProductGroupHeader from '~/components/machine/ProductGroupHeader.vue'
 import MdbTraceConsole from '~/components/machine/MdbTraceConsole.vue'
 import IoTestPanel from '~/components/machine/IoTestPanel.vue'
-import { isWroomBoard } from '~/lib/ioTest'
+import { isLive, isWroomBoard } from '~/lib/ioTest'
+import MachineTemperatureBadges from '~/components/machine/MachineTemperatureBadges.vue'
+import { mergeReadings, readingsFromDiagnostics, readingsFromIoState } from '~/lib/temperatureSensors'
 import TrayStockGrid from '~/components/machine/TrayStockGrid.vue'
 import { buildTrayGroupIndex, productListRows } from '@/lib/trayGroups'
 import {
@@ -62,6 +64,16 @@ const isAdmin = computed(() => role.value === 'admin')
 // board is reported in the mdb-log diagnostics by recent firmware.
 const showIoTest = computed(() =>
   isAdmin.value && isWroomBoard(machine.value?.embeddeds?.mdb_diagnostics))
+
+// Latest temperature readings, to name and pick sensors in the settings. A
+// running I/O test is fresher than the 5-min mdb-log snapshot; an old test
+// snapshot only fills in probes the mdb-log does not list (e.g. firmware
+// without the "temps" block).
+const tempReadings = computed(() => {
+  const io = readingsFromIoState(machine.value?.embeddeds?.io_state)
+  const diag = readingsFromDiagnostics(machine.value?.embeddeds?.mdb_diagnostics)
+  return isLive(machine.value?.embeddeds?.io_state, Date.now()) ? mergeReadings(io, diag) : mergeReadings(diag, io)
+})
 
 // ── SoftAP credentials modal ────────────────────────────────────────────
 // Triggered from inside the device-info modal, so we close the parent modal
@@ -244,7 +256,7 @@ const errorMsg = ref('')
 async function fetchMachine() {
   const { data, error } = await supabase
     .from('vendingMachine')
-    .select('id, name, location_lat, location_lon, embedded, country_code, public_listing, address_street, address_house_number, address_postal_code, address_city, formatted_address, nayax_machine_id, item_number_offset, linked_selections, embeddeds(id, status, status_at, subdomain, mac_address, firmware_version, firmware_build_date, mdb_address, mdb_diagnostics, io_state, last_restart_reason, last_restart_at, online_since, softap_password)')
+    .select('id, name, location_lat, location_lon, embedded, country_code, public_listing, address_street, address_house_number, address_postal_code, address_city, formatted_address, nayax_machine_id, item_number_offset, linked_selections, temp_sensors, embeddeds(id, status, status_at, subdomain, mac_address, firmware_version, firmware_build_date, mdb_address, mdb_diagnostics, io_state, last_restart_reason, last_restart_at, online_since, softap_password)')
     .eq('id', route.params.id)
     .single()
   if (error) {
@@ -1353,14 +1365,22 @@ async function handleAddSale() {
                   @blur="saveNameEdit"
                 />
               </div>
-              <h1
-                v-else
-                class="group flex cursor-pointer items-center gap-2 text-xl font-semibold sm:text-2xl"
-                @click="startEditName"
-              >
-                {{ machine.name ?? t('machines.unnamedMachine') }}
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
-              </h1>
+              <div v-else class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <h1
+                  class="group flex cursor-pointer items-center gap-2 text-xl font-semibold sm:text-2xl"
+                  @click="startEditName"
+                >
+                  {{ machine.name ?? t('machines.unnamedMachine') }}
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                </h1>
+                <!-- Temperature sensors picked in the machine settings -->
+                <MachineTemperatureBadges
+                  size="md"
+                  :settings="machine.temp_sensors"
+                  :diagnostics="machine.embeddeds?.mdb_diagnostics"
+                  :online="machine.embeddeds?.status === 'online'"
+                />
+              </div>
               <p
                 v-if="machine.location_lat != null && machine.location_lon != null"
                 class="mt-1 text-sm text-muted-foreground"
@@ -2621,6 +2641,7 @@ async function handleAddSale() {
                 :embedded-id="machine.embeddeds.id"
                 :io-state="machine.embeddeds.io_state"
                 :online="machine.embeddeds.status === 'online'"
+                :temp-sensors="machine.temp_sensors"
               />
             </TabsContent>
 
@@ -3405,7 +3426,9 @@ async function handleAddSale() {
           nayax_machine_id: (machine as any).nayax_machine_id ?? null,
           item_number_offset: (machine as any).item_number_offset ?? 0,
           linked_selections: (machine as any).linked_selections ?? false,
+          temp_sensors: (machine as any).temp_sensors ?? [],
         }"
+        :temp-readings="tempReadings"
         @saved="() => { fetchMachine(); posters.load() }"
       />
 

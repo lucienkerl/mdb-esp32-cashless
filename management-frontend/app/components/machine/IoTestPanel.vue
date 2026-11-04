@@ -17,6 +17,7 @@ import {
   type IoState,
 } from '@/lib/ioTest'
 import { timeAgo } from '@/lib/utils'
+import { NTC_SENSOR_ID, parseTempSettings } from '@/lib/temperatureSensors'
 
 /**
  * I/O test of a WROOM-1U board: live custom inputs, relay outputs you can
@@ -32,9 +33,14 @@ const props = defineProps<{
   embeddedId: string
   ioState?: IoState | null
   online: boolean
+  /** Raw `vendingMachine.temp_sensors`: operator names for the NTC and probes. */
+  tempSensors?: unknown
 }>()
 
 const { t } = useI18n()
+
+const sensorNames = computed(() => new Map(
+  parseTempSettings(props.tempSensors).filter(s => s.name).map(s => [s.id, s.name])))
 
 const DURATIONS = [60, 120, 300, 600]
 const durationSec = ref(120)
@@ -374,8 +380,10 @@ function formatTemp(c: number | undefined): string {
 
         <div class="mt-4 flex items-center justify-between gap-3">
           <div>
-            <p class="text-sm font-medium">{{ t('ioTest.ntc') }}</p>
-            <p class="text-xs text-muted-foreground font-mono">TH1 · GPIO7</p>
+            <p class="text-sm font-medium">{{ sensorNames.get(NTC_SENSOR_ID) ?? t('ioTest.ntc') }}</p>
+            <p class="text-xs text-muted-foreground font-mono">
+              <template v-if="sensorNames.has(NTC_SENSOR_ID)">{{ t('ioTest.ntc') }} · </template>TH1 · GPIO7
+            </p>
           </div>
           <span class="text-sm font-medium tabular-nums">{{ formatTemp(cur?.ntc) }}</span>
         </div>
@@ -393,6 +401,7 @@ function formatTemp(c: number | undefined): string {
           <ul v-else class="mt-2 space-y-1">
             <li v-for="dev in cur.ow[b]" :key="dev.id" class="flex items-center justify-between gap-3 text-xs">
               <span class="min-w-0 truncate font-mono text-muted-foreground" :title="dev.id">
+                <span v-if="sensorNames.get(dev.id.toUpperCase())" class="mr-1 font-sans font-medium text-foreground">{{ sensorNames.get(dev.id.toUpperCase()) }}</span>
                 <span v-if="oneWireFamily(dev.id)" class="mr-1 font-sans text-foreground">{{ oneWireFamily(dev.id) }}</span>{{ dev.id }}
               </span>
               <span class="shrink-0 font-medium tabular-nums">{{ formatTemp(dev.t) }}</span>

@@ -108,6 +108,14 @@ the test ends. `0x33`/`0x34` switch relay 1/2, `0x37` beeps the buzzer; all go t
 (`io-state.ts`) overwrites `embeddeds.io_state`, which the page follows through realtime. 1-Wire scans are serialised
 by `s_onewire_mutex` (the 5-min sensor timer and the test task share the buses). Needs `topic write /+/+/io` in the ACL.
 
+**Temperature sensors**: every `/mdb-log` payload carries the latest readings as
+`"temps":{"ntc":41.3,"ow":[{"id":"<ROM id>","b":1,"t":21.5}]}` (cache filled at boot, by the 5-min sensor timer and by
+I/O test scans; `ow` absent on the original board), merged into `embeddeds.mdb_diagnostics.temps` with no webhook change.
+`vendingMachine.temp_sensors` (`[{id:"ntc"|<ROM id>,name,show}]`, display only) holds the operator's names and which
+sensors show next to the machine name (machine page header, Machines panel cards) via
+`components/machine/MachineTemperatureBadges.vue`; edited in Machine settings (`TemperatureSensorsSettings.vue`),
+helpers in `app/lib/temperatureSensors.ts`. The I/O test panel shows the same names.
+
 **Live MDB bus trace (`mdb_trace.h`)**: on-demand raw capture of every 9-bit word on the bus, shown in the
 machine's MDB tab (admin). Off by default; started by config cmd `0x35` (duration in seconds in the *raw*
 `itemNumber` bytes 6-7 — not the price param, which goes through the scale factor; `0` = stop, capped at 1800 s;

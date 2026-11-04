@@ -355,6 +355,7 @@ static uint32_t mdb_checksum_errors = 0;
 static const char *mdb_last_cmd = "none";
 static machine_state_t mdb_prev_state = INACTIVE_STATE;
 static void publish_mdb_diag(void); // forward declaration
+static int temps_append_json(char *buf, size_t size); // forward declaration (temperature cache)
 
 // Live MDB bus trace (see mdb_trace.h). Words are captured in read_9() /
 // write_payload_9() into a lock-free ring and published as /mdb-trace batches
@@ -2417,8 +2418,16 @@ static void publish_mdb_diag(void) {
     char topic[128];
     snprintf(topic, sizeof(topic), "/%s/%s/mdb-log", my_company_id, my_device_id);
 
-    char msg[512];
-    int n = snprintf(msg, sizeof(msg),
+    /* Heap, not stack: with the "temps" block (up to 16 1-Wire probes) the
+     * payload outgrew 512 bytes, and this runs from the MDB task, the
+     * esp_timer task and the MQTT connect path, whose stacks are tight. */
+    const size_t msg_size = 1280;
+    char *msg = malloc(msg_size);
+    if (!msg) {
+        ESP_LOGW(TAG, "mdb-log: out of memory, snapshot skipped");
+        return;
+    }
+    int n = snprintf(msg, msg_size,
         "{\"state\":\"%s\",\"addr\":\"0x%02X\",\"polls\":%lu,\"chkErr\":%lu,\"lastCmd\":\"%s\",\"vmcLevel\":%u,\"saleQueue\":{\"pending\":%lu,\"overflow\":%lu,\"lastSeq\":%lu,\"fastPath\":%lu}",
         machine_state_name(machine_state),
         cashless_device_address,
@@ -2433,8 +2442,8 @@ static void publish_mdb_diag(void) {
 
     /* Only present when a reader is actually attached, so boards without
      * one keep the pre-RFID payload byte for byte. */
-    if (rfid_reader_is_running() && n > 0 && n < (int) sizeof(msg)) {
-        n += snprintf(msg + n, sizeof(msg) - n,
+    if (rfid_reader_is_running() && n > 0 && n < (int) msg_size) {
+        n += snprintf(msg + n, msg_size - n,
             ",\"rfid\":{\"ok\":%lu,\"bad\":%lu,\"cards\":%lu,\"dup\":%lu,\"rx\":%lu}",
             (unsigned long) rfid_frames_ok(),
             (unsigned long) rfid_frames_bad(),
@@ -2445,17 +2454,25 @@ static void publish_mdb_diag(void) {
 
     /* Board variant, so the management frontend only offers the I/O test
      * tab (relays, custom inputs, 1-Wire) on boards that have that hardware. */
-    if (n > 0 && n < (int) sizeof(msg)) {
-        n += snprintf(msg + n, sizeof(msg) - n, ",\"board\":\"%s\"",
+    if (n > 0 && n < (int) msg_size) {
+        n += snprintf(msg + n, msg_size - n, ",\"board\":\"%s\"",
                       g_board_is_wroom_1u ? "wroom-1u" : "original");
     }
 
-    if (n > 0 && n < (int) sizeof(msg) - 1) {
-        msg[n]     = '}';
-        msg[n + 1] = '\0';
+    /* Latest temperatures (onboard NTC + DS18B20 probes), so the frontend
+     * can show the sensors an operator picked on the Machines panel. */
+    if (n > 0 && n < (int) msg_size) {
+        n += temps_append_json(msg + n, msg_size - n);
     }
 
-    mqtt_publish_safe(mqttClient, topic, msg, 0, 0, 0);
+    if (n > 0 && n < (int) msg_size - 1) {
+        msg[n]     = '}';
+        msg[n + 1] = '\0';
+        mqtt_publish_safe(mqttClient, topic, msg, 0, 0, 0);
+    } else {
+        ESP_LOGW(TAG, "mdb-log: snapshot truncated, not published");
+    }
+    free(msg);
 }
 
 // esp_timer callback wrapper
@@ -3885,10 +3902,6 @@ static void onewire_bus_scan_and_read_ex(gpio_num_t pin, uint8_t bus_num, bool p
     if (s_onewire_mutex) xSemaphoreGive(s_onewire_mutex);
 }
 
-static void onewire_bus_scan_and_read(gpio_num_t pin, uint8_t bus_num, bool periodic_track) {
-    onewire_bus_scan_and_read_ex(pin, bus_num, periodic_track, NULL, 0, NULL);
-}
-
 static void onewire_bus_scan_and_read_locked(gpio_num_t pin, uint8_t bus_num, bool periodic_track,
                                              onewire_reading_t *out, int max_out, int *out_count) {
     onewire_bus_config_t bus_config = { .bus_gpio_num = pin };
@@ -4009,13 +4022,109 @@ static bool ntc_read_celsius(float *out_celsius) {
     return true;
 }
 
+//------------------------ Latest temperatures (mdb-log) -------------------//
+//--------------------------------------------------------------------------//
+// Last NTC reading and last scan of each 1-Wire bus, reported as "temps" in
+// every /mdb-log snapshot:
+//
+//   "temps":{"ntc":41.3,"ow":[{"id":"28FF64A1B2C30405","b":1,"t":21.50}]}
+//
+// The frontend lets an operator name these sensors and pick the ones shown
+// on the Machines panel (vendingMachine.temp_sensors). Filled at boot, by the
+// 5-min sensor timer and by every I/O test scan; "ow" only lists probes that
+// answered a temperature, and is omitted until a bus was scanned (so always
+// on the original board, which has no 1-Wire buses).
+static portMUX_TYPE s_temps_mux = portMUX_INITIALIZER_UNLOCKED;
+static bool s_temps_ntc_valid = false;
+static float s_temps_ntc_c = 0;
+static onewire_reading_t s_temps_ow[2][ONEWIRE_MAX_READINGS];
+static int s_temps_ow_count[2] = { 0, 0 };
+static bool s_temps_ow_scanned = false;
+
+static void temps_cache_set_ntc(float temp_c) {
+    portENTER_CRITICAL(&s_temps_mux);
+    s_temps_ntc_c = temp_c;
+    s_temps_ntc_valid = true;
+    portEXIT_CRITICAL(&s_temps_mux);
+}
+
+// bus_idx is 0-based (bus 1 = index 0).
+static void temps_cache_set_bus(int bus_idx, const onewire_reading_t *readings, int count) {
+    if (bus_idx < 0 || bus_idx > 1) return;
+    if (count < 0) count = 0;
+    if (count > ONEWIRE_MAX_READINGS) count = ONEWIRE_MAX_READINGS;
+    portENTER_CRITICAL(&s_temps_mux);
+    memcpy(s_temps_ow[bus_idx], readings, sizeof(onewire_reading_t) * count);
+    s_temps_ow_count[bus_idx] = count;
+    s_temps_ow_scanned = true;
+    portEXIT_CRITICAL(&s_temps_mux);
+}
+
+// Scans both 1-Wire buses (WROOM-1U only) and stores what answered.
+// periodic_track is forwarded to the scan (debug-log delta tracking).
+static void temps_scan_onewire(bool periodic_track) {
+    onewire_reading_t found[ONEWIRE_MAX_READINGS];
+    int count = 0;
+    onewire_bus_scan_and_read_ex(PIN_ONEWIRE_1, 1, periodic_track, found, ONEWIRE_MAX_READINGS, &count);
+    temps_cache_set_bus(0, found, count);
+    onewire_bus_scan_and_read_ex(PIN_ONEWIRE_2, 2, periodic_track, found, ONEWIRE_MAX_READINGS, &count);
+    temps_cache_set_bus(1, found, count);
+}
+
+// Appends ,"temps":{...} to buf. Returns the number of characters written,
+// like snprintf (may exceed size - 1 when truncated; the caller checks).
+static int temps_append_json(char *buf, size_t size) {
+    bool ntc_valid;
+    float ntc_c;
+    bool scanned;
+    int counts[2];
+    onewire_reading_t ow[2][ONEWIRE_MAX_READINGS];
+
+    portENTER_CRITICAL(&s_temps_mux);
+    ntc_valid = s_temps_ntc_valid;
+    ntc_c = s_temps_ntc_c;
+    scanned = s_temps_ow_scanned;
+    for (int b = 0; b < 2; b++) {
+        counts[b] = s_temps_ow_count[b];
+        memcpy(ow[b], s_temps_ow[b], sizeof(onewire_reading_t) * counts[b]);
+    }
+    portEXIT_CRITICAL(&s_temps_mux);
+
+    if (!ntc_valid && !scanned) return 0;
+
+    int n = snprintf(buf, size, ",\"temps\":{");
+    bool first = true;
+    if (ntc_valid && n < (int) size) {
+        n += snprintf(buf + n, size - n, "\"ntc\":%.1f", ntc_c);
+        first = false;
+    }
+    if (scanned && n < (int) size) {
+        n += snprintf(buf + n, size - n, "%s\"ow\":[", first ? "" : ",");
+        bool first_probe = true;
+        for (int b = 0; b < 2; b++) {
+            for (int i = 0; i < counts[b] && n < (int) size; i++) {
+                if (!ow[b][i].has_temp) continue;
+                n += snprintf(buf + n, size - n, "%s{\"id\":\"%016llX\",\"b\":%d,\"t\":%.2f}",
+                              first_probe ? "" : ",",
+                              (unsigned long long) ow[b][i].address, b + 1, ow[b][i].temp_c);
+                first_probe = false;
+            }
+        }
+        if (n < (int) size) n += snprintf(buf + n, size - n, "]");
+    }
+    if (n < (int) size) n += snprintf(buf + n, size - n, "}");
+    return n;
+}
+
 // esp_timer periodic callback (5 min). Re-reads the onboard NTC (both
 // board variants) and, on WROOM-1U only, the 1-Wire buses — each gated by
 // its own >=0.5C delta filter so a stable temperature doesn't fill the
-// debug log with near-duplicate readings.
+// debug log with near-duplicate readings. Every reading also refreshes the
+// temperature cache reported in /mdb-log.
 static void periodic_sensor_timer_cb(void *arg) {
     float temp_c;
     if (ntc_read_celsius(&temp_c)) {
+        temps_cache_set_ntc(temp_c);
         if (isnan(s_ntc_last_logged_c) || fabsf(temp_c - s_ntc_last_logged_c) >= NTC_LOG_DELTA_C) {
             s_ntc_last_logged_c = temp_c;
             debug_log_append(DEBUG_LOG_NTC, 0, 0, (int32_t)(temp_c * 1000));
@@ -4023,8 +4132,7 @@ static void periodic_sensor_timer_cb(void *arg) {
     }
 
     if (g_board_is_wroom_1u) {
-        onewire_bus_scan_and_read(PIN_ONEWIRE_1, 1, true);
-        onewire_bus_scan_and_read(PIN_ONEWIRE_2, 2, true);
+        temps_scan_onewire(true);
     }
 }
 
@@ -4123,6 +4231,8 @@ static void io_test_task(void *arg) {
         if (last_scan_us == 0 || now - last_scan_us >= IO_TEST_ONEWIRE_PERIOD_US) {
             onewire_bus_scan_and_read_ex(PIN_ONEWIRE_1, 1, false, s_io_ow[0], ONEWIRE_MAX_READINGS, &s_io_ow_count[0]);
             onewire_bus_scan_and_read_ex(PIN_ONEWIRE_2, 2, false, s_io_ow[1], ONEWIRE_MAX_READINGS, &s_io_ow_count[1]);
+            temps_cache_set_bus(0, s_io_ow[0], s_io_ow_count[0]);
+            temps_cache_set_bus(1, s_io_ow[1], s_io_ow_count[1]);
             s_io_ow_scanned = true;
             last_scan_us = esp_timer_get_time();
             last_pub_us = 0;  // publish the fresh scan right away
@@ -4316,8 +4426,15 @@ void app_main(void) {
 
 		xTaskCreate(custom_input_task, "custom_input", 4096, NULL, 5, NULL);
 
-		onewire_bus_scan_and_read(PIN_ONEWIRE_1, 1, false);
-		onewire_bus_scan_and_read(PIN_ONEWIRE_2, 2, false);
+		// Boot discovery scan; also seeds the temperature cache so the first
+		// /mdb-log snapshot after MQTT connects already carries the probes.
+		temps_scan_onewire(false);
+	}
+
+	// Same for the onboard NTC (both board variants).
+	{
+		float ntc_boot_c;
+		if (ntc_read_celsius(&ntc_boot_c)) temps_cache_set_ntc(ntc_boot_c);
 	}
 
 	//---------------- UART1 - EVA DTS DEX/DDCMP ---------------//
