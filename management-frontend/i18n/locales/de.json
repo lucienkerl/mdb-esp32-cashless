@@ -1301,7 +1301,7 @@
     "statusCol": "Status",
     "firmwareCol": "Firmware",
     "assignedMachine": "Zugewiesener Automat",
-    "lastSeenCol": "Zuletzt gesehen",
+    "lastSeenCol": "Letzter Kontakt",
     "registeredCol": "Registriert",
     "machineCol": "Automat",
     "unassigned": "Nicht zugewiesen",
@@ -2778,5 +2778,90 @@
     "cameraError": "Kamerafehler: {error}",
     "enterManually": "Manuell eingeben",
     "placeholder": "Barcode eingeben..."
+  },
+  "connectivity": {
+    "state": {
+      "online": "Online",
+      "stale": "Keine Rückmeldung",
+      "offline": "Offline",
+      "updating": "Update läuft",
+      "never": "Nie verbunden",
+      "none": "Kein Gerät"
+    },
+    "time": {
+      "contact": "Kontakt {ago}",
+      "lastContact": "Letzter Kontakt {ago}",
+      "offlineSince": "Offline seit {clock} · {ago}",
+      "updateStarted": "Update gestartet {ago}",
+      "never": "Hat sich noch nie gemeldet",
+      "noDevice": "Kein Gerät zugeordnet"
+    },
+    "reader": {
+      "ready": "Kasse bereit",
+      "disabled": "Kasse gesperrt",
+      "inactive": "Automat antwortet nicht",
+      "readyHint": "Der Automat fragt den Leser ab, bargeldlos zahlen ist möglich.",
+      "disabledHint": "Der Automat hat bargeldlos gerade gesperrt, z. B. weil er außer Betrieb ist.",
+      "inactiveHint": "Das Gerät ist online, aber der Automat fragt den Leser nicht ab. Bargeldlos zahlen ist nicht möglich.",
+      "unknown": "Unbekannt",
+      "unknownHint": "Ist erst bekannt, wenn das Gerät online ist."
+    },
+    "duration": {
+      "days": "{days} T {hours} Std.",
+      "hours": "{hours} Std. {minutes} Min.",
+      "minutes": "{minutes} Min."
+    },
+    "card": {
+      "title": "Verbindung",
+      "live": "aktualisiert sich live",
+      "device": "Gerät",
+      "network": "Netz",
+      "machine": "Automat (MDB)",
+      "onlineSince": "Online seit",
+      "offlineSince": "Offline seit",
+      "lastContact": "Letzter Kontakt",
+      "previouslyOnline": "Vorher online",
+      "firmware": "Firmware",
+      "operator": "Anbieter",
+      "signal": "Signal",
+      "mode": "Modus",
+      "uplinkCellular": "Mobilfunk",
+      "uplinkUnknown": "WLAN oder unbekannt"
+    },
+    "history": {
+      "title": "Letzte 24 Stunden",
+      "percent": "{pct} % online",
+      "noData": "Noch keine Daten",
+      "noOutages": "keine Ausfälle",
+      "outages": "{count} Ausfall | {count} Ausfälle",
+      "online": "online",
+      "offline": "offline",
+      "updating": "Update",
+      "unknown": "keine Daten",
+      "outageRange": "offline {from}–{to} ({duration})",
+      "ago": "vor 24 Std.",
+      "now": "jetzt"
+    },
+    "notice": {
+      "offlineBody": "Der Server hat den Verbindungsabbruch um {clock} bemerkt. Verkäufe aus dieser Zeit schickt das Gerät nach, sobald es wieder online ist.",
+      "offlineCheck": "Prüfen: Strom am Automaten, Netz am Standort, Status-LED am Gerät (gelb blinkend = sucht Netz).",
+      "staleBody": "Das Gerät hat sich nicht abgemeldet, schickt aber seit über 12 Minuten keine Heartbeats mehr (normal: alle 5 Min.). Meist ist es ein Netzproblem am Standort, seltener ein Problem auf dem Server.",
+      "staleCheck": "Prüfen: Kommen bei anderen Automaten Daten an? Wenn nicht, liegt es am Server, sonst wie bei „Offline“.",
+      "updatingBody": "Die neue Firmware wird installiert. Das Gerät startet danach neu und ist kurz offline. Dauert es über 10 Minuten, wird daraus „Keine Rückmeldung“."
+    },
+    "fleet": {
+      "attentionTitle": "{count} Automat braucht Aufmerksamkeit | {count} Automaten brauchen Aufmerksamkeit",
+      "onlineOf": "{online} von {devices} Geräten online",
+      "offline": "{count} offline",
+      "stale": "{count} ohne Rückmeldung",
+      "readerInactive": "{count} Automat antwortet nicht | {count} Automaten antworten nicht",
+      "noDevice": "{count} Automat ohne Gerät | {count} Automaten ohne Gerät"
+    },
+    "filter": {
+      "all": "Alle",
+      "attention": "Braucht Aufmerksamkeit",
+      "online": "Online",
+      "noDevice": "Ohne Gerät"
+    }
   }
 }
