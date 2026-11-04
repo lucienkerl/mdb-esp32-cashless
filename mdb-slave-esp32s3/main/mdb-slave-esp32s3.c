@@ -3606,7 +3606,20 @@ static bool detect_board_variant(void) {
 // WROOM-1U only — see PIN_RELAY_1/2 above for why these GPIOs are safe to
 // drive unconditionally on this board but must never be touched on the
 // original board (no relay hardware there to receive the signal).
+//
+// Drive is active-LOW on the WROOM-1U board (TLP785 opto pull-up/pull-down
+// arrangement, see kicad/mdb_slave_esp32s3-wroom-1u/README.md): GPIO high =
+// relay de-energised, GPIO low = relay energised — confirmed on hardware.
+// The pins float between reset and this call, which energises the relays for
+// that short window; that is a hardware property firmware cannot remove.
+#define RELAY_LEVEL_OFF 1
+#define RELAY_LEVEL_ON  0
+
 static void relay_init(void) {
+    // Latch the OFF level before switching the pins to output, so they go
+    // straight from floating to OFF without a glitch to ON.
+    gpio_set_level(PIN_RELAY_1, RELAY_LEVEL_OFF);
+    gpio_set_level(PIN_RELAY_2, RELAY_LEVEL_OFF);
     gpio_config_t relay_cfg = {
         .pin_bit_mask = (1ULL << PIN_RELAY_1) | (1ULL << PIN_RELAY_2),
         .mode         = GPIO_MODE_OUTPUT,
@@ -3615,8 +3628,8 @@ static void relay_init(void) {
         .intr_type    = GPIO_INTR_DISABLE,
     };
     gpio_config(&relay_cfg);
-    gpio_set_level(PIN_RELAY_1, 0);
-    gpio_set_level(PIN_RELAY_2, 0);
+    gpio_set_level(PIN_RELAY_1, RELAY_LEVEL_OFF);
+    gpio_set_level(PIN_RELAY_2, RELAY_LEVEL_OFF);
     ESP_LOGI(TAG, "Relay outputs initialised (both OFF)");
 }
 
@@ -3627,7 +3640,7 @@ static volatile bool s_relay_on[2] = { false, false };
 
 static void set_relay(uint8_t relay_num, bool on) {
     gpio_num_t pin = (relay_num == 1) ? PIN_RELAY_1 : PIN_RELAY_2;
-    gpio_set_level(pin, on ? 1 : 0);
+    gpio_set_level(pin, on ? RELAY_LEVEL_ON : RELAY_LEVEL_OFF);
     s_relay_on[relay_num == 1 ? 0 : 1] = on;
     ESP_LOGW(TAG, "Relay %u set to %s", relay_num, on ? "ON" : "OFF");
     debug_log_append(DEBUG_LOG_RELAY, relay_num, on ? 1 : 0, 0);
