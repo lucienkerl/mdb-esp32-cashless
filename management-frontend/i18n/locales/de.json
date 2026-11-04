@@ -580,7 +580,9 @@
     "bus": "1-Wire-Bus {n}",
     "scanning": "Suche nach Sensoren…",
     "noDevices": "Kein Sensor gefunden",
-    "rescanHint": "Die 1-Wire-Busse werden alle 15 s neu gelesen."
+    "rescanHint": "Die 1-Wire-Busse werden alle 15 s neu gelesen.",
+    "sensorsSettingsHint": "In den Automateneinstellungen kannst du die Fühler benennen und auswählen, welche neben dem Automatennamen angezeigt werden (Automatenseite und Automatenübersicht).",
+    "openSettings": "Automateneinstellungen öffnen"
   },
   "tempSensors": {
     "title": "Temperatursensoren",

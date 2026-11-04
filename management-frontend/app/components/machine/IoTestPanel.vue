@@ -4,6 +4,7 @@ import {
   IconLoader2,
   IconPlayerPlay,
   IconPlayerStop,
+  IconSettings,
 } from '@tabler/icons-vue'
 import { Switch } from '@/components/ui/switch'
 import {
@@ -36,6 +37,9 @@ const props = defineProps<{
   /** Raw `vendingMachine.temp_sensors`: operator names for the NTC and probes. */
   tempSensors?: unknown
 }>()
+
+/** The page opens its Machine settings modal (temperature sensors section). */
+const emit = defineEmits<{ openSettings: [] }>()
 
 const { t } = useI18n()
 
@@ -409,6 +413,19 @@ function formatTemp(c: number | undefined): string {
           </ul>
         </div>
         <p v-if="cur?.ow" class="mt-3 text-xs text-muted-foreground">{{ t('ioTest.rescanHint') }}</p>
+
+        <!-- Points operators to where sensors get a name and are picked for display -->
+        <div class="mt-4 rounded-md border border-dashed bg-muted/40 p-3 text-xs text-muted-foreground">
+          <p>{{ t('ioTest.sensorsSettingsHint') }}</p>
+          <button
+            type="button"
+            class="mt-2 inline-flex items-center gap-1 font-medium text-primary hover:underline"
+            @click="emit('openSettings')"
+          >
+            <IconSettings class="size-3.5" />
+            {{ t('ioTest.openSettings') }}
+          </button>
+        </div>
       </div>
     </div>
   </div>

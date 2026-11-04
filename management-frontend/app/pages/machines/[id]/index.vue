@@ -2642,6 +2642,7 @@ async function handleAddSale() {
                 :io-state="machine.embeddeds.io_state"
                 :online="machine.embeddeds.status === 'online'"
                 :temp-sensors="machine.temp_sensors"
+                @open-settings="showMachineSettingsModal = true"
               />
             </TabsContent>
 

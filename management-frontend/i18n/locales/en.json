@@ -580,7 +580,9 @@
     "bus": "1-Wire bus {n}",
     "scanning": "Searching for sensors…",
     "noDevices": "No sensor found",
-    "rescanHint": "The 1-Wire buses are read again every 15 s."
+    "rescanHint": "The 1-Wire buses are read again every 15 s.",
+    "sensorsSettingsHint": "Give the probes a name and pick the ones shown next to the machine name (machine page and Machines panel) in the machine settings.",
+    "openSettings": "Open machine settings"
   },
   "tempSensors": {
     "title": "Temperature sensors",

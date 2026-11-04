@@ -580,7 +580,9 @@
     "bus": "Bus 1-Wire {n}",
     "scanning": "Recherche des capteurs…",
     "noDevices": "Aucun capteur détecté",
-    "rescanHint": "Les bus 1-Wire sont relus toutes les 15 s."
+    "rescanHint": "Les bus 1-Wire sont relus toutes les 15 s.",
+    "sensorsSettingsHint": "Vous pouvez nommer les sondes et choisir celles à afficher à côté du nom de la machine (page machine et panneau Machines) depuis les réglages de la machine.",
+    "openSettings": "Ouvrir les réglages de la machine"
   },
   "tempSensors": {
     "title": "Sondes de température",

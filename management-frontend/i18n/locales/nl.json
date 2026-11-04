@@ -580,7 +580,9 @@
     "bus": "1-Wire-bus {n}",
     "scanning": "Sensoren zoeken…",
     "noDevices": "Geen sensor gevonden",
-    "rescanHint": "De 1-Wire-bussen worden elke 15 s opnieuw gelezen."
+    "rescanHint": "De 1-Wire-bussen worden elke 15 s opnieuw gelezen.",
+    "sensorsSettingsHint": "In de instellingen van de automaat kun je de sensoren een naam geven en kiezen welke naast de automaatnaam getoond worden (automaatpagina en overzicht Automaten).",
+    "openSettings": "Instellingen van de automaat openen"
   },
   "tempSensors": {
     "title": "Temperatuursensoren",
