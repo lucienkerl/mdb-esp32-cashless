@@ -124,6 +124,28 @@ void sale_queue_init(void) {
     load_u32(h, K_TAIL,     &s_tail);
     load_u32(h, K_OVERFLOW, &s_overflow);
     load_u32(h, K_LAST_SEQ, &s_seq_reserved_to);
+
+    // One-time cleanup for devices that ran older firmware: a slot blob
+    // used to stay in NVS after its PUBACK, and because the slot index is
+    // tail % capacity, every slow-path sale over the device's lifetime
+    // left a new key behind until all 512 existed — far more than the
+    // 16 KB NVS of the original board holds. Erase every slot that is not
+    // pending. A missing key is only a lookup, so this is cheap once clean.
+    uint32_t pending_now = s_tail - s_head;
+    if (pending_now > SALE_QUEUE_CAPACITY) pending_now = SALE_QUEUE_CAPACITY;
+    int freed = 0;
+    for (uint32_t slot = 0; slot < SALE_QUEUE_CAPACITY; slot++) {
+        // Pending slots are head .. tail-1 (mod capacity).
+        uint32_t offset = (slot + SALE_QUEUE_CAPACITY - (s_head % SALE_QUEUE_CAPACITY)) % SALE_QUEUE_CAPACITY;
+        if (offset < pending_now) continue;
+        char key[8];
+        snprintf(key, sizeof(key), SLOT_KEY_FMT, (unsigned)slot);
+        if (nvs_erase_key(h, key) == ESP_OK) freed++;
+    }
+    if (freed) {
+        nvs_commit(h);
+        ESP_LOGW(TAG, "freed %d stale slot keys from NVS", freed);
+    }
     nvs_close(h);
 
     // Conservative: assume every reserved seq might have been assigned in the
