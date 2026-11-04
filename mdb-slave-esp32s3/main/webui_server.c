@@ -12,12 +12,15 @@
 #include <esp_log.h>
 #include "lwip/udp.h"
 #include "lwip/ip_addr.h"
+#include "lwip/sockets.h"
+#include "esp_netif.h"
 #include "esp_chip_info.h"
 #include "webui_server.h"
 #include "network.h"
 #include "modem.h"
 #include "provision.h"
 #include "restart.h"
+#include "cred_backup.h"
 
 #define TAG "webui"
 
@@ -293,18 +296,82 @@ static void deferred_factory_reset_task(void *arg) {
     (void)arg;
     vTaskDelay(pdMS_TO_TICKS(800));
     ESP_LOGW(TAG, "PORTAL RESET: erasing NVS and restarting");
+    cred_backup_erase();   /* deliberate wipe: no restore on the next boot */
     nvs_flash_erase();
     esp_wifi_restore();
     vTaskDelay(pdMS_TO_TICKS(200));
     esp_restart();
 }
 
+/* True when the request reached us on the SoftAP's own address, i.e. the
+ * client is joined to the device's access point. The REST server listens
+ * on every interface, so without this check anything on the operator's
+ * LAN (the STA side) could call the endpoints too. The socket is IPv6
+ * when lwIP has IPv6 enabled; an IPv4 client then shows up as an
+ * IPv4-mapped address (::ffff:a.b.c.d). */
+static bool request_is_from_softap(httpd_req_t *req) {
+    int fd = httpd_req_to_sockfd(req);
+    struct sockaddr_storage local;
+    socklen_t len = sizeof(local);
+    if (fd < 0 || getsockname(fd, (struct sockaddr *)&local, &len) != 0) return false;
+
+    uint32_t addr = 0;
+    if (local.ss_family == AF_INET) {
+        addr = ((struct sockaddr_in *)&local)->sin_addr.s_addr;
+    }
+#if CONFIG_LWIP_IPV6
+    else if (local.ss_family == AF_INET6) {
+        const uint8_t *b = (const uint8_t *)&((struct sockaddr_in6 *)&local)->sin6_addr;
+        static const uint8_t v4_mapped[12] = {0,0,0,0,0,0,0,0,0,0,0xff,0xff};
+        if (memcmp(b, v4_mapped, sizeof(v4_mapped)) != 0) return false;
+        memcpy(&addr, b + 12, sizeof(addr));
+    }
+#endif
+    else {
+        return false;
+    }
+
+    esp_netif_t *ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+    esp_netif_ip_info_t ip;
+    if (!ap || esp_netif_get_ip_info(ap, &ip) != ESP_OK) return false;
+    return addr == ip.ip.addr;
+}
+
+static bool device_is_claimed(void) {
+    bool claimed = false;
+    nvs_handle_t h;
+    if (nvs_open("vmflow", NVS_READONLY, &h) == ESP_OK) {
+        size_t l = 0;
+        claimed = (nvs_get_str(h, "company_id", NULL, &l) == ESP_OK && l > 1);
+        nvs_close(h);
+    }
+    return claimed;
+}
+
 /* POST /api/v1/system/reset — wipe all provisioning + WiFi state and
  * reboot. The device comes back unclaimed with an open SoftAP, exactly
  * as if the BOOT button had been held for 5 s. Used from the captive
  * portal's "Setup complete" view to decommission a device without
- * physical access. */
+ * physical access.
+ *
+ * Refused unless the client is on the SoftAP itself, and refused on a
+ * claimed device whose SoftAP has no password: anyone walking past the
+ * machine can join an open AP, and a captive-portal sheet pops up on its
+ * own — two taps and a working machine was wiped. The BOOT button stays
+ * the way to reset such a device. */
 static esp_err_t system_reset_handler(httpd_req_t *req) {
+    if (!request_is_from_softap(req)) {
+        ESP_LOGW(TAG, "PORTAL RESET refused: request did not come in over the SoftAP");
+        httpd_resp_set_status(req, "403 Forbidden");
+        return send_err_json(req, "reset is only possible while connected to the device's own WiFi");
+    }
+    char pwd[SOFTAP_PWD_MAX];
+    softap_get_password(pwd, sizeof(pwd));
+    if (pwd[0] == '\0' && device_is_claimed()) {
+        ESP_LOGW(TAG, "PORTAL RESET refused: claimed device with an open SoftAP");
+        httpd_resp_set_status(req, "403 Forbidden");
+        return send_err_json(req, "this device's WiFi has no password, so reset is disabled here; hold the BOOT button for 5 s instead");
+    }
     xTaskCreate(deferred_factory_reset_task, "portal_rst", 4096, NULL, 5, NULL);
     return send_ok(req);
 }

@@ -200,6 +200,37 @@ static bool fast_path_ack_locked(int msg_id) {
     return false;
 }
 
+// NVS headroom the queue must leave for everything else.
+//
+// The queue shares the one small NVS partition with the device's identity,
+// the WiFi credentials and the PHY calibration — 16 KB (4 pages) on the
+// original board, 24 KB on WROOM-1U. Each queued sale costs 3 NVS entries
+// (blob index + blob header + data), so SALE_QUEUE_CAPACITY (512) is ~1500
+// entries against ~500 that exist on the original board: a long WiFi
+// outage at a busy machine filled NVS completely. After that every NVS
+// write anywhere in the firmware fails or forces page compaction on an
+// almost-full partition — the state in which an interrupted write (the
+// machine is switched off at the mains) leaves NVS in a shape that
+// nvs_flash_init() reports as NO_FREE_PAGES, and the boot code then erases
+// the whole partition: unclaimed device, no WiFi, open SoftAP.
+//
+// So a sale is only queued while, on top of the page NVS itself always
+// keeps free (counted in free_entries), NVS_HEADROOM_ENTRIES are still
+// free for the other writers (restart reason, cursors, a re-claim, a WiFi
+// change). Once that is used up, sales count as overflow, the same as a
+// full queue. This trades the tail of a very long outage's sales for a
+// device that stays configured. On the original board that leaves room for
+// a few dozen queued sales rather than letting them fill NVS.
+#define NVS_ENTRIES_PER_PAGE   126
+#define NVS_HEADROOM_ENTRIES   48
+#define NVS_RESERVE_ENTRIES    (NVS_ENTRIES_PER_PAGE + NVS_HEADROOM_ENTRIES)
+
+static bool nvs_has_headroom(void) {
+    nvs_stats_t st;
+    if (nvs_get_stats(NULL, &st) != ESP_OK) return true;  // unknown: don't block sales
+    return st.free_entries > NVS_RESERVE_ENTRIES + 3;
+}
+
 // Caller must hold s_lock. Writes one record into the slow-path NVS queue
 // (blob + tail commit). Returns true on success. Caller is responsible for
 // overflow accounting.
@@ -233,9 +264,9 @@ static void fast_path_demote_all_locked(void) {
     for (int i = 0; i < FAST_PATH_TRACK_MAX; i++) {
         if (s_fast_tracked[i].msg_id == 0) continue;
 
-        if (s_tail - s_head >= SALE_QUEUE_CAPACITY) {
-            // Queue is full — record the loss but clear the tracking slot
-            // so we don't keep retrying forever.
+        if (s_tail - s_head >= SALE_QUEUE_CAPACITY || !nvs_has_headroom()) {
+            // Queue (or NVS) is full — record the loss but clear the
+            // tracking slot so we don't keep retrying forever.
             s_overflow++;
             lost++;
         } else if (nvs_persist_record_locked(&s_fast_tracked[i].rec)) {
@@ -294,7 +325,8 @@ bool sale_queue_enqueue(uint8_t cmd, uint16_t item_price, uint16_t item_number) 
     }
 
     uint32_t pending = s_tail - s_head;
-    if (pending >= SALE_QUEUE_CAPACITY) {
+    bool nvs_full = (pending < SALE_QUEUE_CAPACITY) && !nvs_has_headroom();
+    if (pending >= SALE_QUEUE_CAPACITY || nvs_full) {
         s_overflow++;
         nvs_handle_t oh;
         if (nvs_open(NS, NVS_READWRITE, &oh) == ESP_OK) {
@@ -302,8 +334,9 @@ bool sale_queue_enqueue(uint8_t cmd, uint16_t item_price, uint16_t item_number) 
             nvs_commit(oh);
             nvs_close(oh);
         }
-        ESP_LOGE(TAG, "queue full (capacity=%u) — sale DROPPED (overflow=%u)",
-                 (unsigned)SALE_QUEUE_CAPACITY, (unsigned)s_overflow);
+        ESP_LOGE(TAG, "queue full (%s, pending=%u) — sale DROPPED (overflow=%u)",
+                 nvs_full ? "NVS headroom reached" : "capacity reached",
+                 (unsigned)pending, (unsigned)s_overflow);
         xSemaphoreGive(s_lock);
         return false;
     }
@@ -487,10 +520,16 @@ void sale_queue_on_published(int msg_id) {
     }
 
     // Slow-path PUBACK: advance head, the oldest queued sale is confirmed.
+    // The confirmed slot's blob is erased too, so a drained queue gives its
+    // NVS space back instead of keeping it occupied until the slot index
+    // wraps around (see nvs_has_headroom).
     uint32_t new_head = s_head + 1;
     nvs_handle_t h;
     if (nvs_open(NS, NVS_READWRITE, &h) == ESP_OK) {
+        char key[8];
+        snprintf(key, sizeof(key), SLOT_KEY_FMT, (unsigned)(s_head % SALE_QUEUE_CAPACITY));
         nvs_set_u32(h, K_HEAD, new_head);
+        nvs_erase_key(h, key);
         nvs_commit(h);
         nvs_close(h);
         s_head = new_head;
