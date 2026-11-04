@@ -39,6 +39,7 @@
 #include "webui_server.h"
 #include "sale_queue.h"
 #include "debug_log.h"
+#include "cred_backup.h"
 #include "network.h"
 #include "rfid_reader.h"
 #include "scale_factor.h"
@@ -2321,6 +2322,16 @@ void ble_event_handler(char *ble_payload) {
         // Not implemented
         break;
     case 0x06: {
+        /* Legacy BLE WiFi setup (0x06 SSID, 0x07 password). The
+         * characteristic is writable by any BLE client in range, without
+         * pairing or passkey, and this used to disconnect the device and
+         * overwrite the saved SSID — a working machine dropped off its WiFi
+         * and sat on the open SoftAP. Only an unclaimed device takes it now;
+         * a claimed one changes WiFi through the captive portal. */
+        if (strlen(my_company_id) > 0) {
+            ESP_LOGW(TAG, "BLE: WiFi SSID change ignored on a claimed device");
+            break;
+        }
         esp_wifi_disconnect();
 
 		wifi_config_t wifi_config = {0};
@@ -2333,6 +2344,10 @@ void ble_event_handler(char *ble_payload) {
         break;
     }
     case 0x07: {
+        if (strlen(my_company_id) > 0) {
+            ESP_LOGW(TAG, "BLE: WiFi password change ignored on a claimed device");
+            break;
+        }
         wifi_config_t wifi_config = {0};
 		esp_wifi_get_config(WIFI_IF_STA, &wifi_config);
 
@@ -3506,6 +3521,11 @@ static void network_event_cb(network_event_t event, void *user_data) {
                 xTaskCreate(softap_sync_task, "softap_sync", 8192, NULL, 4, NULL);
             }
 
+            /* The uplink is up, so the WiFi credentials and the identity in
+             * NVS demonstrably work: refresh the backup copy (no-op when it
+             * is unchanged). */
+            cred_backup_sync_async();
+
             if (!sntp_started) {
                 esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
                 esp_sntp_setservername(0, "pool.ntp.org");
@@ -3590,6 +3610,7 @@ static void factory_reset_task(void *arg) {
                 TickType_t held_ms = (xTaskGetTickCount() - press_start) * portTICK_PERIOD_MS;
                 if (held_ms >= FACTORY_RESET_MS) {
                     ESP_LOGW(TAG, "FACTORY RESET: button held %lu ms — erasing NVS and restarting", held_ms);
+                    cred_backup_erase();   /* deliberate wipe: no restore on the next boot */
                     nvs_flash_erase();
                     esp_wifi_restore();
                     vTaskDelay(pdMS_TO_TICKS(200));
@@ -4357,15 +4378,51 @@ void app_main(void) {
 	//-------------------- NETWORK STACK -----------------------//
 	//----------------------------------------------------------//
 	esp_err_t nvs_err = nvs_flash_init();
+	bool nvs_was_erased = false;
 	if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES || nvs_err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
 	    ESP_LOGW(TAG, "NVS partition invalid (%s), erasing and re-initialising", esp_err_to_name(nvs_err));
 	    nvs_flash_erase();
 	    nvs_err = nvs_flash_init();
+	    nvs_was_erased = true;
 	}
 	if (nvs_err != ESP_OK) {
 	    ESP_LOGE(TAG, "NVS init failed: %s", esp_err_to_name(nvs_err));
 	} else {
 	    ESP_LOGI(TAG, "NVS initialised OK");
+	}
+
+	/* Credentials backup (cred_backup.h). The erase above used to turn the
+	 * device into a factory-new one: open SoftAP, unclaimed, no WiFi. Put
+	 * the identity back from the copy outside NVS. The same applies when
+	 * NVS came up fine but the identity is gone anyway — a deliberate
+	 * factory reset erases the backup too, so a backup without identity in
+	 * NVS always means the identity was lost, not removed on purpose.
+	 * The WiFi STA credentials follow in network_init(), which is the
+	 * first point where esp_wifi_set_config() works. */
+	cred_backup_init();
+	if (nvs_err == ESP_OK && cred_backup_available()) {
+	    bool identity_missing = true;
+	    nvs_handle_t ch;
+	    if (nvs_open("vmflow", NVS_READONLY, &ch) == ESP_OK) {
+	        size_t l = 0;
+	        identity_missing = (nvs_get_str(ch, "company_id", NULL, &l) != ESP_OK);
+	        nvs_close(ch);
+	    }
+	    if (nvs_was_erased || identity_missing) {
+	        int n = cred_backup_restore_nvs();
+	        ESP_LOGW(TAG, "NVS %s — restored %d keys from the credentials backup",
+	                 nvs_was_erased ? "was erased" : "had lost the device identity", n);
+	        if (n > 0) {
+	            /* Reported to the backend like any other restart reason. */
+	            nvs_handle_t rh;
+	            if (nvs_open("vmflow", NVS_READWRITE, &rh) == ESP_OK) {
+	                nvs_set_str(rh, "restart_reason",
+	                            nvs_was_erased ? "nvs_erased_restored" : "nvs_lost_restored");
+	                nvs_commit(rh);
+	                nvs_close(rh);
+	            }
+	        }
+	    }
 	}
 
 	// Offline-safe debug log (relay/custom-input/1-Wire/NTC): needs NVS for

@@ -353,7 +353,14 @@
         "The device is erasing its configuration and restarting. Wi-Fi will drop — " +
         "reconnect to the open VMflow-XXXX network in about 15 seconds.";
     }
-    postJson("/api/v1/system/reset", {}).catch(function () {});
+    postJson("/api/v1/system/reset", {}).then(function (res) {
+      /* On success the device reboots before (or while) answering, so only
+       * a refusal comes back as JSON. */
+      if (res && res.error && res.error !== "invalid response from device") {
+        if (b) { b.disabled = false; b.textContent = "Reset this device"; }
+        if (p) { p.style.display = ""; p.textContent = "Reset refused: " + res.error + "."; }
+      }
+    }).catch(function () {});
   };
 
   function viewCellularConfig() {
