@@ -155,6 +155,13 @@ fun DashboardScreen(
                         }
                     }
 
+                    val fleet = uiState.fleet
+                    if (fleet.attention > 0) {
+                        item(key = "fleet-attention") {
+                            FleetAttentionBanner(fleet = fleet, modifier = SectionPadding)
+                        }
+                    }
+
                     item(key = "kpi-row") {
                         KpiCardRow(uiState = uiState, currencyFormat = currencyFormat)
                     }
@@ -488,3 +495,37 @@ private fun NeedsAttentionCard(
     }
 }
 
+/** "N machines need attention": offline, no response, or the machine does not talk to the reader. */
+@Composable
+private fun FleetAttentionBanner(fleet: xyz.vmflow.data.FleetConnectivity, modifier: Modifier = Modifier) {
+    val color = if (fleet.offline > 0) xyz.vmflow.ui.theme.StockRed else xyz.vmflow.ui.theme.StockOrange
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(color.copy(alpha = 0.10f))
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .clip(androidx.compose.foundation.shape.CircleShape)
+                .background(color)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Column {
+            Text(
+                text = "${fleet.attention} · " + stringResource(R.string.conn_fleet_attention_title),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = color,
+            )
+            Text(
+                text = stringResource(R.string.conn_fleet_summary, fleet.offline, fleet.stale, fleet.readerInactive),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}

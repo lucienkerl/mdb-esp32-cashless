@@ -1301,7 +1301,7 @@
     "statusCol": "Status",
     "firmwareCol": "Firmware",
     "assignedMachine": "Assigned Machine",
-    "lastSeenCol": "Last Seen",
+    "lastSeenCol": "Last contact",
     "registeredCol": "Registered",
     "machineCol": "Machine",
     "unassigned": "Unassigned",
@@ -2778,5 +2778,90 @@
     "cameraError": "Camera error: {error}",
     "enterManually": "Enter manually",
     "placeholder": "Enter barcode..."
+  },
+  "connectivity": {
+    "state": {
+      "online": "Online",
+      "stale": "No response",
+      "offline": "Offline",
+      "updating": "Updating",
+      "never": "Never connected",
+      "none": "No device"
+    },
+    "time": {
+      "contact": "Contact {ago}",
+      "lastContact": "Last contact {ago}",
+      "offlineSince": "Offline since {clock} · {ago}",
+      "updateStarted": "Update started {ago}",
+      "never": "Has never reported in",
+      "noDevice": "No device assigned"
+    },
+    "reader": {
+      "ready": "Reader ready",
+      "disabled": "Reader disabled",
+      "inactive": "Machine not responding",
+      "readyHint": "The machine is polling the reader, cashless payment works.",
+      "disabledHint": "The machine has disabled cashless payment for now, e.g. because it is out of service.",
+      "inactiveHint": "The device is online, but the machine is not polling the reader. Cashless payment is not possible.",
+      "unknown": "Unknown",
+      "unknownHint": "Known once the device is online."
+    },
+    "duration": {
+      "days": "{days}d {hours}h",
+      "hours": "{hours}h {minutes}m",
+      "minutes": "{minutes} min"
+    },
+    "card": {
+      "title": "Connection",
+      "live": "updates live",
+      "device": "Device",
+      "network": "Network",
+      "machine": "Machine (MDB)",
+      "onlineSince": "Online since",
+      "offlineSince": "Offline since",
+      "lastContact": "Last contact",
+      "previouslyOnline": "Online before that",
+      "firmware": "Firmware",
+      "operator": "Operator",
+      "signal": "Signal",
+      "mode": "Mode",
+      "uplinkCellular": "Cellular",
+      "uplinkUnknown": "WiFi or unknown"
+    },
+    "history": {
+      "title": "Last 24 hours",
+      "percent": "{pct}% online",
+      "noData": "No data yet",
+      "noOutages": "no outages",
+      "outages": "{count} outage | {count} outages",
+      "online": "online",
+      "offline": "offline",
+      "updating": "update",
+      "unknown": "no data",
+      "outageRange": "offline {from}–{to} ({duration})",
+      "ago": "24h ago",
+      "now": "now"
+    },
+    "notice": {
+      "offlineBody": "The server noticed the connection drop at {clock}. The device sends sales from this period once it is back online.",
+      "offlineCheck": "Check: power at the machine, network at the site, the status LED on the device (blinking yellow = looking for a network).",
+      "staleBody": "The device has not signed off, but it has sent no heartbeat for more than 12 minutes (normally every 5 min). Usually a network problem at the site, less often a problem on the server.",
+      "staleCheck": "Check: is data still arriving from other machines? If not, it is the server; otherwise treat it like \"Offline\".",
+      "updatingBody": "The new firmware is being installed. The device restarts afterwards and is briefly offline. If it takes longer than 10 minutes, this turns into \"No response\"."
+    },
+    "fleet": {
+      "attentionTitle": "{count} machine needs attention | {count} machines need attention",
+      "onlineOf": "{online} of {devices} devices online",
+      "offline": "{count} offline",
+      "stale": "{count} not responding",
+      "readerInactive": "{count} machine not talking to the reader | {count} machines not talking to the reader",
+      "noDevice": "{count} machine without a device | {count} machines without a device"
+    },
+    "filter": {
+      "all": "All",
+      "attention": "Needs attention",
+      "online": "Online",
+      "noDevice": "No device"
+    }
   }
 }

@@ -138,9 +138,15 @@ final class MachineListViewModel: ObservableObject {
                 stats.append(ms)
             }
 
-            // Sort by urgency (critical, low, fill, ok; then more low+empty
-            // products first). Stable, so ties keep the fetch order like the PWA.
+            // Devices that need attention (offline, no response, machine not
+            // talking to the reader) first, then by stock urgency (critical,
+            // low, fill, ok; then more low+empty products first). Stable, so
+            // ties keep the fetch order like the PWA.
+            let now = Date()
             self.machines = stats.enumerated().sorted { a, b in
+                let ca = a.element.machine.connectivity(now: now).needsAttention
+                let cb = b.element.machine.connectivity(now: now).needsAttention
+                if ca != cb { return ca }
                 let pa = a.element.sortPriority, pb = b.element.sortPriority
                 return pa != pb ? pa < pb : a.offset < b.offset
             }.map(\.element)

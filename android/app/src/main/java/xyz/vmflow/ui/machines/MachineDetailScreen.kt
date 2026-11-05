@@ -63,6 +63,7 @@ import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import xyz.vmflow.R
+import xyz.vmflow.data.connectivity
 import xyz.vmflow.data.SalesFeed
 import xyz.vmflow.data.SalesFeedItem
 import xyz.vmflow.models.Sale
@@ -70,7 +71,12 @@ import xyz.vmflow.models.SuppressedSale
 import xyz.vmflow.models.Tray
 import xyz.vmflow.ui.common.dayLabel
 import xyz.vmflow.ui.components.ProductImage
+import xyz.vmflow.ui.components.ConnectivityNotice
 import xyz.vmflow.ui.components.StatusChip
+import xyz.vmflow.ui.components.agoText
+import xyz.vmflow.ui.components.clockText
+import xyz.vmflow.ui.components.connectivityStateLabel
+import xyz.vmflow.ui.components.rememberNow
 import xyz.vmflow.ui.dashboard.DaySectionHeader
 import xyz.vmflow.ui.trays.TrayListContent
 import java.text.NumberFormat
@@ -90,6 +96,8 @@ fun MachineDetailScreen(
     var showSendCredit by remember { mutableStateOf(false) }
     var showDeviceHealth by remember { mutableStateOf(false) }
     var showMachineSettings by remember { mutableStateOf(false) }
+    val now by rememberNow()
+    val connectivity = uiState.machineStats?.machine?.connectivity(now)
 
     LaunchedEffect(machineId) {
         viewModel.loadMachine(machineId)
@@ -135,7 +143,7 @@ fun MachineDetailScreen(
                             )
                         }
                         StatusChip(
-                            isOnline = it.machine.isOnline,
+                            connectivity = it.machine.connectivity(now),
                             modifier = Modifier.padding(end = 8.dp)
                         )
                     }
@@ -168,6 +176,13 @@ fun MachineDetailScreen(
                         stringResource(R.string.machine_detail_tab_sales),
                         stringResource(R.string.analysis_tab_title)
                     )
+                    connectivity?.let {
+                        ConnectivityNotice(
+                            connectivity = it,
+                            now = now,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
                     TabRow(selectedTabIndex = uiState.selectedTab) {
                         tabs.forEachIndexed { index, title ->
                             Tab(
@@ -179,7 +194,7 @@ fun MachineDetailScreen(
                     }
 
                     when (uiState.selectedTab) {
-                        0 -> OverviewTab(uiState, currencyFormat)
+                        0 -> OverviewTab(uiState, currencyFormat, now)
                         1 -> TrayListContent(
                             trays = uiState.machineStats?.trays ?: emptyList(),
                             products = uiState.products,
@@ -429,7 +444,8 @@ private fun SendCreditSheet(
 @Composable
 private fun OverviewTab(
     uiState: MachineDetailUiState,
-    currencyFormat: NumberFormat
+    currencyFormat: NumberFormat,
+    now: Instant
 ) {
     val stats = uiState.machineStats ?: return
 
@@ -536,9 +552,14 @@ private fun OverviewTab(
                             fontWeight = FontWeight.SemiBold
                         )
                         Spacer(modifier = Modifier.height(8.dp))
+                        val c = embedded.connectivity(now)
                         DeviceInfoRow(
                             stringResource(R.string.machine_detail_status),
-                            stringResource(if (embedded.isOnline) R.string.status_online else R.string.status_offline)
+                            connectivityStateLabel(c.state)
+                        )
+                        DeviceInfoRow(
+                            stringResource(R.string.conn_last_contact),
+                            c.lastContactAt?.let { "${clockText(it, now)} · ${agoText(it, now)}" } ?: "—"
                         )
                         embedded.macAddress?.let { DeviceInfoRow("MAC", it) }
                         embedded.firmwareVersion?.let { DeviceInfoRow(stringResource(R.string.machine_detail_firmware), it) }

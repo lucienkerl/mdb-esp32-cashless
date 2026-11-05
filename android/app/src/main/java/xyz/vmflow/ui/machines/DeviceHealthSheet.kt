@@ -40,6 +40,19 @@ import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import xyz.vmflow.R
+import xyz.vmflow.data.ConnectivityState
+import xyz.vmflow.data.StatusHistory
+import xyz.vmflow.data.connectivity
+import xyz.vmflow.ui.components.ConnectionHistoryBar
+import xyz.vmflow.ui.components.ConnectivityTimeLine
+import xyz.vmflow.ui.components.StatusChip
+import xyz.vmflow.ui.components.agoText
+import xyz.vmflow.ui.components.clockText
+import xyz.vmflow.ui.components.durationText
+import xyz.vmflow.ui.components.historyPercentLabel
+import xyz.vmflow.ui.components.readerHint
+import xyz.vmflow.ui.components.readerLabel
+import xyz.vmflow.ui.components.rememberNow
 import xyz.vmflow.data.RestartReason
 import xyz.vmflow.data.formatUptimeSeconds
 import xyz.vmflow.data.groupSuppressedByDay
@@ -51,7 +64,6 @@ import xyz.vmflow.models.MdbLogEntry
 import xyz.vmflow.models.SuppressedSale
 import xyz.vmflow.models.Tray
 import xyz.vmflow.ui.common.dayLabel
-import xyz.vmflow.ui.theme.OnlineGreen
 import xyz.vmflow.ui.theme.StockRed
 import java.text.NumberFormat
 import java.util.Locale
@@ -85,8 +97,14 @@ fun DeviceHealthSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val zone = remember { TimeZone.currentSystemDefault() }
 
+    val now by rememberNow()
+
     LaunchedEffect(embedded?.id, isAdmin) {
         embedded?.id?.let { viewModel.load(it, isAdmin) }
+    }
+    // A status change adds a log row: reload so the bar ends in the current state.
+    LaunchedEffect(embedded?.status) {
+        embedded?.id?.let { viewModel.loadStatusLog(it) }
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
@@ -104,7 +122,7 @@ fun DeviceHealthSheet(
                     modifier = Modifier.padding(vertical = 8.dp)
                 )
             }
-            item { UptimeSection(embedded) }
+            item { ConnectionSection(embedded, uiState, now) }
             if (isAdmin) {
                 item { MdbDiagnosticsSection(embedded?.mdbDiagnostics) }
             }
@@ -117,37 +135,56 @@ fun DeviceHealthSheet(
     }
 }
 
-// ─── Uptime ──────────────────────────────────────────────────────────────
+// ─── Connection ──────────────────────────────────────────────────────────
 
+/**
+ * Status, since when, last contact and the machine's reader state, plus the
+ * 24-hour bar — the counterpart of the web's `ConnectivityCard.vue` and the
+ * iOS sheet's connection/history sections.
+ */
 @Composable
-private fun UptimeSection(embedded: Embedded?) {
-    SectionCard(title = stringResource(R.string.device_health_section_uptime)) {
-        val isOnline = embedded?.isOnline == true
-        val since = embedded?.onlineSince ?: embedded?.statusAt
-
+private fun ConnectionSection(embedded: Embedded?, uiState: DeviceHealthUiState, now: Instant) {
+    val c = embedded.connectivity(now)
+    SectionCard(title = stringResource(R.string.conn_section_connection)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // Green/red (not the app's usual online/offline-gray StatusChip
-            // palette) — this dot mirrors the iOS source's own coloring 1:1.
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .clip(CircleShape)
-                    .background(if (isOnline) OnlineGreen else StockRed)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            if (isOnline && since != null) {
-                Text(
-                    text = formatUptimeSince(since),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-            } else {
-                Text(
-                    text = stringResource(R.string.device_health_offline),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            StatusChip(connectivity = c)
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        ConnectivityTimeLine(connectivity = c, now = now, showsReader = false)
+        Spacer(modifier = Modifier.height(8.dp))
+
+        when (c.state) {
+            ConnectivityState.ONLINE -> c.onlineSince?.let {
+                ConnRow(stringResource(R.string.conn_online_since), durationText(now - it))
             }
+            ConnectivityState.OFFLINE -> {
+                c.since?.let {
+                    ConnRow(stringResource(R.string.conn_offline_since), "${clockText(it, now)} (${agoText(it, now)})")
+                }
+                val start = c.onlineSince
+                val end = c.since
+                if (start != null && end != null && end > start) {
+                    ConnRow(stringResource(R.string.conn_online_before), durationText(end - start))
+                }
+            }
+            else -> {}
+        }
+        if (c.state != ConnectivityState.NEVER && c.state != ConnectivityState.NONE) {
+            ConnRow(
+                stringResource(R.string.conn_last_contact),
+                c.lastContactAt?.let { "${clockText(it, now)} (${agoText(it, now)})" } ?: "—"
+            )
+        }
+        ConnRow(
+            stringResource(R.string.conn_machine_mdb),
+            c.reader?.let { readerLabel(it) } ?: stringResource(R.string.device_health_unknown)
+        )
+        c.reader?.let {
+            Text(
+                text = readerHint(it),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
 
         val reason = embedded?.lastRestartReason
@@ -164,15 +201,59 @@ private fun UptimeSection(embedded: Embedded?) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+
+        val windowStart = uiState.statusWindowStart
+        if (embedded != null && windowStart != null) {
+            val history = remember(uiState.statusLog, embedded.status, now) {
+                StatusHistory.build(uiState.statusLog, embedded.status, windowStart, now)
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(
+                    text = stringResource(R.string.conn_history_title),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = historyPercentLabel(history),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            ConnectionHistoryBar(history)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(stringResource(R.string.conn_history_24h_ago), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.conn_history_now), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            history.outages.forEach { o ->
+                Text(
+                    text = stringResource(
+                        R.string.conn_history_outage,
+                        clockText(o.start, now),
+                        clockText(o.end, now),
+                        durationText(o.end - o.start)
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = StockRed
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun formatUptimeSince(sinceIso: String): String {
-    val since = runCatching { Instant.parse(sinceIso) }.getOrNull()
-        ?: return stringResource(R.string.device_health_offline)
-    val seconds = (Clock.System.now() - since).inWholeSeconds
-    return formatUptimeSeconds(seconds)
+private fun ConnRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+    }
 }
 
 // ─── MDB Status (admin) ────────────────────────────────────────────────

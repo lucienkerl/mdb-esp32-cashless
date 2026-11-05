@@ -38,21 +38,7 @@ data class Embedded(
     @SerialName("last_restart_at") val lastRestartAt: String? = null,
     /** Timestamp the device last transitioned to "online" — start of the current uptime run, distinct from [statusAt] (last status write of any kind). */
     @SerialName("online_since") val onlineSince: String? = null
-) {
-    val isOnline: Boolean
-        get() {
-            if (status == null || statusAt == null) return false
-            if (status != "online") return false
-            return try {
-                val statusTime = kotlinx.datetime.Instant.parse(statusAt)
-                val now = kotlinx.datetime.Clock.System.now()
-                val diff = now - statusTime
-                diff.inWholeMinutes < 5
-            } catch (_: Exception) {
-                false
-            }
-        }
-}
+)
 
 /**
  * Live MDB status snapshot, published by the firmware into
@@ -128,7 +114,6 @@ data class VendingMachineWithEmbedded(
     val embeddeds: Embedded? = null
 ) {
     val displayName: String get() = name ?: "Machine ${id.take(8)}"
-    val isOnline: Boolean get() = embeddeds?.isOnline == true
 }
 
 @Serializable

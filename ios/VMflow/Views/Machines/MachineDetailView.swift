@@ -189,8 +189,8 @@ struct MachineDetailView: View {
             VStack(spacing: 16) {
                 // Status & Info
                 VStack(spacing: 12) {
-                    HStack {
-                        StatusBadge(isOnline: machine.isOnline)
+                    HStack(alignment: .top) {
+                        ConnectivityStatusView(machine: viewModel.machine)
                         Spacer()
                         if let firmware = machine.embeddeds?.firmwareVersion {
                             Text("v\(firmware)")
@@ -200,6 +200,10 @@ struct MachineDetailView: View {
                                 .padding(.vertical, 4)
                                 .background(Capsule().fill(.fill.tertiary))
                         }
+                    }
+
+                    TimelineView(.periodic(from: .now, by: 30)) { context in
+                        ConnectivityNotice(connectivity: viewModel.machine.connectivity(now: context.date))
                     }
 
                     if let mac = machine.embeddeds?.macAddress {
