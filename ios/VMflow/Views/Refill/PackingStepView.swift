@@ -30,14 +30,10 @@ struct PackingStepView: View {
                         warehousePicker
                     }
                     ChipBar(viewModel: viewModel)
-                    HeaderStrip(viewModel: viewModel)
 
                     if let notice = viewModel.replacementNotice {
                         replacementNoticeBanner(notice)
                     }
-
-                    // "In the box: 20 of 57" — ticked = in the box
-                    PackBoxHeader(viewModel: viewModel)
 
                     // Change notes (slot change requests) of the machines in view
                     changeNotes
@@ -149,11 +145,6 @@ struct PackingStepView: View {
                     let ready = viewModel.packedMachines.count
                     Text(ready == 1 ? String(localized: "1 machine ready") : String(localized: "\(ready) machines ready"))
                         .font(.subheadline.weight(.medium))
-                    let box = viewModel.packBox
-                    (Text("In the box: \(box.packed)") + Text(verbatim: " ") + Text("of \(box.total) units"))
-                        .font(.caption)
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
                 }
 
                 Spacer()
@@ -341,121 +332,6 @@ private struct ChipBar: View {
         case .low: return .orange
         case .fill: return .blue
         case .ok: return .green
-        }
-    }
-}
-
-// MARK: - HeaderStrip Subview
-
-private struct HeaderStrip: View {
-    @ObservedObject var viewModel: RefillWizardViewModel
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Text(headerText)
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(foreground)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Button {
-                HapticFeedback.light.fire()
-                switch viewModel.activeChip {
-                case .all:
-                    viewModel.packAllMachines()
-                case .machine(let id):
-                    viewModel.packAllForMachine(id)
-                }
-            } label: {
-                Text(selectAllLabel)
-                    .font(.footnote.weight(.semibold))
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .frame(minHeight: 44)
-            .tint(foreground)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 10).fill(background))
-        .animation(.easeInOut(duration: 0.2), value: viewModel.activeChip)
-    }
-
-    // MARK: derived
-
-    private enum HeaderState { case pending, done, alert }
-
-    private var state: HeaderState {
-        switch viewModel.activeChip {
-        case .all:
-            return viewModel.chipIsFullyPacked(.all) ? .done : .pending
-        case .machine(let id):
-            let done = viewModel.chipIsFullyPacked(.machine(id))
-            if done { return .done }
-            // Alert = at least one product is packed for this machine but the
-            // overall chip is no longer fully packed (a sale increased deficit
-            // since pack time).
-            let anyPacked = viewModel.combinedPackingList.contains { item in
-                item.machineNeeds.contains(where: { $0.machineId == id })
-                    && viewModel.isMachinePacked(machineId: id, productId: item.productId)
-            }
-            return anyPacked ? .alert : .pending
-        }
-    }
-
-    private var background: Color {
-        switch state {
-        case .pending: return Color.blue.opacity(0.10)
-        case .done:    return Color.green.opacity(0.14)
-        case .alert:   return Color.orange.opacity(0.14)
-        }
-    }
-
-    private var foreground: Color {
-        switch state {
-        case .pending: return Color.blue
-        case .done:    return Color.green
-        case .alert:   return Color.orange
-        }
-    }
-
-    private var headerText: String {
-        switch viewModel.activeChip {
-        case .all:
-            let total = viewModel.chipItemCount(.all)
-            if state == .done {
-                return String(localized: "✓ All boxes packed · \(total) items")
-            } else {
-                let ready = viewModel.packedMachines.count
-                let totalM = viewModel.machines.count
-                return String(localized: "All machines · \(total) items · \(ready)/\(totalM) ready")
-            }
-        case .machine(let id):
-            let name = viewModel.chipName(.machine(id))
-            let total = viewModel.chipItemCount(.machine(id))
-            let packed = viewModel.chipPackedCount(.machine(id))
-            let totalNeeds = viewModel.chipNeedsCount(.machine(id))
-            switch state {
-            case .done:    return String(localized: "✓ \(name) · Box complete · \(packed)/\(totalNeeds) packed")
-            case .alert:
-                // Neutral wording: we can't distinguish a true "new sale"
-                // event from the user manually dialing down a stepper after
-                // packing. Both leave the box partial — say so directly.
-                return String(localized: "⚠ \(name) · Box partial · \(packed)/\(totalNeeds) packed")
-            case .pending: return String(localized: "\(name) · Box: \(total) items · \(packed)/\(totalNeeds) packed")
-            }
-        }
-    }
-
-    private var selectAllLabel: String {
-        switch viewModel.activeChip {
-        case .all:
-            return String(localized: "Select All")
-        case .machine(let id):
-            let name = viewModel.chipName(.machine(id))
-            return String(localized: "Pack all for \(name)")
         }
     }
 }
@@ -779,37 +655,6 @@ private struct WarehouseStockBadge: View {
             .padding(.vertical, 2)
             .background(Capsule().fill(color.opacity(0.12)))
             .fixedSize(horizontal: false, vertical: true)
-    }
-}
-
-// MARK: - Box Header
-
-/// "In the box: 20 of 57 units" with a progress bar — what is ticked lies in
-/// the box that goes along; nothing is counted without its own tick.
-private struct PackBoxHeader: View {
-    @ObservedObject var viewModel: RefillWizardViewModel
-
-    var body: some View {
-        let box = viewModel.packBox
-        if box.total > 0 {
-            let done = box.packed >= box.total
-            HStack(spacing: 12) {
-                Image(systemName: done ? "shippingbox.fill" : "shippingbox")
-                    .font(.title2)
-                    .foregroundStyle(.green)
-                VStack(alignment: .leading, spacing: 6) {
-                    (Text("In the box: \(box.packed)").bold()
-                        + Text(verbatim: " ")
-                        + Text("of \(box.total) units").foregroundStyle(.secondary))
-                        .font(.subheadline)
-                        .monospacedDigit()
-                    ProgressView(value: Double(box.packed), total: Double(max(box.total, 1)))
-                        .tint(.green)
-                }
-            }
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: 14).fill(.regularMaterial))
-        }
     }
 }
 

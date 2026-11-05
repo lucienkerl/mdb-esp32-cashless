@@ -142,8 +142,6 @@ fun PackingStep(
     // A chip whose machine has since lost every need (or vanished) falls back
     // to "All" rather than rendering an empty list under a dead chip.
     val activeChip = uiState.activeChip?.takeIf { id -> chipMachines.any { it.machine.id == id } }
-    val activeMachineName = chipMachines
-        .firstOrNull { it.machine.id == activeChip }?.machine?.displayName
 
     // …and the correction is written back, or the dead id stays selected in
     // the ViewModel and the filter silently snaps back to it the moment that
@@ -154,8 +152,6 @@ fun PackingStep(
     }
 
     val allChipFullyPacked = chipIsFullyPacked(null)
-    val isActiveChipFullyPacked =
-        if (activeChip == null) allChipFullyPacked else chipIsFullyPacked(activeChip)
 
     // Chip label state resolved here, next to the card states and for the same
     // reason (see the note below `PackingStep`).
@@ -198,7 +194,6 @@ fun PackingStep(
         }
 
     val cards = packCards(uiState, activeChip)
-    val (boxPacked, boxTotal) = uiState.packBox
     val openLines = uiState.openPackLines
     var showOpenLines by remember { mutableStateOf(false) }
 
@@ -254,16 +249,6 @@ fun PackingStep(
                 }
             }
 
-            item(key = "header-strip") {
-                PackHeaderStrip(
-                    activeChip = activeChip,
-                    activeMachineName = activeMachineName,
-                    itemCount = chipItemCount(activeChip),
-                    isFullyPacked = isActiveChipFullyPacked,
-                    anyPacked = cards.any { card -> card.lines.any { it.line.ticked } }
-                )
-            }
-
             // The change notes: information only. Their goods are in the
             // cards below; only the spirals to take along are not.
             items(items = changeNotes, key = { "change-note-${it.machineId}" }) { note ->
@@ -296,17 +281,8 @@ fun PackingStep(
 
         PackBottomBar(
             readyMachineCount = uiState.readyMachineCount,
-            boxPacked = boxPacked,
-            boxTotal = boxTotal,
-            activeMachineName = activeMachineName,
-            // Nothing on the list means nothing to pack.
-            showPackAll = cards.any { card -> card.lines.any { !it.line.ticked && !it.line.isUnavailable } },
             canStart = uiState.machines.any { it.isPacked },
             isSaving = uiState.isSaving,
-            onPackAll = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                if (activeChip == null) onPackEverything() else onPackAllForMachine(activeChip)
-            },
             onStartTour = {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 if (openLines.isEmpty()) onStartTour() else showOpenLines = true
@@ -639,77 +615,6 @@ private fun PackChip(
     )
 }
 
-/** Status line for the active chip: what it holds and whether its box is done. */
-@Composable
-private fun PackHeaderStrip(
-    activeChip: String?,
-    activeMachineName: String?,
-    itemCount: Int,
-    isFullyPacked: Boolean,
-    anyPacked: Boolean,
-    modifier: Modifier = Modifier
-) {
-    val isPartial = !isFullyPacked && anyPacked
-    // Fixed status tokens, not scheme roles: the brand palette's
-    // primary/secondary/tertiary collapse into each other in dark mode.
-    val accent: Color = when {
-        isFullyPacked -> StockGreen
-        isPartial -> StockOrange
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    val statusLabel = stringResource(
-        when {
-            isFullyPacked -> R.string.refill_pack_status_complete
-            isPartial -> R.string.refill_pack_status_partial
-            else -> R.string.refill_pack_status_pending
-        }
-    )
-
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = accent.copy(alpha = 0.10f)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = when {
-                    isFullyPacked -> Icons.Default.CheckCircle
-                    isPartial -> Icons.Default.Warning
-                    else -> Icons.Default.Inventory2
-                },
-                // Decorative: [statusLabel] is rendered as text below.
-                contentDescription = null,
-                tint = accent,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = activeMachineName?.takeIf { activeChip != null }
-                        ?: stringResource(R.string.refill_pack_header_all),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = statusLabel,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = accent
-                )
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = pluralStringResource(R.plurals.refill_pack_items, itemCount, itemCount),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = accent
-            )
-        }
-    }
-}
-
 // ─────────────────────────────────────────────────────────────────────────
 // Product card + line
 // ─────────────────────────────────────────────────────────────────────────
@@ -1019,52 +924,20 @@ private fun PackEmptyState(isMachineChip: Boolean, modifier: Modifier = Modifier
 @Composable
 private fun PackBottomBar(
     readyMachineCount: Int,
-    boxPacked: Int,
-    boxTotal: Int,
-    activeMachineName: String?,
-    showPackAll: Boolean,
     canStart: Boolean,
     isSaving: Boolean,
-    onPackAll: () -> Unit,
     onStartTour: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         HorizontalDivider()
         Column(modifier = Modifier.padding(16.dp)) {
-            if (showPackAll) {
-                OutlinedButton(
-                    onClick = onPackAll,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .defaultMinSize(minHeight = 48.dp),
-                    enabled = !isSaving
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Inventory2,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = activeMachineName
-                            ?.let { stringResource(R.string.refill_pack_pack_all_for, it) }
-                            ?: stringResource(R.string.refill_pack_pack_all)
-                    )
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = pluralStringResource(R.plurals.refill_pack_machines_ready, readyMachineCount, readyMachineCount),
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = stringResource(R.string.refill_pack_in_box, boxPacked, boxTotal),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 Spacer(modifier = Modifier.width(12.dp))

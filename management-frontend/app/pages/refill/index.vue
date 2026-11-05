@@ -31,7 +31,7 @@ const {
   initTour, loadWarehouseStock, startTour,
   adjustFillAmount, confirmMachineRefill, confirmError, skipMachine, goToMachine, isMachineCompleted, resetWizard,
   resumeTour,
-  packLines, toggleLine, setLineQuantity, allLinesTicked, packBox, machinesReady, openPackLines, combinedPackCards,
+  packLines, toggleLine, setLineQuantity, allLinesTicked, machinesReady, openPackLines, combinedPackCards,
   maxRebuildFilled, skippedSourceSlots, withdrawnRebuildMachines, rebuildWithdrawnNotice,
   currentRebuild, rebuildReady, returnBatchLabel,
   setRebuildRemoved, setRebuildFilled, setRebuildAction, setRebuildPriceSet, setRebuildAgeSet,
@@ -266,7 +266,6 @@ const currentMachineDone = computed(() =>
           <div class="mx-auto flex max-w-3xl items-center gap-3">
             <div class="min-w-0 flex-1">
               <p class="text-sm font-medium">{{ t('refillRebuild.machinesReady', { n: machinesReady }, machinesReady) }}</p>
-              <p class="text-xs text-muted-foreground tabular-nums">{{ t('refillRebuild.inBox', { packed: packBox.packed, total: packBox.total }) }}</p>
             </div>
             <button
               :disabled="!hasAnyPackedItems() || tourStarting"

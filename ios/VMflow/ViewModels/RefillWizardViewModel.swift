@@ -924,30 +924,14 @@ final class RefillWizardViewModel: ObservableObject {
             guard !machineChips.isEmpty else { return false }
             return machineChips.allSatisfy(chipIsFullyPacked)
         case .machine(let id):
-            var hadAnyNeed = false
-            for item in combinedPackingList {
-                guard let need = item.machineNeeds.first(where: { $0.machineId == id }) else { continue }
-                let packed = isMachinePacked(machineId: id, productId: item.productId)
-                let outOfStock = isOutOfStockForMachine(machineId: id, productId: item.productId)
-                // Out-of-stock-and-unpacked pairs aren't in the picklist;
-                // the user has no way to act on them, so they must not
-                // block the chip from reaching "done".
-                if outOfStock && !packed { continue }
-                hadAnyNeed = true
-                guard packed else { return false }
-                // "Fully packed" = packed at the highest quantity currently
-                // possible. If the warehouse can't satisfy the full deficit,
-                // packing at maxPackingQuantity still counts as done — the
-                // user has done all they can for this product. Without this,
-                // any warehouse-capped pack flips the chip into a misleading
-                // "alert" state on first pack.
-                let qty = displayQuantity(machineId: id, productId: item.productId)
-                let maxQty = maxPackingQuantity(machineId: id, productId: item.productId)
-                guard qty >= min(need.quantity, maxQty) else { return false }
-            }
+            // Done = every line of the machine (refill and rebuild units,
+            // "ticked = in the box") is ticked. Lines the warehouse has
+            // nothing left for are not on the list and can't block it.
+            let lines = packLines(machineId: id).filter { !$0.isUnavailable }
             // A machine on the list only for its change note has nothing to
             // pack here — its box counts as done.
-            return hadAnyNeed || machines.first(where: { $0.id == id })?.changeRequest != nil
+            if lines.isEmpty { return machines.first(where: { $0.id == id })?.changeRequest != nil }
+            return lines.allSatisfy(\.ticked)
         }
     }
 
