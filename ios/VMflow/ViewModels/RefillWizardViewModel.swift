@@ -454,6 +454,10 @@ final class RefillWizardViewModel: ObservableObject {
 
     /// Open requests (pending slots only) by machine id, as last fetched.
     @Published var changeRequests: [UUID: SlotChangeRequest] = [:]
+    /// Machine id → product id → when its rebuild units were ticked (a
+    /// running number): ticked lines claim warehouse stock in this order.
+    var rebuildTickSequence: [UUID: [UUID: Int]] = [:]
+    private var rebuildTickCounter = 0
     /// Item id → accepted. Missing = accepted. Nothing declines a slot at
     /// packing any more; kept for resumed tour states.
     @Published var rebuildDecisions: [UUID: Bool] = [:]
@@ -2072,24 +2076,32 @@ final class RefillWizardViewModel: ObservableObject {
         func otherRefills(_ pid: UUID, _ machineId: UUID) -> Int {
             (refills[pid] ?? [:]).reduce(0) { $0 + ($1.key == machineId ? 0 : $1.value) }
         }
-        var out: [UUID: [UUID: Int]] = [:]
-        for machine in machines {
-            var machineMap: [UUID: Int] = [:]
-            let custom = rebuildCustomQuantities[machine.id] ?? [:]
+        // Ticked rebuild lines get their units in the order they were ticked
+        // ("ticked = in the box"): a later tick only gets what is left and
+        // never takes units away from a line already ticked.
+        var ticked: [(machineId: UUID, productId: UUID, need: Int, seq: Int, index: Int)] = []
+        for (index, machine) in machines.enumerated() {
             for (pid, need) in rebuildNeeds(machineId: machine.id)
             where need > 0 && isRebuildTaken(machineId: machine.id, productId: pid) {
-                let wanted = min(custom[pid] ?? need, need)
-                let qty: Int
-                if restrict {
-                    let available = max(0, (remaining[pid] ?? 0) - otherRefills(pid, machine.id))
-                    qty = min(wanted, available)
-                    remaining[pid] = (remaining[pid] ?? 0) - qty
-                } else {
-                    qty = wanted
-                }
-                if qty > 0 { machineMap[pid] = qty }
+                let seq = rebuildTickSequence[machine.id]?[pid] ?? Int.max
+                ticked.append((machine.id, pid, need, seq, index))
             }
-            if !machineMap.isEmpty { out[machine.id] = machineMap }
+        }
+        ticked.sort { ($0.seq, $0.index) < ($1.seq, $1.index) }
+        var out: [UUID: [UUID: Int]] = [:]
+        for entry in ticked {
+            let custom = rebuildCustomQuantities[entry.machineId]?[entry.productId]
+            let wanted = min(custom ?? entry.need, entry.need)
+            let qty: Int
+            if restrict {
+                let pid = entry.productId
+                let available = max(0, (remaining[pid] ?? 0) - otherRefills(pid, entry.machineId))
+                qty = min(wanted, available)
+                remaining[pid] = (remaining[pid] ?? 0) - qty
+            } else {
+                qty = wanted
+            }
+            if qty > 0 { out[entry.machineId, default: [:]][entry.productId] = qty }
         }
         return out
     }
@@ -2125,7 +2137,8 @@ final class RefillWizardViewModel: ObservableObject {
     private func tickAllRebuildRows(machineIds: [UUID]) {
         for machineId in machineIds {
             var set = rebuildPackTicks[machineId] ?? []
-            for (pid, need) in rebuildNeeds(machineId: machineId) where need > 0 {
+            for (pid, need) in rebuildNeeds(machineId: machineId) where need > 0 && !set.contains(pid) {
+                noteRebuildTick(machineId: machineId, productId: pid)
                 set.insert(pid)
             }
             rebuildPackTicks[machineId] = set
@@ -2135,6 +2148,12 @@ final class RefillWizardViewModel: ObservableObject {
                 pinRebuildQuantity(machineId: machineId, productId: pid)
             }
         }
+    }
+
+    /// Remember when a line's rebuild units were ticked (see `committedRebuild`).
+    private func noteRebuildTick(machineId: UUID, productId: UUID) {
+        rebuildTickCounter += 1
+        rebuildTickSequence[machineId, default: [:]][productId] = rebuildTickCounter
     }
 
     /// Pin the rebuild units of a ticked line, like `pinPackingQuantity`: a
@@ -3498,6 +3517,7 @@ extension RefillWizardViewModel {
         } else {
             let refill = hasRefillLine(machineId: machineId, productId: productId)
             if rebuildNeed > 0 {
+                noteRebuildTick(machineId: machineId, productId: productId)
                 rebuildPackTicks[machineId, default: []].insert(productId)
                 pinRebuildQuantity(machineId: machineId, productId: productId)
             }
