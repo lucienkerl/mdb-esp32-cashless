@@ -139,7 +139,8 @@ struct RefillStepView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
                 let toRefill = machine.trays.filter { $0.fillAmount > 0 }.count
-                let rebuildCount = machine.changeRequest?.items.count ?? 0
+                let rebuildCount = viewModel.withdrawnRebuildMachines.contains(machine.id)
+                    ? 0 : (machine.changeRequest?.items.count ?? 0)
                 Text(toRefill == 0 && rebuildCount > 0
                      ? RefillChangeNoteCard.rebuildCountLabel(rebuildCount)
                      : (toRefill == 1 ? String(localized: "1 tray to refill") : String(localized: "\(toRefill) trays to refill")))
