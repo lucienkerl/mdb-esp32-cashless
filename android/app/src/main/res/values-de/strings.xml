@@ -907,4 +907,42 @@
     <string name="product_delete">Produkt löschen</string>
     <string name="product_delete_confirm">„%1$s“ löschen? Das kann nicht rückgängig gemacht werden.</string>
     <string name="warehouse_intake_create_product">Neues Produkt anlegen</string>
+    <string name="refill_pack_line_refill">%1$d auffüllen</string>
+    <string name="refill_pack_line_no_stock">Auffüllen: kein Bestand</string>
+    <string name="refill_pack_line_rebuild">%1$d Umbau</string>
+    <string name="refill_pack_slot_one">Fach %1$s</string>
+    <string name="refill_pack_slot_many">Fächer %1$s</string>
+    <string name="refill_pack_in_box">In der Box: %1$d von %2$d Stück</string>
+    <string name="refill_pack_in_box_label">In der Box</string>
+    <string name="refill_pack_open_lines_hint">Diese Ware bleibt im Lager und wird nicht gebucht.</string>
+    <string name="refill_pack_open_lines_rebuild_hint">Fehlt am Automaten Ware für ein Fach, markierst du es dort als „Nicht umgebaut“. Das Fach kommt nächste Tour wieder.</string>
+    <string name="refill_pack_keep_packing">Weiter packen</string>
+    <string name="refill_pack_start_without">Ohne diese Ware starten</string>
+    <string name="refill_rebuild_take_along">Mitnehmen:</string>
+    <string name="refill_rebuild_spiral_for">%1$d× %2$der-Spirale</string>
+    <string name="refill_rebuild_spiral_tag">Spirale %1$d</string>
+    <string name="refill_rebuild_empty_the_slot">Fach leeren</string>
+    <string name="refill_rebuild_confirm_price_first">Erst den Preis bestätigen</string>
+    <string name="refill_rebuild_confirm_both_first">Erst Preis und Alterseinstellung bestätigen</string>
+    <string name="refill_rebuild_skipped_source_one">Fach %1$d wird heute nicht umgebaut, darum kommt hier weniger hinein.</string>
+    <string name="refill_rebuild_skipped_source_many">Fächer %1$s werden heute nicht umgebaut, darum kommt hier weniger hinein.</string>
+    <string name="refill_rebuild_withdrawn_here">Der Umbau wurde inzwischen zurückgezogen. Hier nichts umbauen – die dafür gepackte Ware geht am Ende der Tour zurück ins Lager.</string>
+    <string name="refill_rebuild_withdrawn_title">Umbau zurückgezogen</string>
+    <string name="refill_rebuild_withdrawn_notice">Der Umbau bei %1$s wurde inzwischen zurückgezogen, in der App wurde deshalb nichts umgestellt. Hast du ein Fach schon umgebaut, bau es zurück oder gib im Büro Bescheid.</string>
+    <plurals name="refill_pack_still_missing">
+        <item quantity="one">noch %1$d fehlt</item>
+        <item quantity="other">noch %1$d fehlen</item>
+    </plurals>
+    <plurals name="refill_pack_machines_ready">
+        <item quantity="one">%1$d Automat bereit</item>
+        <item quantity="other">%1$d Automaten bereit</item>
+    </plurals>
+    <plurals name="refill_pack_open_lines_title">
+        <item quantity="one">%1$d Position nicht in der Box</item>
+        <item quantity="other">%1$d Positionen nicht in der Box</item>
+    </plurals>
+    <plurals name="refill_rebuild_count">
+        <item quantity="one">%1$d Fach umbauen</item>
+        <item quantity="other">%1$d Fächer umbauen</item>
+    </plurals>
 </resources>

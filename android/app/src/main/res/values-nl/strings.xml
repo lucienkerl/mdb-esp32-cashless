@@ -907,4 +907,42 @@
     <string name="product_delete">Product verwijderen</string>
     <string name="product_delete_confirm">“%1$s” verwijderen? Dit kan niet ongedaan worden gemaakt.</string>
     <string name="warehouse_intake_create_product">Nieuw product aanmaken</string>
+    <string name="refill_pack_line_refill">%1$d bijvullen</string>
+    <string name="refill_pack_line_no_stock">Bijvullen: geen voorraad</string>
+    <string name="refill_pack_line_rebuild">%1$d ombouw</string>
+    <string name="refill_pack_slot_one">vak %1$s</string>
+    <string name="refill_pack_slot_many">vakken %1$s</string>
+    <string name="refill_pack_in_box">In de doos: %1$d van %2$d stuks</string>
+    <string name="refill_pack_in_box_label">In de doos</string>
+    <string name="refill_pack_open_lines_hint">Deze goederen blijven in het magazijn en worden niet geboekt.</string>
+    <string name="refill_pack_open_lines_rebuild_hint">Ontbreken bij de automaat goederen voor een vak, markeer het daar als „Niet omgebouwd”. Het vak komt de volgende ronde terug.</string>
+    <string name="refill_pack_keep_packing">Verder inpakken</string>
+    <string name="refill_pack_start_without">Zonder deze goederen starten</string>
+    <string name="refill_rebuild_take_along">Meenemen:</string>
+    <string name="refill_rebuild_spiral_for">%1$d× spiraal voor %2$d</string>
+    <string name="refill_rebuild_spiral_tag">Spiraal %1$d</string>
+    <string name="refill_rebuild_empty_the_slot">Vak leegmaken</string>
+    <string name="refill_rebuild_confirm_price_first">Bevestig eerst de prijs</string>
+    <string name="refill_rebuild_confirm_both_first">Bevestig eerst de prijs en de leeftijdsinstelling</string>
+    <string name="refill_rebuild_skipped_source_one">Vak %1$d wordt vandaag niet omgebouwd, daarom gaat hier minder in.</string>
+    <string name="refill_rebuild_skipped_source_many">Vakken %1$s worden vandaag niet omgebouwd, daarom gaat hier minder in.</string>
+    <string name="refill_rebuild_withdrawn_here">De ombouw is intussen ingetrokken. Hier niets ombouwen; de ingepakte goederen gaan aan het eind van de ronde terug naar het magazijn.</string>
+    <string name="refill_rebuild_withdrawn_title">Ombouw ingetrokken</string>
+    <string name="refill_rebuild_withdrawn_notice">De ombouw bij %1$s is intussen ingetrokken, daarom is er in de app niets omgezet. Heb je al een vak omgebouwd, zet het oude product terug of laat het kantoor het weten.</string>
+    <plurals name="refill_pack_still_missing">
+        <item quantity="one">nog %1$d te weinig</item>
+        <item quantity="other">nog %1$d te weinig</item>
+    </plurals>
+    <plurals name="refill_pack_machines_ready">
+        <item quantity="one">%1$d automaat klaar</item>
+        <item quantity="other">%1$d automaten klaar</item>
+    </plurals>
+    <plurals name="refill_pack_open_lines_title">
+        <item quantity="one">%1$d regel niet in de doos</item>
+        <item quantity="other">%1$d regels niet in de doos</item>
+    </plurals>
+    <plurals name="refill_rebuild_count">
+        <item quantity="one">%1$d vak ombouwen</item>
+        <item quantity="other">%1$d vakken ombouwen</item>
+    </plurals>
 </resources>

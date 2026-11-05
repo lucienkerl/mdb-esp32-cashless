@@ -138,7 +138,28 @@ data class RebuildSlot(
      * accident. "Not rebuilt" never needs it.
      */
     val needsAgeConfirmation: Boolean get() = item.ageChanged && !ageSet
+
+    /**
+     * "Rebuilt" is blocked until the new price is confirmed as set on the
+     * machine — a wrong price costs money at every sale.
+     */
+    val needsPriceConfirmation: Boolean get() = item.hasPriceChange && !priceSet
+
+    /** Something must still be confirmed before the slot can be marked rebuilt. */
+    val needsConfirmation: Boolean get() = needsAgeConfirmation || needsPriceConfirmation
 }
+
+/**
+ * A machine's ticked rebuild line of a product (packing step), in the order
+ * it was ticked ([seq], ties broken by the machine's tour [index]).
+ */
+data class RebuildTick(
+    val machineId: String,
+    val productId: String,
+    val need: Int,
+    val seq: Int,
+    val index: Int
+)
 
 /** One slot of a plan for `save_slot_change_request` (`p_items`). */
 data class PlannedChange(val trayId: String, val toProductId: String?, val toCapacity: Int)
@@ -546,10 +567,88 @@ object SlotChange {
 
     /**
      * Marks a slot rebuilt / not rebuilt / undecided. Refuses "rebuilt" while
-     * the age setting is still unconfirmed (the slot is returned unchanged).
+     * the price or the age setting is still unconfirmed (the slot is returned
+     * unchanged).
      */
     fun withAction(slot: RebuildSlot, action: RebuildAction?): RebuildSlot =
-        if (action == RebuildAction.DONE && slot.needsAgeConfirmation) slot else slot.copy(action = action)
+        if (action == RebuildAction.DONE && slot.needsConfirmation) slot else slot.copy(action = action)
+
+    /**
+     * Ticks / unticks "price set". Unticking a slot already marked rebuilt
+     * takes that decision back — it can't stay rebuilt unconfirmed.
+     */
+    fun withPriceSet(slot: RebuildSlot, value: Boolean): RebuildSlot {
+        val next = slot.copy(priceSet = value)
+        return if (next.action == RebuildAction.DONE && next.needsPriceConfirmation) next.copy(action = null) else next
+    }
+
+    /**
+     * Rebuild units committed per machine and product, the ticked lines in
+     * the order they were ticked ("ticked = in the box"): a later tick only
+     * gets what is left and never takes units away from a line already
+     * ticked. Each machine's rebuild sees the refills of the OTHER machines
+     * ([refills], `productId -> machineId -> units`) as taken; its own
+     * refill yields to it (the refill is capped by the rebuild instead).
+     * Without loaded stock nothing is restricted.
+     */
+    fun commitRebuildInTickOrder(
+        ticks: List<RebuildTick>,
+        warehouseStock: Map<String, Int>,
+        stockLoaded: Boolean,
+        custom: Map<String, Map<String, Int>>,
+        refills: Map<String, Map<String, Int>>
+    ): Map<String, Map<String, Int>> {
+        val remaining = HashMap(warehouseStock)
+        val out = LinkedHashMap<String, MutableMap<String, Int>>()
+        for (tick in ticks.sortedWith(compareBy<RebuildTick>({ it.seq }, { it.index }))) {
+            if (tick.need <= 0) continue
+            val pid = tick.productId
+            val wanted = minOf(custom[tick.machineId]?.get(pid) ?: tick.need, tick.need)
+            val qty = if (stockLoaded) {
+                val others = refills[pid].orEmpty().filterKeys { it != tick.machineId }.values.sum()
+                val available = maxOf(0, (remaining[pid] ?: 0) - others)
+                minOf(wanted, available).also { remaining[pid] = (remaining[pid] ?: 0) - it }
+            } else {
+                wanted
+            }
+            if (qty > 0) out.getOrPut(tick.machineId) { LinkedHashMap() }[pid] = qty
+        }
+        return out
+    }
+
+    /**
+     * Most units a slot can get at the machine: its new spiral, and only
+     * goods meant for the rebuild — taken out of the machine's other changed
+     * slots or packed for it ([packed]) — minus what the other slots of the
+     * product get. Goods of the normal refill are booked with the refill;
+     * counting them here too would book them twice.
+     */
+    fun maxRebuildFilled(slots: List<RebuildSlot>, itemId: String, packed: Map<String, Int>): Int {
+        val slot = slots.find { it.item.id == itemId } ?: return 0
+        val productId = slot.item.toProductId ?: return 0
+        val active = slots.filter { it.action != RebuildAction.SKIP }
+        val moved = active.filter { it.item.fromProductId == productId }.sumOf { it.removed }
+        val others = active.filter { it.item.id != itemId && it.item.toProductId == productId }.sumOf { it.filled }
+        return (minOf(slot.item.toCapacity, moved + (packed[productId] ?: 0) - others)).coerceAtLeast(0)
+    }
+
+    /** Slots skipped today whose old product was to move into [itemId]'s slot — it gets fewer units. */
+    fun skippedSourceSlots(slots: List<RebuildSlot>, itemId: String): List<Int> {
+        val slot = slots.find { it.item.id == itemId } ?: return emptyList()
+        val productId = slot.item.toProductId ?: return emptyList()
+        return slots
+            .filter { it.action == RebuildAction.SKIP && it.item.id != itemId && it.item.fromProductId == productId }
+            .map { it.item.itemNumber }
+            .sorted()
+    }
+
+    /**
+     * The change note is no longer open: nothing is rebuilt (every slot "not
+     * rebuilt", nothing taken out or filled in), so its packed units come
+     * back as leftovers.
+     */
+    fun withdrawn(slots: List<RebuildSlot>): List<RebuildSlot> =
+        slots.map { it.copy(action = RebuildAction.SKIP, removed = 0, filled = 0, filledTouched = true) }
 
     /**
      * Ticks / unticks "age setting changed". Unticking a slot already marked
