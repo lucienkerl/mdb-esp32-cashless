@@ -24036,6 +24036,50 @@
           }
         }
       }
+    },
+    "1 machine ready": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Automat bereit"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 machine prête"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 machine klaar"
+          }
+        }
+      }
+    },
+    "1 still missing": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "noch 1 fehlt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "encore 1 manquant"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nog 1 tekort"
+          }
+        }
+      }
     }
   },
   "version": "1.1"

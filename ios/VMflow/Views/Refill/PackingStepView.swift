@@ -146,7 +146,8 @@ struct PackingStepView: View {
             Divider()
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(viewModel.packedMachines.count) machines ready")
+                    let ready = viewModel.packedMachines.count
+                    Text(ready == 1 ? String(localized: "1 machine ready") : String(localized: "\(ready) machines ready"))
                         .font(.subheadline.weight(.medium))
                     let box = viewModel.packBox
                     (Text("In the box: \(box.packed)") + Text(verbatim: " ") + Text("of \(box.total) units"))
@@ -714,7 +715,8 @@ private struct PackLineRow: View {
         }
         if line.shortfall > 0 && !line.isUnavailable {
             text = text + Text(verbatim: " · ").foregroundStyle(.secondary)
-                + Text("\(line.shortfall) still missing").foregroundStyle(.orange).fontWeight(.semibold)
+                + Text(line.shortfall == 1 ? String(localized: "1 still missing") : String(localized: "\(line.shortfall) still missing"))
+                    .foregroundStyle(.orange).fontWeight(.semibold)
         }
         return text
     }
