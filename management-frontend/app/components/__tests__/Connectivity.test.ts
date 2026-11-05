@@ -146,4 +146,38 @@ describe('ConnectivityCard', () => {
     expect(text).toContain('Unbekannt')
     expect(text).toContain('0 % online')
   })
+
+  it('shows state, from–to and duration when hovering a segment of the bar', async () => {
+    logRows.value = [
+      { status: 'offline', prev_status: 'online', created_at: minAgo(12 * 60) },
+      { status: 'online', prev_status: 'offline', created_at: minAgo(11 * 60 + 15) },
+    ]
+    const w = mount(ConnectivityCard, {
+      props: { embedded: { id: 'e3', status: 'online', status_at: minAgo(1), online_since: minAgo(11 * 60 + 15) } },
+      attachTo: document.body,
+    })
+    await flushPromises()
+    const bar = w.get('[data-testid="history-bar"]')
+    // jsdom has no layout: give the bar and its three segments (online · offline · online) a fixed geometry.
+    const rect = (left: number, width: number) => ({ left, right: left + width, width, top: 0, bottom: 14, height: 14, x: left, y: 0, toJSON() {} }) as DOMRect
+    bar.element.getBoundingClientRect = () => rect(0, 480)
+    const [a, b, c] = Array.from(bar.element.children) as HTMLElement[]
+    a!.getBoundingClientRect = () => rect(0, 240)
+    b!.getBoundingClientRect = () => rect(241, 15)
+    c!.getBoundingClientRect = () => rect(257, 223)
+
+    // A few pixels next to the short outage still picks the outage.
+    await bar.trigger('pointermove', { clientX: 262, pointerType: 'mouse' })
+    const tip = w.get('[data-testid="history-tooltip"]').text()
+    expect(tip).toContain('offline')
+    expect(tip).toContain('45 Min.')
+    expect(tip).toContain('04:00 – 04:45')
+
+    await bar.trigger('pointermove', { clientX: 400, pointerType: 'mouse' })
+    expect(w.get('[data-testid="history-tooltip"]').text()).toContain('04:45 – jetzt')
+
+    await bar.trigger('pointerleave', { pointerType: 'mouse' })
+    expect(w.find('[data-testid="history-tooltip"]').exists()).toBe(false)
+    w.unmount()
+  })
 })
