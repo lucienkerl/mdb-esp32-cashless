@@ -29,24 +29,13 @@ struct RefillStepView: View {
 
                 ScrollView {
                     VStack(spacing: 12) {
-                        // Change note: rebuild these slots first. They are
-                        // not part of the normal refill below.
+                        // Change note: the slots to rebuild, ticked off in
+                        // the same list as the refill below.
                         let hasRebuild = viewModel.machineHasRebuild(machine.id)
                         let hasTourTrays = machine.trays.contains { $0.isInTour }
-                        // The normal refill comes after the rebuild — one
-                        // thing at a time at the machine.
-                        let showsRefill = !hasRebuild || rebuildDecided(machine)
+                        let showsRefill = true
                         if hasRebuild {
                             RefillRebuildSection(viewModel: viewModel, machineId: machine.id)
-                            if hasTourTrays && showsRefill {
-                                Text("Now refill")
-                                    .font(.caption.weight(.semibold))
-                                    .textCase(.uppercase)
-                                    .foregroundStyle(.secondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 4)
-                                    .padding(.top, 4)
-                            }
                         }
 
                         // Refill All Button
