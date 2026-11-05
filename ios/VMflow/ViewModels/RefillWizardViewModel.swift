@@ -2061,12 +2061,16 @@ final class RefillWizardViewModel: ObservableObject {
         // A refill already ticked holds its (pinned) units: they lie in the
         // box, so another machine's rebuild ticked later only gets what is
         // left. Within one line the rebuild comes first: its own refill is
-        // capped by the rebuild (`maxPackingQuantity`), not the other way.
+        // capped by the rebuild (`maxPackingQuantity`), not the other way —
+        // so each machine's rebuild sees the refills of the OTHER machines.
+        var refills: [UUID: [UUID: Int]] = [:]   // product → machine → units
         for machine in machines {
-            for pid in packedItems[machine.id] ?? []
-            where !isRebuildTaken(machineId: machine.id, productId: pid) {
-                remaining[pid, default: 0] -= packingQuantity(machineId: machine.id, productId: pid)
+            for pid in packedItems[machine.id] ?? [] {
+                refills[pid, default: [:]][machine.id] = packingQuantity(machineId: machine.id, productId: pid)
             }
+        }
+        func otherRefills(_ pid: UUID, _ machineId: UUID) -> Int {
+            (refills[pid] ?? [:]).reduce(0) { $0 + ($1.key == machineId ? 0 : $1.value) }
         }
         var out: [UUID: [UUID: Int]] = [:]
         for machine in machines {
@@ -2077,9 +2081,9 @@ final class RefillWizardViewModel: ObservableObject {
                 let wanted = min(custom[pid] ?? need, need)
                 let qty: Int
                 if restrict {
-                    let available = max(0, remaining[pid] ?? 0)
+                    let available = max(0, (remaining[pid] ?? 0) - otherRefills(pid, machine.id))
                     qty = min(wanted, available)
-                    remaining[pid] = available - qty
+                    remaining[pid] = (remaining[pid] ?? 0) - qty
                 } else {
                     qty = wanted
                 }
