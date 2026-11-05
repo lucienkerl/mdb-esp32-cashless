@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { IconArrowRight, IconArrowsExchange, IconCheck, IconX } from '@tabler/icons-vue'
 import { getProductImageUrl } from '@/composables/useProducts'
-import type { RebuildSlot } from '@/composables/useRefillWizard'
+import { changesPrice, needsConfirmation, type RebuildSlot } from '@/composables/useRefillWizard'
 import { formatCurrency } from '@/lib/utils'
 import { ageChanged } from '@/lib/slotChange'
 
@@ -13,6 +13,12 @@ import { ageChanged } from '@/lib/slotChange'
 
 defineProps<{
   slots: RebuildSlot[]
+  /** Most units a slot can get (goods meant for the rebuild only). */
+  maxFilled: (itemId: string) => number
+  /** Skipped slots whose old product was to move into this slot. */
+  skippedSources: (itemId: string) => number[]
+  /** The change note was withdrawn in the office: nothing is rebuilt here. */
+  withdrawn?: boolean
 }>()
 const emit = defineEmits<{
   (e: 'removed', itemId: string, value: number): void
@@ -24,6 +30,16 @@ const emit = defineEmits<{
 const { t, locale } = useI18n()
 
 function num(e: Event) { return Number((e.target as HTMLInputElement).value) }
+function confirmText(s: RebuildSlot) {
+  const price = changesPrice(s.item) && !s.price_set
+  const ageOpen = ageChanged(s.item) && !s.age_set
+  return price && ageOpen ? t('refillRebuild.confirmBothFirst') : price ? t('refillRebuild.confirmPriceFirst') : t('refillRebuild.confirmAgeFirst')
+}
+function skippedText(list: number[]) {
+  return list.length === 1
+    ? t('refillRebuild.skippedSourceOne', { n: list[0] })
+    : t('refillRebuild.skippedSourceMany', { list: list.join(', ') })
+}
 function age(n: number | null) { return n == null ? t('refillRebuild.noAgeLimit') : t('refillRebuild.ageFrom', { n }) }
 </script>
 
@@ -33,6 +49,8 @@ function age(n: number | null) { return n == null ? t('refillRebuild.noAgeLimit'
       <IconArrowsExchange class="size-4" />
       {{ t('refillRebuild.atMachineTitle') }}
     </p>
+
+    <p v-if="withdrawn" class="rounded-lg border border-orange-500/50 bg-orange-500/10 p-3 text-sm">{{ t('refillRebuild.withdrawnHere') }}</p>
 
     <div
       v-for="s in slots"
@@ -69,7 +87,7 @@ function age(n: number | null) { return n == null ? t('refillRebuild.noAgeLimit'
         <label v-if="s.item.to_product_id" class="text-xs text-muted-foreground">
           {{ t('refillRebuild.filled', { cap: s.item.to_capacity }) }}
           <input
-            type="number" min="0" :max="s.item.to_capacity" inputmode="numeric"
+            type="number" min="0" :max="maxFilled(s.item.id)" inputmode="numeric"
             class="mt-1 block h-11 w-full rounded-lg border bg-background px-3 text-base font-semibold tabular-nums text-foreground"
             :value="s.filled"
             @change="emit('filled', s.item.id, num($event))"
@@ -77,9 +95,12 @@ function age(n: number | null) { return n == null ? t('refillRebuild.noAgeLimit'
           <span class="mt-0.5 block text-[11px]">{{ t('refillRebuild.fillSource', { moved: s.moved, van: s.from_van }) }}</span>
         </label>
       </div>
+      <p v-if="s.action !== 'skip' && skippedSources(s.item.id).length > 0" class="mt-2 text-xs text-orange-600 dark:text-orange-400">
+        {{ skippedText(skippedSources(s.item.id)) }}
+      </p>
 
       <label
-        v-if="s.action !== 'skip' && s.item.to_product_id && s.item.to_price != null && s.item.to_price !== s.item.from_price"
+        v-if="s.action !== 'skip' && changesPrice(s.item)"
         class="mt-3 flex items-center gap-2 rounded-md bg-amber-500/10 px-2.5 py-2 text-sm"
       >
         <input type="checkbox" class="size-4" :checked="s.price_set" @change="emit('price', s.item.id, ($event.target as HTMLInputElement).checked)" />
@@ -98,18 +119,19 @@ function age(n: number | null) { return n == null ? t('refillRebuild.noAgeLimit'
         <button
           class="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           :class="s.action === 'done' ? 'border-green-600 bg-green-600 text-white' : 'hover:bg-muted'"
-          :disabled="s.action !== 'done' && ageChanged(s.item) && !s.age_set"
-          :title="ageChanged(s.item) && !s.age_set ? t('refillRebuild.confirmAgeFirst') : undefined"
+          :disabled="withdrawn || (s.action !== 'done' && needsConfirmation(s))"
+          :title="needsConfirmation(s) ? confirmText(s) : undefined"
           @click="emit('action', s.item.id, s.action === 'done' ? null : 'done')"
         ><IconCheck class="size-4" />{{ t('refillRebuild.rebuilt') }}</button>
         <button
           class="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border text-sm font-medium transition-colors"
           :class="s.action === 'skip' ? 'border-foreground/40 bg-muted' : 'hover:bg-muted'"
+          :disabled="withdrawn"
           @click="emit('action', s.item.id, s.action === 'skip' ? null : 'skip')"
         ><IconX class="size-4" />{{ t('refillRebuild.notRebuilt') }}</button>
       </div>
       <p v-if="s.action === 'skip'" class="mt-2 text-xs text-muted-foreground">{{ t('refillRebuild.staysOpen') }}</p>
-      <p v-else-if="s.action === null && ageChanged(s.item) && !s.age_set" class="mt-2 text-xs text-red-600 dark:text-red-400">{{ t('refillRebuild.confirmAgeFirst') }}</p>
+      <p v-else-if="s.action === null && needsConfirmation(s)" class="mt-2 text-xs text-red-600 dark:text-red-400">{{ confirmText(s) }}</p>
     </div>
 
     <p class="px-1 text-xs text-muted-foreground">{{ t('refillRebuild.takeAlongHint') }}</p>

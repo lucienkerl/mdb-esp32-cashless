@@ -1,3 +1,4 @@
+import type { Ref } from 'vue'
 import { useSupabaseClient } from '#imports'
 import { buildWarehouseStockInfo, distributeAcrossSlots, groupNeedsRefill, groupTraysByProduct, isProductRefillable } from '@/lib/stock-health'
 import { aggregateTourLeftovers, ageChanged, computeLeftovers, fillPlan, rebuildPackNeeds, sortPackRows, type ItemOutcome, type TourLeftover, type TourLeftoverEntry } from '@/lib/slotChange'
@@ -86,26 +87,59 @@ export interface RebuildSlot {
   age_set: boolean
 }
 
-/** Units a machine's accepted slots need from the warehouse, as a packing row. */
-export interface RebuildPackRow {
+/** The slot gets a new price (a wrong price costs money at every sale). */
+export function changesPrice(item: SlotChangeItem): boolean {
+  return !!item.to_product_id && item.to_price != null && item.to_price !== item.from_price
+}
+
+/** Something must still be confirmed at the machine before the slot can be marked rebuilt: the new price, the age setting. */
+export function needsConfirmation(slot: RebuildSlot): boolean {
+  return (changesPrice(slot.item) && !slot.price_set) || (ageChanged(slot.item) && !slot.age_set)
+}
+
+/**
+ * Everything one machine gets of one product on the packing list: the refill
+ * of its slots and the units for its slot rebuilds, under one tick and one
+ * amount ("3 refill + 5 rebuild slot 57").
+ */
+export interface PackLine {
+  machine_id: string
+  machine_name: string
+  /** Product id (or the name for a slot without a product id). */
   product_id: string
   product_name: string
   image_path: string | null
-  /** Units the slots need. */
+  sellprice: number | null
+  /** Units for the refill (0 when the warehouse has nothing left for it). */
+  refill: number
+  /** What the slots holding the product lack. */
+  refill_need: number
+  /** The refill can be packed (it has stock or is already ticked). */
+  has_refill: boolean
+  /** Units for slot rebuilds. */
+  rebuild: number
+  /** What the rebuilt slots need from the warehouse. */
+  rebuild_need: number
+  /** The slots that get the product in a rebuild. */
+  slots: number[]
+  ticked: boolean
+  /** Most units the line can pack (slot need and warehouse stock). */
+  max_quantity: number
+  total: number
   need: number
-  /** Units the warehouse covers (≤ need). */
-  packed: number
+  shortfall: number
+  /** Nothing to pack: the warehouse has nothing left for this line. */
+  unavailable: boolean
 }
 
-/** A row of a machine's packing list: a normal refill line (plus the rebuild units of the same product) or a rebuild-only line. */
-export type MachinePackRow =
-  | { kind: 'refill'; product_id: string | null; product_name: string; item: RefillItem; rebuild: number }
-  | { kind: 'rebuild'; product_id: string; product_name: string; row: RebuildPackRow }
-
-/** A row of the combined packing list. */
-export type CombinedPackRow =
-  | { kind: 'refill'; product_id: string; product_name: string; item: CombinedPickItem; rebuild: number }
-  | { kind: 'rebuild'; product_id: string; product_name: string; row: RebuildPackRow & { machines: string[] } }
+/** A product of the combined packing list with one line per machine. */
+export interface PackCard {
+  product_id: string
+  product_name: string
+  image_path: string | null
+  sellprice: number | null
+  lines: PackLine[]
+}
 
 /** Leftovers of the tour as shown at the end, with the quantities the refiller counted. */
 export interface TourLeftoverRow extends TourLeftover {
@@ -320,12 +354,19 @@ export function useRefillWizard() {
   const returnBatchLabel = ref('Machine return')
   /** Packing ticks of rebuild-only rows (`machineId|productId`); only ticked units are booked, like a normal product. */
   const rebuildTicks = ref(new Set<string>())
+  /** Tick order of the packing lines (`machineId|productKey`), see recalculateCommittedQuantities. */
+  const lineTickSeq = ref(new Map<string, number>())
+  let lineTickCounter = 0
   /**
    * Leftovers of the rebuilds, recorded per machine when it is quit and booked
    * back in one go at the end of the tour (return_slot_change_leftovers).
    */
   const tourLeftovers = ref<TourLeftoverEntry[]>([])
   const leftoversReturned = ref(false)
+  /** Machines whose change note was withdrawn in the office after the tour loaded it. */
+  const withdrawnRebuildMachines = ref(new Set<string>())
+  /** Shown once when a withdrawn change note met slots already marked rebuilt. */
+  const rebuildWithdrawnNotice = ref<string | null>(null)
   const returningLeftovers = ref(false)
   const returnLeftoversError = ref<string | null>(null)
   /** productId → quantities the refiller counted back at the warehouse. */
@@ -359,27 +400,9 @@ export function useRefillWizard() {
     return packedItems.value.get(machineId)?.has(itemKey(item)) ?? false
   }
 
+  /** Tick / untick a product of a machine: its whole line (refill and rebuild units). */
   function togglePacked(machineId: string, item: { product_id: string | null; product_name: string }) {
-    if (isOutOfWarehouseStock(item, machineId)) return
-    const key = itemKey(item)
-    const current = packedItems.value.get(machineId) ?? new Set<string>()
-    if (current.has(key)) {
-      current.delete(key)
-      // Clear custom quantity when unchecking
-      if (item.product_id) {
-        const machineCustom = customQuantities.value.get(machineId)
-        if (machineCustom) {
-          machineCustom.delete(item.product_id)
-          if (machineCustom.size === 0) customQuantities.value.delete(machineId)
-          customQuantities.value = new Map(customQuantities.value)
-        }
-      }
-    } else {
-      current.add(key)
-    }
-    packedItems.value.set(machineId, current)
-    packedItems.value = new Map(packedItems.value)
-    recalculateCommittedQuantities()
+    toggleLine(machineId, itemKey(item))
   }
 
   function allPacked(machineId: string, items: RefillItem[]): boolean {
@@ -412,62 +435,64 @@ export function useRefillWizard() {
     return Math.max(0, total - committed)
   }
 
+  /** machineId → productKey → units, written without touching the input maps. */
+  function setIn(map: Map<string, Map<string, number>>, machineId: string, key: string, qty: number) {
+    const inner = map.get(machineId) ?? new Map<string, number>()
+    inner.set(key, qty)
+    map.set(machineId, inner)
+  }
+
   /**
-   * Recalculate committed quantities across all machines.
-   * Processes machines in display order (urgency-sorted), so higher-priority
-   * machines get first claim on limited warehouse stock.
+   * Recalculate committed quantities across all machines. A ticked line
+   * (everything one machine gets of one product: refill and rebuild units)
+   * lies in the box, so lines get their units in the order they were
+   * ticked: a later tick only gets what is left and never takes units away
+   * from a line already ticked. Within a line the rebuild comes first (a
+   * planned slot cannot be done without its goods), the refill gets the rest.
    */
   function recalculateCommittedQuantities() {
-    const newCommitted = new Map<string, Map<string, number>>()
-    // Track remaining warehouse stock per product during calculation
-    const remaining = new Map<string, number>()
-    for (const [pid, qty] of warehouseStock.value) {
-      remaining.set(pid, qty)
-    }
+    const restrict = !!selectedWarehouseId.value
+    const remaining = new Map(warehouseStock.value)
+    const entries: { machine: RefillMachine; index: number; key: string; seq: number }[] = []
+    machines.value.forEach((machine, index) => {
+      const keys = new Set<string>(packedItems.value.get(machine.id) ?? [])
+      for (const pid of rebuildNeeds(machine.id).keys()) {
+        if (isRebuildTaken(machine.id, pid)) keys.add(pid)
+      }
+      for (const key of keys) {
+        entries.push({ machine, index, key, seq: lineTickSeq.value.get(`${machine.id}|${key}`) ?? Number.MAX_SAFE_INTEGER })
+      }
+    })
+    entries.sort((a, b) => a.seq - b.seq || a.index - b.index)
 
-    // Slot rebuilds first: an accepted change cannot be done without its units.
-    // Only units the refiller takes along count, like a normal product.
+    const newCommitted = new Map<string, Map<string, number>>()
     const newRebuild = new Map<string, Map<string, number>>()
-    for (const machine of machines.value) {
-      const machineMap = new Map<string, number>()
-      const custom = rebuildCustomQuantities.value.get(machine.id)
-      for (const [pid, need] of rebuildNeeds(machine.id)) {
-        if (need <= 0 || !isRebuildTaken(machine.id, pid)) continue
-        const avail = remaining.get(pid) ?? 0
-        const wanted = Math.min(custom?.get(pid) ?? need, need)
-        const qty = Math.min(wanted, avail)
+    for (const { machine, key } of entries) {
+      let avail = restrict ? (remaining.get(key) ?? 0) : Number.POSITIVE_INFINITY
+      const need = rebuildNeeds(machine.id).get(key) ?? 0
+      if (need > 0 && isRebuildTaken(machine.id, key)) {
+        const wanted = Math.min(rebuildCustomQuantities.value.get(machine.id)?.get(key) ?? need, need)
+        const qty = Math.max(0, Math.min(wanted, avail))
         if (qty > 0) {
-          machineMap.set(pid, qty)
-          remaining.set(pid, avail - qty)
+          setIn(newRebuild, machine.id, key, qty)
+          avail -= qty
         }
       }
-      if (machineMap.size > 0) newRebuild.set(machine.id, machineMap)
+      if (packedItems.value.get(machine.id)?.has(key)) {
+        const item = machine.tray_summary.find(i => itemKey(i) === key)
+        if (item?.product_id) {
+          const custom = customQuantities.value.get(machine.id)?.get(item.product_id)
+          const wanted = custom !== undefined ? Math.min(custom, item.deficit) : item.deficit
+          const qty = Math.max(0, Math.min(wanted, avail))
+          if (qty > 0) {
+            setIn(newCommitted, machine.id, item.product_id, qty)
+            avail -= qty
+          }
+        }
+      }
+      if (restrict) remaining.set(key, avail)
     }
     committedRebuild.value = newRebuild
-
-    for (const machine of machines.value) {
-      const checked = packedItems.value.get(machine.id)
-      if (!checked || checked.size === 0) continue
-
-      const machineMap = new Map<string, number>()
-      const machineCustom = customQuantities.value.get(machine.id)
-      for (const item of machine.tray_summary) {
-        if (!item.product_id || !checked.has(itemKey(item))) continue
-        const avail = remaining.get(item.product_id) ?? 0
-        // Use custom quantity if set, otherwise full deficit
-        const customQty = machineCustom?.get(item.product_id)
-        const maxQty = customQty !== undefined ? Math.min(customQty, item.deficit) : item.deficit
-        const qty = Math.min(maxQty, avail)
-        if (qty > 0) {
-          machineMap.set(item.product_id, qty)
-          remaining.set(item.product_id, avail - qty)
-        }
-      }
-      if (machineMap.size > 0) {
-        newCommitted.set(machine.id, machineMap)
-      }
-    }
-
     committedQuantities.value = newCommitted
   }
 
@@ -520,28 +545,17 @@ export function useRefillWizard() {
 
   // ── Change note (slot rebuilds) ─────────────────────────────────────────
 
+  /**
+   * Every planned slot is packed; whether it can be done is decided at the
+   * machine ("not possible today"). Declines are only still read from a tour
+   * saved by an older version of the app.
+   */
   function isItemAccepted(itemId: string): boolean {
     return rebuildDecisions.value.get(itemId) !== false
   }
 
   function acceptedItems(machine: RefillMachine | null | undefined): SlotChangeItem[] {
     return (machine?.change_request?.items ?? []).filter(i => isItemAccepted(i.id))
-  }
-
-  /** Accept or decline one slot of a machine's change note (packing step). */
-  function toggleRebuildItem(machineId: string, itemId: string) {
-    const next = new Map(rebuildDecisions.value)
-    if (isItemAccepted(itemId)) next.set(itemId, false)
-    else next.delete(itemId)
-    rebuildDecisions.value = next
-    const idx = machines.value.findIndex(m => m.id === machineId)
-    const machine = machines.value[idx]
-    const rows = machineTrayRows.get(machineId)
-    if (machine && rows) {
-      const rebuilt = buildRefillMachine({ id: machine.id, name: machine.name }, rows, machine.change_request ?? null)
-      if (rebuilt) machines.value.splice(idx, 1, rebuilt)
-    }
-    recalculateCommittedQuantities()
   }
 
   /**
@@ -558,26 +572,9 @@ export function useRefillWizard() {
     return rebuildPackNeeds(items, stock)
   }
 
-  /**
-   * The refiller takes a machine's rebuild units of a product along: the
-   * rebuild-only row is ticked, or the product is ticked as packed for that
-   * machine anyway. Unticked units are not booked, like a normal product.
-   */
+  /** The machine's rebuild units of a product lie in the box (its line is ticked). */
   function isRebuildTaken(machineId: string, productId: string): boolean {
     return rebuildTicks.value.has(`${machineId}|${productId}`)
-      || (packedItems.value.get(machineId)?.has(productId) ?? false)
-  }
-
-  /**
-   * Rebuild units shown for a product: what is committed once it is ticked,
-   * otherwise what would be packed (the dialled amount within what the
-   * warehouse can cover).
-   */
-  function rebuildDisplayQty(machineId: string, productId: string): number {
-    if (isRebuildTaken(machineId, productId)) return rebuildCommitted(machineId, productId)
-    const need = rebuildNeeds(machineId).get(productId) ?? 0
-    const wanted = Math.min(rebuildCustomQuantities.value.get(machineId)?.get(productId) ?? need, need)
-    return Math.min(wanted, maxRebuildQuantity(machineId, productId))
   }
 
   /** What is committed for a rebuild product (≤ need when the warehouse runs short). */
@@ -585,115 +582,185 @@ export function useRefillWizard() {
     return committedRebuild.value.get(machineId)?.get(productId) ?? 0
   }
 
+  // ── Pack lines (one tick per machine and product) ───────────────────────
+
   /**
-   * Most rebuild units a machine can pack of a product: what its slots need,
-   * capped by the warehouse stock the other machines' rebuilds leave.
+   * Warehouse units a machine's line of a product can use: what the lines of
+   * the other machines left. Unlimited without a warehouse or for a product
+   * without an id.
    */
-  function maxRebuildQuantity(machineId: string, productId: string): number {
-    const need = rebuildNeeds(machineId).get(productId) ?? 0
-    if (!selectedWarehouseId.value) return need
+  function lineAvailable(machineId: string, key: string, hasProductId: boolean): number {
+    if (!selectedWarehouseId.value || !hasProductId) return Number.POSITIVE_INFINITY
     let others = 0
-    for (const [mid, machineMap] of committedRebuild.value) {
-      if (mid !== machineId) others += machineMap.get(productId) ?? 0
+    for (const [mid, m] of committedQuantities.value) if (mid !== machineId) others += m.get(key) ?? 0
+    for (const [mid, m] of committedRebuild.value) if (mid !== machineId) others += m.get(key) ?? 0
+    return Math.max(0, (warehouseStock.value.get(key) ?? 0) - others)
+  }
+
+  /** One machine's line of a product: its refill and the units for its slot rebuilds. */
+  function packLine(machine: RefillMachine, key: string): PackLine {
+    const item = machine.tray_summary.find(i => itemKey(i) === key)
+    const refillNeed = item?.deficit ?? 0
+    const rebuildNeed = rebuildNeeds(machine.id).get(key) ?? 0
+    const change = acceptedItems(machine).filter(i => i.to_product_id === key)
+    const hasProductId = !!item?.product_id || rebuildNeed > 0
+    const avail = lineAvailable(machine.id, key, hasProductId)
+    const packed = packedItems.value.get(machine.id)?.has(key) ?? false
+    const hasRefill = refillNeed > 0 && (packed || avail > 0)
+    const rebuildTaken = rebuildNeed > 0 && isRebuildTaken(machine.id, key)
+
+    let rebuild = 0
+    if (rebuildTaken) rebuild = rebuildCommitted(machine.id, key)
+    else if (rebuildNeed > 0) {
+      const wanted = Math.min(rebuildCustomQuantities.value.get(machine.id)?.get(key) ?? rebuildNeed, rebuildNeed)
+      rebuild = Math.min(wanted, avail)
     }
-    return Math.max(0, Math.min(need, (warehouseStock.value.get(productId) ?? 0) - others))
+    let refill = 0
+    if (packed) {
+      refill = item?.product_id ? (committedQuantities.value.get(machine.id)?.get(key) ?? 0) : refillNeed
+    } else if (hasRefill) {
+      const custom = item?.product_id ? customQuantities.value.get(machine.id)?.get(key) : undefined
+      const wanted = custom !== undefined ? Math.min(custom, refillNeed) : refillNeed
+      refill = Math.max(0, Math.min(wanted, avail - rebuild))
+    }
+    const ticked = (hasRefill || rebuildNeed > 0)
+      && (!hasRefill || packed)
+      && (rebuildNeed === 0 || rebuildTaken)
+    const total = refill + rebuild
+    const need = refillNeed + rebuildNeed
+    return {
+      machine_id: machine.id,
+      machine_name: machine.name,
+      product_id: key,
+      product_name: item?.product_name ?? change[0]?.to_name ?? '?',
+      image_path: item?.image_path ?? change[0]?.to_image_path ?? null,
+      sellprice: item?.sellprice ?? change[0]?.to_price ?? null,
+      refill,
+      refill_need: refillNeed,
+      has_refill: hasRefill,
+      rebuild,
+      rebuild_need: rebuildNeed,
+      slots: change.map(i => i.item_number).sort((a, b) => a - b),
+      ticked,
+      max_quantity: Math.min(rebuildNeed + (hasRefill ? refillNeed : 0), avail),
+      total,
+      need,
+      shortfall: Math.max(0, need - total),
+      unavailable: !hasRefill && rebuildNeed === 0,
+    }
+  }
+
+  /** Every line of one machine, in warehouse order (unavailable ones included, shown dimmed). */
+  function packLines(machine: RefillMachine): PackLine[] {
+    const keys: string[] = []
+    for (const item of machine.tray_summary) {
+      if (item.deficit > 0 && !keys.includes(itemKey(item))) keys.push(itemKey(item))
+    }
+    for (const [pid, need] of rebuildNeeds(machine.id)) {
+      if (need > 0 && !keys.includes(pid)) keys.push(pid)
+    }
+    return sortPackRows(keys.map(k => packLine(machine, k)), warehouseProductOrder.value)
+  }
+
+  /** Tick / untick a machine's line of a product; ticking pins what goes into the box. */
+  function toggleLine(machineId: string, key: string) {
+    const machine = machines.value.find(m => m.id === machineId)
+    if (!machine) return
+    const line = packLine(machine, key)
+    if (line.unavailable) return
+    const k = `${machineId}|${key}`
+    const ticks = new Set(rebuildTicks.value)
+    const packed = new Map(packedItems.value)
+    const set = new Set(packed.get(machineId) ?? [])
+    const seq = new Map(lineTickSeq.value)
+    if (line.ticked) {
+      ticks.delete(k)
+      set.delete(key)
+      seq.delete(k)
+      deleteIn(rebuildCustomQuantities, machineId, key)
+      deleteIn(customQuantities, machineId, key)
+    } else {
+      seq.set(k, ++lineTickCounter)
+      if (line.rebuild_need > 0) ticks.add(k)
+      if (line.has_refill) set.add(key)
+    }
+    packed.set(machineId, set)
+    packedItems.value = packed
+    rebuildTicks.value = ticks
+    lineTickSeq.value = seq
+    recalculateCommittedQuantities()
+    if (!line.ticked) {
+      // Pin the amounts: a line in the box keeps them whatever is ticked later.
+      if (line.rebuild_need > 0) writeIn(rebuildCustomQuantities, machineId, key, rebuildCommitted(machineId, key))
+      if (line.has_refill && machine.tray_summary.some(i => i.product_id === key)) {
+        writeIn(customQuantities, machineId, key, committedQuantities.value.get(machineId)?.get(key) ?? 0)
+      }
+      recalculateCommittedQuantities()
+    }
   }
 
   /**
-   * Pack fewer (or again more) rebuild units of a product for one machine,
-   * e.g. only half a spiral of a new product. 0 is allowed: the slot is still
-   * rebuilt, the refiller fills what is at hand.
+   * Set a line's amount. The rebuild units are filled first (a planned slot
+   * needs its goods), the rest goes to the refill, so packing less takes it
+   * off the refill first.
    */
-  function setRebuildQuantity(machineId: string, productId: string, qty: number) {
-    const clamped = Math.max(0, Math.min(maxRebuildQuantity(machineId, productId), qty))
-    const next = new Map(rebuildCustomQuantities.value)
-    const machineMap = new Map(next.get(machineId) ?? [])
-    machineMap.set(productId, clamped)
-    next.set(machineId, machineMap)
-    rebuildCustomQuantities.value = next
+  function setLineQuantity(machineId: string, key: string, qty: number) {
+    const machine = machines.value.find(m => m.id === machineId)
+    if (!machine) return
+    const line = packLine(machine, key)
+    const total = Math.max(0, Math.min(line.max_quantity, Math.round(qty)))
+    const rebuild = Math.min(total, line.rebuild_need)
+    if (line.rebuild_need > 0) writeIn(rebuildCustomQuantities, machineId, key, rebuild)
+    if (line.has_refill && machine.tray_summary.some(i => i.product_id === key)) {
+      writeIn(customQuantities, machineId, key, total - rebuild)
+    }
     recalculateCommittedQuantities()
   }
 
-  /** Rebuild units of a machine as packing rows (products that only move inside the machine have none). */
-  function rebuildPackRows(machine: RefillMachine): RebuildPackRow[] {
-    const info = new Map<string, { name: string | null; image_path: string | null }>()
-    for (const i of machine.change_request?.items ?? []) {
-      if (i.to_product_id) info.set(i.to_product_id, { name: i.to_name, image_path: i.to_image_path })
+  function writeIn(target: Ref<Map<string, Map<string, number>>>, machineId: string, key: string, qty: number) {
+    const next = new Map(target.value)
+    const inner = new Map(next.get(machineId) ?? [])
+    inner.set(key, qty)
+    next.set(machineId, inner)
+    target.value = next
+  }
+
+  function deleteIn(target: Ref<Map<string, Map<string, number>>>, machineId: string, key: string) {
+    const inner = target.value.get(machineId)
+    if (!inner?.has(key)) return
+    const next = new Map(target.value)
+    const copy = new Map(inner)
+    copy.delete(key)
+    if (copy.size === 0) next.delete(machineId)
+    else next.set(machineId, copy)
+    target.value = next
+  }
+
+  /** Every line of a machine that can be packed is in the box. */
+  function allLinesTicked(machine: RefillMachine): boolean {
+    const lines = packLines(machine).filter(l => !l.unavailable)
+    return lines.length > 0 && lines.every(l => l.ticked)
+  }
+
+  /** Units ticked into the box vs. all units on the packing list. */
+  const packBox = computed(() => {
+    let packed = 0
+    let total = 0
+    for (const machine of machines.value) {
+      for (const line of packLines(machine)) {
+        total += line.total
+        if (line.ticked) packed += line.total
+      }
     }
-    return [...rebuildNeeds(machine.id).entries()]
-      .filter(([, need]) => need > 0)
-      .map(([pid, need]) => ({
-        product_id: pid,
-        product_name: info.get(pid)?.name ?? '?',
-        image_path: info.get(pid)?.image_path ?? null,
-        need,
-        packed: rebuildDisplayQty(machine.id, pid),
-      }))
-  }
+    return { packed, total }
+  })
 
-  /**
-   * A machine's packing list with the rebuild units merged in, in warehouse
-   * order: a product that is refilled anyway carries its rebuild units on the
-   * same row, a product only the rebuild needs gets a row of its own.
-   */
-  function machinePackRows(machine: RefillMachine): MachinePackRow[] {
-    const rebuild = rebuildPackRows(machine)
-    const byProduct = new Map(rebuild.map(r => [r.product_id, r]))
-    const rows: MachinePackRow[] = machine.tray_summary.map(item => ({
-      kind: 'refill' as const,
-      product_id: item.product_id,
-      product_name: item.product_name,
-      item,
-      rebuild: item.product_id ? (byProduct.get(item.product_id)?.packed ?? 0) : 0,
-    }))
-    const inList = new Set(machine.tray_summary.map(i => i.product_id))
-    for (const r of rebuild) {
-      if (!inList.has(r.product_id)) rows.push({ kind: 'rebuild', product_id: r.product_id, product_name: r.product_name, row: r })
-    }
-    return sortPackRows(rows, warehouseProductOrder.value)
-  }
+  /** Machines with at least one line in the box. */
+  const machinesReady = computed(() => machines.value.filter(m => packLines(m).some(l => l.ticked)).length)
 
-  function isRebuildTicked(machineId: string, productId: string): boolean {
-    return rebuildTicks.value.has(`${machineId}|${productId}`)
-  }
-
-  function toggleRebuildTick(machineId: string, productId: string) {
-    const next = new Set(rebuildTicks.value)
-    const key = `${machineId}|${productId}`
-    if (next.has(key)) next.delete(key)
-    else next.add(key)
-    rebuildTicks.value = next
-    recalculateCommittedQuantities()
-  }
-
-  /** Rebuild-only row ticked for every machine that needs it (combined mode). */
-  function isRebuildTickedCombined(productId: string): boolean {
-    const ids = machines.value.filter(m => rebuildPackRows(m).some(r => r.product_id === productId)).map(m => m.id)
-    return ids.length > 0 && ids.every(id => isRebuildTicked(id, productId))
-  }
-
-  function toggleRebuildTickCombined(productId: string) {
-    const ticked = isRebuildTickedCombined(productId)
-    const next = new Set(rebuildTicks.value)
-    for (const m of machines.value) {
-      if (!rebuildPackRows(m).some(r => r.product_id === productId)) continue
-      const key = `${m.id}|${productId}`
-      if (ticked) next.delete(key)
-      else next.add(key)
-    }
-    rebuildTicks.value = next
-    recalculateCommittedQuantities()
-  }
-
-  /** Every packing row of a machine ticked, rebuild-only rows included. */
-  function allPackedWithRebuild(machine: RefillMachine): boolean {
-    const rows = machinePackRows(machine)
-    if (rows.length === 0) return false
-    return rows.every(r => r.kind === 'rebuild'
-      ? isRebuildTicked(machine.id, r.product_id)
-      : (isOutOfWarehouseStock(r.item, machine.id) || isPacked(machine.id, r.item)))
-      && rows.some(r => r.kind === 'rebuild' || !isOutOfWarehouseStock(r.item, machine.id))
-  }
+  /** Lines with units that are not ticked: they stay in the warehouse when the tour starts. */
+  const openPackLines = computed<PackLine[]>(() =>
+    machines.value.flatMap(m => packLines(m).filter(l => !l.ticked && !l.unavailable && l.total > 0)))
 
   /** Set a custom packing quantity for a product on a specific machine */
   function setCustomQuantity(machineId: string, productId: string, qty: number) {
@@ -1062,6 +1129,18 @@ export function useRefillWizard() {
 
       if (error) throw error
 
+      // Withdrawn in the office after the tour loaded it?
+      let withdrawn = withdrawnRebuildMachines.value.has(machine.id)
+      if (!withdrawn && machine.change_request) {
+        try {
+          const { data: req, error: reqErr } = await (supabase as any)
+            .from('slot_change_requests')
+            .select('status')
+            .eq('id', machine.change_request.id)
+          if (!reqErr) withdrawn = (req as { status: string }[] | null)?.[0]?.status !== 'open'
+        } catch { /* keep the note; apply_slot_change will tell */ }
+      }
+
       const packed = packedQuantities.value.get(machine.id) ?? new Map<string, number>()
 
       // Build tray list: every slot of a product that needs refill, with the
@@ -1083,6 +1162,7 @@ export function useRefillWizard() {
           const live = rowById.get(item.tray_id)!.current_stock as number
           return { item, live_stock: live, removed: live, filled: 0, filled_touched: false, moved: 0, from_van: 0, action: null, price_set: false, age_set: false }
         })
+      if (withdrawn) markRebuildWithdrawn(machine.id)
       recomputeRebuildFill()
 
       const fillByTrayId = new Map<string, number>()
@@ -1149,24 +1229,76 @@ export function useRefillWizard() {
   function setRebuildFilled(itemId: string, value: number) {
     const slot = currentRebuild.value.find(s => s.item.id === itemId)
     if (!slot) return
-    slot.filled = slot.item.to_product_id
-      ? Math.max(0, Math.min(slot.item.to_capacity, Math.round(value || 0)))
-      : 0
+    slot.filled = Math.max(0, Math.min(maxRebuildFilled(itemId), Math.round(value || 0)))
     slot.filled_touched = true
+  }
+
+  /**
+   * Most units a slot can get: its new spiral, and only goods meant for the
+   * rebuild (taken out of the machine's other changed slots or packed for it)
+   * minus what the other slots of the product get. Goods of the normal
+   * refill are booked with the refill; counting them here too would book
+   * them twice.
+   */
+  function maxRebuildFilled(itemId: string): number {
+    const slot = currentRebuild.value.find(s => s.item.id === itemId)
+    const machine = currentMachine.value
+    const productId = slot?.item.to_product_id
+    if (!slot || !productId || !machine) return 0
+    const active = currentRebuild.value.filter(s => s.action !== 'skip')
+    const moved = active.filter(s => s.item.from_product_id === productId).reduce((sum, s) => sum + s.removed, 0)
+    const packed = rebuildPacked.value.get(machine.id)?.get(productId) ?? 0
+    const others = active
+      .filter(s => s.item.id !== itemId && s.item.to_product_id === productId)
+      .reduce((sum, s) => sum + s.filled, 0)
+    return Math.max(0, Math.min(slot.item.to_capacity, moved + packed - others))
+  }
+
+  /** Slots skipped today whose old product was to move into this slot: it gets fewer units than planned. */
+  function skippedSourceSlots(itemId: string): number[] {
+    const slot = currentRebuild.value.find(s => s.item.id === itemId)
+    const productId = slot?.item.to_product_id
+    if (!slot || !productId) return []
+    return currentRebuild.value
+      .filter(s => s.action === 'skip' && s.item.id !== itemId && s.item.from_product_id === productId)
+      .map(s => s.item.item_number)
+      .sort((a, b) => a - b)
   }
 
   function setRebuildAction(itemId: string, action: 'done' | 'skip' | null) {
     const slot = currentRebuild.value.find(s => s.item.id === itemId)
     if (!slot) return
-    // A slot whose age restriction changes can only be quit once the age setting is confirmed
-    if (action === 'done' && ageChanged(slot.item) && !slot.age_set) return
+    // A slot whose price or age restriction changes can only be quit once
+    // the setting at the machine is confirmed.
+    if (action === 'done' && needsConfirmation(slot)) return
     slot.action = action
     recomputeRebuildFill()
   }
 
   function setRebuildPriceSet(itemId: string, value: boolean) {
     const slot = currentRebuild.value.find(s => s.item.id === itemId)
-    if (slot) slot.price_set = value
+    if (!slot) return
+    slot.price_set = value
+    if (!value && slot.action === 'done' && changesPrice(slot.item)) {
+      slot.action = null
+      recomputeRebuildFill()
+    }
+  }
+
+  /**
+   * The change note is no longer open: nothing is rebuilt at this machine
+   * (every slot "not rebuilt", nothing taken out or filled in), so its packed
+   * units come back as leftovers.
+   */
+  function markRebuildWithdrawn(machineId: string) {
+    withdrawnRebuildMachines.value = new Set([...withdrawnRebuildMachines.value, machineId])
+    if (currentMachine.value?.id !== machineId) return
+    for (const s of currentRebuild.value) {
+      s.action = 'skip'
+      s.removed = 0
+      s.filled = 0
+      s.filled_touched = true
+    }
   }
 
   function setRebuildAgeSet(itemId: string, value: boolean) {
@@ -1351,6 +1483,15 @@ export function useRefillWizard() {
       } catch (err) {
         lastError = err
         console.warn(`[refillWizard] apply_slot_change attempt ${attempt}/3 failed:`, err)
+        // Withdrawn in the office while the tour was running: a retry can
+        // never succeed. Nothing is switched; the packed units go back as
+        // leftovers and the tour carries on.
+        if (String((err as { message?: string })?.message ?? err).includes('no longer open')) {
+          if (currentRebuild.value.some(s => s.action === 'done')) rebuildWithdrawnNotice.value = machine.name
+          markRebuildWithdrawn(machine.id)
+          recordMachineLeftovers(machine.id)
+          return 0
+        }
         if (attempt < 3) await delay(backoffMs[attempt - 1]!)
       }
     }
@@ -1743,110 +1884,31 @@ export function useRefillWizard() {
     })
   })
 
-  /** The combined packing list with the rebuild units of all machines merged in, in warehouse order. */
-  const combinedPackRows = computed<CombinedPackRow[]>(() => {
-    const rebuild = new Map<string, RebuildPackRow & { machines: string[] }>()
-    for (const m of machines.value) {
-      for (const r of rebuildPackRows(m)) {
-        const row = rebuild.get(r.product_id) ?? { ...r, need: 0, packed: 0, machines: [] }
-        row.need += r.need
-        row.packed += r.packed
-        row.machines.push(m.name)
-        rebuild.set(r.product_id, row)
-      }
-    }
-    const rows: CombinedPackRow[] = combinedPickList.value.map(item => ({
-      kind: 'refill' as const,
-      product_id: item.product_id,
-      product_name: item.product_name,
-      item,
-      rebuild: rebuild.get(item.product_id)?.packed ?? 0,
-    }))
-    const inList = new Set(combinedPickList.value.map(i => i.product_id))
-    for (const r of rebuild.values()) {
-      if (!inList.has(r.product_id)) rows.push({ kind: 'rebuild', product_id: r.product_id, product_name: r.product_name, row: r })
-    }
-    return sortPackRows(rows, warehouseProductOrder.value)
-  })
-
-  // ── Combined mode helpers ──────────────────────────────────────────────
-
-  /** Check if a product is packed for ALL machines that need it */
-  function isPackedCombined(productId: string): boolean {
+  /**
+   * The combined packing list in warehouse order: one card per product with
+   * one line per machine (machines refilling it first, then those needing it
+   * only for a slot rebuild).
+   */
+  const combinedPackCards = computed<PackCard[]>(() => {
+    const cards = new Map<string, PackCard>()
     for (const machine of machines.value) {
-      const needsIt = machine.tray_summary.some(item => item.product_id === productId)
-      if (!needsIt) continue
-      const set = packedItems.value.get(machine.id)
-      if (!set || !set.has(productId)) return false
-    }
-    return true
-  }
-
-  /** Toggle pack/unpack for a product across ALL machines that need it */
-  function togglePackedCombined(productId: string) {
-    const allPacked = isPackedCombined(productId)
-    for (const machine of machines.value) {
-      const item = machine.tray_summary.find(i => i.product_id === productId)
-      if (!item) continue
-      if (isOutOfWarehouseStock(item, machine.id) && !allPacked) continue
-
-      const current = packedItems.value.get(machine.id) ?? new Set<string>()
-      if (allPacked) {
-        current.delete(productId)
-        // Clear custom quantities when unchecking in combined mode
-        const machineCustom = customQuantities.value.get(machine.id)
-        if (machineCustom) {
-          machineCustom.delete(productId)
-          if (machineCustom.size === 0) customQuantities.value.delete(machine.id)
+      for (const line of packLines(machine)) {
+        const card = cards.get(line.product_id) ?? {
+          product_id: line.product_id,
+          product_name: line.product_name,
+          image_path: line.image_path,
+          sellprice: line.sellprice,
+          lines: [],
         }
-      } else {
-        current.add(productId)
+        card.lines.push(line)
+        cards.set(line.product_id, card)
       }
-      packedItems.value.set(machine.id, current)
     }
-    packedItems.value = new Map(packedItems.value)
-    customQuantities.value = new Map(customQuantities.value)
-    recalculateCommittedQuantities()
-  }
-
-  /** Check if all combined pick list items are packed */
-  const allPackedCombined = computed(() => {
-    if (combinedPickList.value.length === 0) return false
-    return combinedPickList.value.every(item => isPackedCombined(item.product_id))
+    for (const card of cards.values()) {
+      card.lines.sort((a, b) => Number(a.refill_need === 0) - Number(b.refill_need === 0))
+    }
+    return sortPackRows([...cards.values()], warehouseProductOrder.value)
   })
-
-  /** Get effective deficit for a combined pick item, capped by warehouse stock */
-  function effectiveDeficitCombined(productId: string): number {
-    // Sum raw deficit across all machines
-    let totalDeficit = 0
-    for (const machine of machines.value) {
-      const item = machine.tray_summary.find(i => i.product_id === productId)
-      if (!item) continue
-      totalDeficit += item.deficit
-    }
-
-    if (!selectedWarehouseId.value) return totalDeficit
-
-    // If all machines have this product packed, sum committed quantities
-    let totalCommitted = 0
-    let allChecked = true
-    for (const machine of machines.value) {
-      const item = machine.tray_summary.find(i => i.product_id === productId)
-      if (!item) continue
-      const checked = packedItems.value.get(machine.id)
-      if (checked?.has(productId)) {
-        totalCommitted += committedQuantities.value.get(machine.id)?.get(productId) ?? 0
-      } else {
-        allChecked = false
-      }
-    }
-
-    if (allChecked) return totalCommitted
-
-    // Unchecked: cap total deficit by total warehouse stock
-    const warehouseTotal = warehouseStock.value.get(productId) ?? 0
-    return Math.min(totalDeficit, warehouseTotal)
-  }
 
   async function advanceToNextMachine() {
     // Find the next uncompleted machine
@@ -1983,6 +2045,9 @@ export function useRefillWizard() {
     leftoversReturned.value = false
     returnLeftoversError.value = null
     rebuildTicks.value = new Set()
+    lineTickSeq.value = new Map()
+    withdrawnRebuildMachines.value = new Set()
+    rebuildWithdrawnNotice.value = null
     machineTrayRows.clear()
     clearSavedTourState()
   }
@@ -2014,8 +2079,6 @@ export function useRefillWizard() {
     completedMachineIds,
     sortedMachines,
     combinedPickList,
-    combinedPackRows,
-    allPackedCombined,
 
     // Packing
     isPacked,
@@ -2027,9 +2090,6 @@ export function useRefillWizard() {
     hasPartialStock,
     hasAnyPackedItems,
     effectiveStockHealth,
-    isPackedCombined,
-    togglePackedCombined,
-    effectiveDeficitCombined,
     customQuantities,
     setCustomQuantity,
     getCustomQuantity,
@@ -2039,17 +2099,21 @@ export function useRefillWizard() {
     // Change note (slot rebuilds)
     isItemAccepted,
     acceptedItems,
-    toggleRebuildItem,
     rebuildNeeds,
     rebuildCommitted,
-    maxRebuildQuantity,
-    setRebuildQuantity,
-    machinePackRows,
-    isRebuildTicked,
-    toggleRebuildTick,
-    isRebuildTickedCombined,
-    toggleRebuildTickCombined,
-    allPackedWithRebuild,
+    packLine,
+    packLines,
+    toggleLine,
+    setLineQuantity,
+    allLinesTicked,
+    packBox,
+    machinesReady,
+    openPackLines,
+    combinedPackCards,
+    maxRebuildFilled,
+    skippedSourceSlots,
+    withdrawnRebuildMachines,
+    rebuildWithdrawnNotice,
     currentRebuild,
     rebuildReady,
     rebuildLeftovers,
