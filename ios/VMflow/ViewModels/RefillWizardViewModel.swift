@@ -2059,10 +2059,12 @@ final class RefillWizardViewModel: ObservableObject {
         var remaining: [UUID: Int] = [:]
         for stock in warehouseStock { remaining[stock.productId] = stock.totalQuantity }
         // A refill already ticked holds its (pinned) units: they lie in the
-        // box, so a rebuild ticked later only gets what is left. A line
-        // ticked as a whole claims its rebuild units first (see `toggleLine`).
+        // box, so another machine's rebuild ticked later only gets what is
+        // left. Within one line the rebuild comes first: its own refill is
+        // capped by the rebuild (`maxPackingQuantity`), not the other way.
         for machine in machines {
-            for pid in packedItems[machine.id] ?? [] {
+            for pid in packedItems[machine.id] ?? []
+            where !isRebuildTaken(machineId: machine.id, productId: pid) {
                 remaining[pid, default: 0] -= packingQuantity(machineId: machine.id, productId: pid)
             }
         }
