@@ -260,7 +260,7 @@ fun PackingStep(
                     activeMachineName = activeMachineName,
                     itemCount = chipItemCount(activeChip),
                     isFullyPacked = isActiveChipFullyPacked,
-                    anyPacked = cards.any { card -> card.lines.any { it.ticked } }
+                    anyPacked = cards.any { card -> card.lines.any { it.line.ticked } }
                 )
             }
 
@@ -300,7 +300,7 @@ fun PackingStep(
             boxTotal = boxTotal,
             activeMachineName = activeMachineName,
             // Nothing on the list means nothing to pack.
-            showPackAll = cards.any { card -> card.lines.any { !it.ticked && !it.isUnavailable } },
+            showPackAll = cards.any { card -> card.lines.any { !it.line.ticked && !it.line.isUnavailable } },
             canStart = uiState.machines.any { it.isPacked },
             isSaving = uiState.isSaving,
             onPackAll = {

@@ -57,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -129,9 +130,11 @@ fun ChangeNoteCard(
         " · " + items.joinToString(", ") { it.itemNumber.toString() }
     val spiralCounts = items.filter { it.capacityChanges }
         .groupingBy { it.toCapacity }.eachCount().toSortedMap()
+    val context = LocalContext.current
+    val takeAlong = stringResource(R.string.refill_rebuild_take_along)
     val spirals = if (spiralCounts.isEmpty()) null else {
-        stringResource(R.string.refill_rebuild_take_along) + " " + spiralCounts.entries.joinToString(", ") { (cap, count) ->
-            stringResource(R.string.refill_rebuild_spiral_for, count, cap)
+        takeAlong + " " + spiralCounts.entries.joinToString(", ") { (cap, count) ->
+            context.getString(R.string.refill_rebuild_spiral_for, count, cap)
         }
     }
     Card(
