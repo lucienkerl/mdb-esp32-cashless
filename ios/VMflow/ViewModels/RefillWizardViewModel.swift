@@ -3512,8 +3512,16 @@ extension RefillWizardViewModel {
         guard !isMachinePacked(machineId: machineId, productId: productId),
               !isRebuildTaken(machineId: machineId, productId: productId),
               selectedWarehouseId != nil, !warehouseStock.isEmpty else { return qty }
+        // `qty` is already within the slots' room; only the stock left over
+        // (after the other machines and every ticked rebuild) shrinks by the
+        // line's own rebuild units.
+        guard let stock = warehouseStockFor(productId: productId) else { return 0 }
+        let otherRefills = machines
+            .filter { $0.id != machineId && packedItems[$0.id]?.contains(productId) == true }
+            .reduce(0) { $0 + packingQuantity(machineId: $1.id, productId: productId) }
         let ownRebuild = rebuildQuantity(machineId: machineId, productId: productId)
-        return max(0, min(qty, maxPackingQuantity(machineId: machineId, productId: productId) - ownRebuild))
+        let available = stock.totalQuantity - otherRefills - rebuildCommittedTotal(productId: productId) - ownRebuild
+        return max(0, min(qty, available))
     }
 
     /// One machine's line of a product.
