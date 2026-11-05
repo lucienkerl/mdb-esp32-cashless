@@ -24190,6 +24190,50 @@
           }
         }
       }
+    },
+    "Confirm the price first": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erst den Preis bestätigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirme d'abord le prix"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bevestig eerst de prijs"
+          }
+        }
+      }
+    },
+    "Confirm the price and the age setting first": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erst Preis und Alterseinstellung bestätigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirme d'abord le prix et le réglage d'âge"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bevestig eerst de prijs en de leeftijdsinstelling"
+          }
+        }
+      }
     }
   },
   "version": "1.1"

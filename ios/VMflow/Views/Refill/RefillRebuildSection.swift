@@ -208,8 +208,12 @@ struct RefillRebuildSection: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
 
-            if slot.needsAgeConfirmation {
-                Text("Confirm the age setting first")
+            if slot.needsConfirmation {
+                Text(slot.needsAgeConfirmation && slot.needsPriceConfirmation
+                     ? String(localized: "Confirm the price and the age setting first")
+                     : (slot.needsPriceConfirmation
+                        ? String(localized: "Confirm the price first")
+                        : String(localized: "Confirm the age setting first")))
                     .font(.footnote)
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity)
@@ -233,7 +237,7 @@ struct RefillRebuildSection: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(.green)
-            .disabled(slot.needsAgeConfirmation)
+            .disabled(slot.needsConfirmation)
 
             Button {
                 HapticFeedback.light.fire()

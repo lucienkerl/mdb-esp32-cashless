@@ -275,6 +275,13 @@ struct RebuildSlot: Identifiable, Equatable {
     /// "Rebuilt" is blocked until the age setting is confirmed.
     var needsAgeConfirmation: Bool { item.changesAge && !ageSet }
 
+    /// "Rebuilt" is blocked until the new price is confirmed as set on the
+    /// machine — a wrong price costs money at every sale.
+    var needsPriceConfirmation: Bool { item.changesPrice && item.toPrice != nil && !priceSet }
+
+    /// Something must still be confirmed before the slot can be marked rebuilt.
+    var needsConfirmation: Bool { needsAgeConfirmation || needsPriceConfirmation }
+
     var id: UUID { item.id }
 }
 
@@ -2401,9 +2408,9 @@ final class RefillWizardViewModel: ObservableObject {
     /// Mark a slot rebuilt / not rebuilt; `nil` undoes the decision.
     func setRebuildAction(itemId: UUID, action: SlotChangeAction?) {
         guard let i = currentRebuild.firstIndex(where: { $0.item.id == itemId }) else { return }
-        // A slot whose age restriction changes can only be quit once the
-        // age setting at the machine is confirmed.
-        if action == .done && currentRebuild[i].needsAgeConfirmation { return }
+        // A slot whose price or age restriction changes can only be quit
+        // once the setting at the machine is confirmed.
+        if action == .done && currentRebuild[i].needsConfirmation { return }
         currentRebuild[i].action = action
         recomputeRebuildFill()
     }
@@ -2411,6 +2418,10 @@ final class RefillWizardViewModel: ObservableObject {
     func setRebuildPriceSet(itemId: UUID, value: Bool) {
         guard let i = currentRebuild.firstIndex(where: { $0.item.id == itemId }) else { return }
         currentRebuild[i].priceSet = value
+        if !value && currentRebuild[i].action == .done && currentRebuild[i].item.changesPrice {
+            currentRebuild[i].action = nil
+            recomputeRebuildFill()
+        }
     }
 
     /// Tick / untick "age setting changed". Unticking a slot already marked
