@@ -87,6 +87,54 @@ const outageLabels = computed(() =>
   })),
 )
 
+// ── Hover / tap on the bar: state, from–to and duration of one segment ──────
+const barRef = ref<HTMLElement | null>(null)
+const hover = ref<{ index: number; x: number } | null>(null)
+/** A short outage is only a few pixels wide: within this distance it wins over the online run under the pointer. */
+const SNAP_PX = 8
+
+function onBarPointer(e: PointerEvent) {
+  const bar = barRef.value
+  if (!bar) return
+  const box = bar.getBoundingClientRect()
+  const x = e.clientX
+  const els = Array.from(bar.children) as HTMLElement[]
+  let index = -1
+  let snap = -1
+  let snapDist = Infinity
+  els.forEach((el, i) => {
+    const r = el.getBoundingClientRect()
+    if (x >= r.left && x <= r.right + 1) index = i
+    const state = history.value.segments[i]?.state
+    if (state === 'offline' || state === 'updating') {
+      const d = x < r.left ? r.left - x : x > r.right ? x - r.right : 0
+      if (d <= SNAP_PX && d < snapDist) { snap = i; snapDist = d }
+    }
+  })
+  if (snap >= 0) index = snap
+  if (index < 0) index = x < box.left + box.width / 2 ? 0 : els.length - 1
+  hover.value = { index, x: Math.min(Math.max(x - box.left, 0), box.width) }
+}
+
+// On touch the pointer "leaves" right after the tap: keep the info until the next tap.
+function onBarLeave(e: PointerEvent) { if (e.pointerType === 'mouse') hover.value = null }
+
+const hoverInfo = computed(() => {
+  const h = hover.value
+  const seg = h ? history.value.segments[h.index] : null
+  if (!h || !seg) return null
+  const width = barRef.value?.getBoundingClientRect().width ?? 0
+  const isNow = seg.end >= now.value.getTime() - 1000
+  return {
+    state: seg.state,
+    label: t(`connectivity.history.${seg.state}`),
+    range: `${clock(new Date(seg.start))} – ${isNow ? t('connectivity.history.now') : clock(new Date(seg.end))}`,
+    duration: duration(seg.end - seg.start),
+    // Keep the card inside the bar's width.
+    left: Math.min(Math.max(h.x, 80), Math.max(width - 80, 80)),
+  }
+})
+
 const previouslyOnline = computed(() => {
   const cc = c.value
   if (cc.state !== 'offline' || !cc.onlineSince || !cc.since) return null
@@ -177,14 +225,38 @@ const previouslyOnline = computed(() => {
         <span>{{ t('connectivity.history.title') }} · {{ loaded ? percentLabel : '…' }}</span>
         <DeviceStatusChip :connectivity="c" size="sm" />
       </div>
-      <div class="flex h-3.5 gap-px overflow-hidden rounded" role="img" :aria-label="`${t('connectivity.history.title')}: ${percentLabel}`">
+      <div class="relative">
         <div
-          v-for="(seg, i) in history.segments"
-          :key="i"
-          :class="segmentClass[seg.state]"
-          :style="{ flexGrow: seg.end - seg.start, flexBasis: 0, minWidth: '2px' }"
-          :title="`${t(`connectivity.history.${seg.state}`)} ${clock(new Date(seg.start))}–${clock(new Date(seg.end))}`"
-        />
+          ref="barRef"
+          data-testid="history-bar"
+          class="flex h-3.5 cursor-crosshair gap-px overflow-hidden rounded"
+          role="img"
+          :aria-label="`${t('connectivity.history.title')}: ${percentLabel}`"
+          @pointermove="onBarPointer"
+          @pointerdown="onBarPointer"
+          @pointerleave="onBarLeave"
+        >
+          <div
+            v-for="(seg, i) in history.segments"
+            :key="i"
+            :class="[segmentClass[seg.state], hover && hover.index !== i ? 'opacity-50' : '']"
+            class="transition-opacity"
+            :style="{ flexGrow: seg.end - seg.start, flexBasis: 0, minWidth: '2px' }"
+          />
+        </div>
+        <div
+          v-if="hoverInfo"
+          data-testid="history-tooltip"
+          class="pointer-events-none absolute bottom-full z-10 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md"
+          :style="{ left: `${hoverInfo.left}px` }"
+        >
+          <div class="flex items-center gap-1.5 font-semibold">
+            <span class="size-2 rounded-full" :class="segmentClass[hoverInfo.state]" />
+            <span class="capitalize">{{ hoverInfo.label }}</span>
+            <span class="font-normal text-muted-foreground">· {{ hoverInfo.duration }}</span>
+          </div>
+          <div class="mt-0.5 tabular-nums text-muted-foreground">{{ hoverInfo.range }}</div>
+        </div>
       </div>
       <div class="mt-1 flex justify-between text-[11px] text-muted-foreground">
         <span>{{ t('connectivity.history.ago') }}</span>
