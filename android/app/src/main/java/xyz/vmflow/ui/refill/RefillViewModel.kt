@@ -1722,9 +1722,17 @@ class RefillViewModel : ViewModel() {
                 .filter { it.deficit > 0 && it.tray.id !in rebuildTrayIds }
                 .mapNotNull { it.tray.productId }
                 .toSet()
-            // An accepted change note makes the machine a stop on its own:
-            // a pure swap needs no units but still a visit (web `startTour`).
-            rm.copy(isPacked = neededProductIds.any { it in packedForMachine } || rebuildTrayIds.isNotEmpty())
+            // On the tour = at least one line of the machine is in the box
+            // (refill or rebuild units). A change note alone does not put a
+            // machine on the tour; only a pure swap, which needs nothing from
+            // the warehouse and so has no line to tick, still means a visit.
+            val rebuildTicked = rebuildTicks[rm.machine.id].orEmpty().isNotEmpty()
+            val pureSwap = rm.acceptedChangeItems.isNotEmpty() &&
+                SlotChange.rebuildPackNeeds(
+                    rm.acceptedChangeItems,
+                    rm.trays.associate { it.tray.id to it.tray.currentStock }
+                ).values.none { it > 0 }
+            rm.copy(isPacked = neededProductIds.any { it in packedForMachine } || rebuildTicked || pureSwap)
         }
         return copy(machines = newMachines).withPackingList()
     }

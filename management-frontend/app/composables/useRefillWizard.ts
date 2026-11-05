@@ -540,7 +540,17 @@ export function useRefillWizard() {
     for (const set of packedItems.value.values()) {
       if (set.size > 0) return true
     }
-    return machines.value.some(m => acceptedItems(m).length > 0)
+    return machines.value.some(m => newRebuildTicked(m) || isPureSwap(m))
+  }
+
+  /** A rebuild line of the machine is ticked. */
+  function newRebuildTicked(machine: RefillMachine): boolean {
+    return (committedRebuild.value.get(machine.id)?.size ?? 0) > 0
+  }
+
+  /** A change note that needs nothing from the warehouse: no line to tick, still a visit. */
+  function isPureSwap(machine: RefillMachine): boolean {
+    return acceptedItems(machine).length > 0 && ![...rebuildNeeds(machine.id).values()].some(n => n > 0)
   }
 
   // ── Change note (slot rebuilds) ─────────────────────────────────────────
@@ -1051,13 +1061,14 @@ export function useRefillWizard() {
       if (firstError) throw firstError.error
       rebuildPacked.value = newRebuildPacked
 
-      // Filter machines list to those with packed items or an accepted
-      // rebuild (a pure swap needs no units but still a visit), preserve order.
-      // Only accepted items of the change note travel with the tour.
+      // Filter machines list to those with a line in the box (refill or
+      // rebuild units), preserve order. A change note alone does not put a
+      // machine on the tour; only a pure swap, which needs nothing from the
+      // warehouse and so has no line to tick, still means a visit.
       const tourMachines = machines.value
         .filter((m) => {
           const qty = packedQuantities.value.get(m.id)
-          return (qty && qty.size > 0) || acceptedItems(m).length > 0
+          return (qty && qty.size > 0) || newRebuildPacked.has(m.id) || isPureSwap(m)
         })
         .map((m) => {
           const items = acceptedItems(m)

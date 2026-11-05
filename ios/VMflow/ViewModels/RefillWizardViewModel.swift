@@ -1231,10 +1231,14 @@ final class RefillWizardViewModel: ObservableObject {
             let neededProductIds = Set(machine.trays.compactMap { $0.tray.productId }.filter { pid in
                 machine.trays.contains { $0.tray.productId == pid && $0.deficit > 0 }
             })
-            // An accepted change note puts the machine on the tour too — a
-            // pure swap needs no units but still a visit.
+            // On the tour = at least one line of the machine is in the box
+            // (refill or rebuild units). A change note alone does not put a
+            // machine on the tour; only a pure swap, which needs nothing from
+            // the warehouse and so has no line to tick, still means a visit.
+            let rebuildTicked = !(rebuildPackTicks[machine.id] ?? []).isEmpty
+            let pureSwap = hasAcceptedRebuild(machine) && !rebuildNeeds(machineId: machine.id).values.contains { $0 > 0 }
             machines[i].isPacked = !neededProductIds.isDisjoint(with: packedProductIds)
-                || hasAcceptedRebuild(machine)
+                || rebuildTicked || pureSwap
         }
     }
 

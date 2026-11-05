@@ -298,7 +298,17 @@ describe('refill tour with a change note', () => {
     const w = await startedTour()
     expect('toggleRebuildItem' in w).toBe(false)
     expect(w.rebuildNeeds('m1')).toEqual(new Map([['cola', 10]]))
+    // A change note alone does not put the machine on the tour: its goods
+    // have to be in the box.
+    expect(w.hasAnyPackedItems()).toBe(false)
+    w.toggleLine('m1', 'cola')
     expect(w.hasAnyPackedItems()).toBe(true)
+  })
+
+  it('a machine whose rebuild goods are not ticked stays off the tour', async () => {
+    const w = await startedTour()
+    await w.startTour()
+    expect(w.machines.value).toEqual([])
   })
 
   it('skipping the machine leaves the slots open and returns the packed units at the end of the tour', async () => {
@@ -365,11 +375,14 @@ describe('refill tour with a change note', () => {
       ITEM,
     ] }]]))
     const w = await startedTour()
+    for (const line of w.packLines(w.machines.value[0]!)) w.toggleLine('m1', line.product_id)
     await w.startTour()
     expect(w.skippedSourceSlots('i12')).toEqual([])
+    const withSource = w.maxRebuildFilled('i12')
     w.setRebuildAction('i11', 'skip')
     expect(w.skippedSourceSlots('i12')).toEqual([11])
-    expect(w.maxRebuildFilled('i12')).toBe(0)
+    // Only the packed units are left once the cola of slot 11 stays put.
+    expect(w.maxRebuildFilled('i12')).toBeLessThan(withSource)
   })
 
   it('a change note withdrawn in the office is not rebuilt; its goods come back', async () => {
