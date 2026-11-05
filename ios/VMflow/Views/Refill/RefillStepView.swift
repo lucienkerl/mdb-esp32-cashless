@@ -32,25 +32,9 @@ struct RefillStepView: View {
                         // Change note: the slots to rebuild, ticked off in
                         // the same list as the refill below.
                         let hasRebuild = viewModel.machineHasRebuild(machine.id)
-                        let hasTourTrays = machine.trays.contains { $0.isInTour }
                         let showsRefill = true
                         if hasRebuild {
                             RefillRebuildSection(viewModel: viewModel, machineId: machine.id)
-                        }
-
-                        // Refill All Button
-                        if showsRefill && (hasTourTrays || !hasRebuild) {
-                            Button {
-                                HapticFeedback.medium.fire()
-                                viewModel.fillAllTrays(machineId: machine.id)
-                            } label: {
-                                Label("Fill All to Capacity", systemImage: "arrow.up.to.line")
-                                    .font(.subheadline.weight(.semibold))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 10)
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(.blue)
                         }
 
                         // Tray list — show everything that's part of this tour,
