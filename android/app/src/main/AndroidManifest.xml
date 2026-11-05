@@ -21,6 +21,14 @@
         android:enableOnBackInvokedCallback="true"
         android:theme="@style/Theme.VMflow.Starting"
         tools:targetApi="31">
+        <!-- Links the app to the web dashboard for password managers (Google
+             Password Manager, 1Password, …): a login saved on
+             app.kerl-handel.de is offered here and vice versa. The website
+             side is /.well-known/assetlinks.json (ANDROID_APP_SHA256 in
+             Docker/.env). -->
+        <meta-data
+            android:name="asset_statements"
+            android:resource="@string/asset_statements" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

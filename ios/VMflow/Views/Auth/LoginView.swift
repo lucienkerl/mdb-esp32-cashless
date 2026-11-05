@@ -39,8 +39,12 @@ struct LoginView: View {
                         Text("Email")
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(.secondary)
+                        // `.username`, not `.emailAddress`: only the username
+                        // hint pairs this field with the password below, so
+                        // iCloud Keychain / 1Password fill both and offer to
+                        // save the login (webcredentials:app.kerl-handel.de).
                         TextField("you@example.com", text: $email)
-                            .textContentType(.emailAddress)
+                            .textContentType(.username)
                             .keyboardType(.emailAddress)
                             .autocorrectionDisabled()
                             .textInputAutocapitalization(.never)

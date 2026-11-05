@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Digital Asset Links statement read via the asset_statements meta-data
+         in AndroidManifest.xml. Not translatable, not user-visible. -->
+    <string name="asset_statements" translatable="false">
+        [{
+          \"include\": \"https://app.kerl-handel.de/.well-known/assetlinks.json\"
+        }]
+    </string>
+</resources>
