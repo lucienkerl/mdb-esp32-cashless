@@ -24080,6 +24080,50 @@
           }
         }
       }
+    },
+    "1 tray to refill": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Fach auffüllen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 case à remplir"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 vak bijvullen"
+          }
+        }
+      }
+    },
+    "The slot change was withdrawn in the meantime. Don't rebuild anything here; the goods packed for it go back to the warehouse at the end of the tour.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Umbau wurde inzwischen zurückgezogen. Hier nichts umbauen – die dafür gepackte Ware geht am Ende der Tour zurück ins Lager."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La transformation a été annulée entre-temps. Ne rien transformer ici ; la marchandise préparée retourne à l'entrepôt en fin de tournée."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De ombouw is intussen ingetrokken. Hier niets ombouwen; de daarvoor ingepakte waren gaan aan het eind van de ronde terug naar het magazijn."
+          }
+        }
+      }
     }
   },
   "version": "1.1"

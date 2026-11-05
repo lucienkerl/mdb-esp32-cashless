@@ -138,7 +138,8 @@ struct RefillStepView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text("\(machine.trays.filter { $0.fillAmount > 0 }.count) trays to refill")
+                let toRefill = machine.trays.filter { $0.fillAmount > 0 }.count
+                Text(toRefill == 1 ? String(localized: "1 tray to refill") : String(localized: "\(toRefill) trays to refill"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

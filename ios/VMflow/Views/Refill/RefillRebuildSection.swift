@@ -47,6 +47,18 @@ struct RefillRebuildSection: View {
                     Spacer()
                 }
                 .padding(.vertical, 12)
+            } else if viewModel.withdrawnRebuildMachines.contains(machineId) {
+                Label {
+                    Text("The slot change was withdrawn in the meantime. Don't rebuild anything here; the goods packed for it go back to the warehouse at the end of the tour.")
+                } icon: {
+                    Image(systemName: "arrow.uturn.backward.circle.fill")
+                }
+                .font(.subheadline)
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 14).fill(Color.orange.opacity(0.12)))
             } else if !slots.isEmpty {
                 progressHeader
 

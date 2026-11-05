@@ -454,6 +454,9 @@ final class RefillWizardViewModel: ObservableObject {
 
     /// Open requests (pending slots only) by machine id, as last fetched.
     @Published var changeRequests: [UUID: SlotChangeRequest] = [:]
+    /// Machines whose change note was withdrawn (web) after the tour loaded
+    /// it: nothing is rebuilt there, the packed units go back as leftovers.
+    @Published var withdrawnRebuildMachines: Set<UUID> = []
     /// Machine id → product id → when its rebuild units were ticked (a
     /// running number): ticked lines claim warehouse stock in this order.
     var rebuildTickSequence: [UUID: [UUID: Int]] = [:]
@@ -2269,6 +2272,19 @@ final class RefillWizardViewModel: ObservableObject {
                 print("[RefillWizard] live stock for rebuild failed: \(error)")
             }
         }
+        // Withdrawn in the web app after the tour loaded it?
+        var withdrawn = false
+        if let requestId = machine.changeRequest?.id {
+            struct StatusRow: Decodable { let status: String }
+            if let rows: [StatusRow] = try? await client
+                .from("slot_change_requests")
+                .select("status")
+                .eq("id", value: requestId.uuidString)
+                .execute()
+                .value {
+                withdrawn = rows.first.map { $0.status != "open" } ?? true
+            }
+        }
         // The view went away (task cancelled) or the refiller switched
         // machines while this was loading: build the cards next time.
         guard !Task.isCancelled,
@@ -2291,7 +2307,21 @@ final class RefillWizardViewModel: ObservableObject {
             return RebuildSlot(item: item, liveStock: stock, removed: stock, filled: 0)
         }
         currentRebuildMachineId = machineId
+        if withdrawn { markRebuildWithdrawn(machineId: machineId) }
         recomputeRebuildFill()
+    }
+
+    /// The change note is no longer open: nothing is rebuilt at this machine
+    /// (every slot "not rebuilt", nothing taken out or filled in), so its
+    /// packed units come back as leftovers.
+    private func markRebuildWithdrawn(machineId: UUID) {
+        withdrawnRebuildMachines.insert(machineId)
+        guard currentRebuildMachineId == machineId else { return }
+        for i in currentRebuild.indices {
+            currentRebuild[i].action = .skip
+            currentRebuild[i].removed = 0
+            currentRebuild[i].filled = 0
+        }
     }
 
     /// Refresh the suggested fill of every slot whose fill the refiller
@@ -2653,6 +2683,16 @@ final class RefillWizardViewModel: ObservableObject {
         if skipAll {
             for i in slots.indices { slots[i].action = .skip }
         }
+        // Withdrawn meanwhile: the server refuses it, nothing to save.
+        if withdrawnRebuildMachines.contains(machineId) {
+            for i in slots.indices {
+                slots[i].action = .skip
+                slots[i].removed = 0
+                slots[i].filled = 0
+            }
+            storeTourLeftovers(machineId: machineId, slots: slots)
+            return slots
+        }
         guard slots.allSatisfy({ $0.action != nil }) else {
             self.error = String(localized: "Mark every slot of the change note as rebuilt or not rebuilt first.")
             return nil
@@ -2689,6 +2729,19 @@ final class RefillWizardViewModel: ObservableObject {
             } catch {
                 lastError = error
                 print("[RefillWizard] apply_slot_change attempt \(attempt)/3 failed: \(error)")
+                // Withdrawn in the web app while the tour was running: a
+                // retry can never succeed. Nothing is switched; the packed
+                // units go back as leftovers and the tour carries on.
+                if String(describing: error).contains("no longer open") {
+                    markRebuildWithdrawn(machineId: machineId)
+                    for i in slots.indices {
+                        slots[i].action = .skip
+                        slots[i].removed = 0
+                        slots[i].filled = 0
+                    }
+                    storeTourLeftovers(machineId: machineId, slots: slots)
+                    return slots
+                }
                 if attempt < 3 {
                     try? await Task.sleep(nanoseconds: UInt64(backoffSeconds[attempt - 1] * 1_000_000_000))
                 }
