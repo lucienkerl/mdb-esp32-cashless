@@ -178,10 +178,19 @@ struct RefillSummaryView: View {
             //    from view appearance). We sleep here instead of using a
             //    separate asyncAfter, so the trigger fires only after
             //    resolution is done — no race.
+            //    With rebuild leftovers still to book, the sheet would cover
+            //    "Back to the warehouse": it opens once they are booked.
             if resolution.barkassen.count == 1 {
                 let elapsedNs = UInt64(1.8 * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: elapsedNs)
-                autoSheetBarkasse = resolution.barkassen.first
+                if !viewModel.hasUnreturnedTourLeftovers {
+                    autoSheetBarkasse = resolution.barkassen.first
+                }
+            }
+        }
+        .onChange(of: viewModel.tourLeftoversReturned) { _, returned in
+            if returned, let tourCash, tourCash.barkassen.count == 1 {
+                autoSheetBarkasse = tourCash.barkassen.first
             }
         }
         .onAppear {

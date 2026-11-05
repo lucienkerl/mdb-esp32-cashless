@@ -81,7 +81,7 @@ struct RefillStepView: View {
                                     fullTrayRow(tray)
                                 }
                             } label: {
-                                Text("\(fullTrays.count) trays already full")
+                                Text(fullTrays.count == 1 ? String(localized: "1 tray already full") : String(localized: "\(fullTrays.count) trays already full"))
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
                             }
@@ -139,7 +139,10 @@ struct RefillStepView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
                 let toRefill = machine.trays.filter { $0.fillAmount > 0 }.count
-                Text(toRefill == 1 ? String(localized: "1 tray to refill") : String(localized: "\(toRefill) trays to refill"))
+                let rebuildCount = machine.changeRequest?.items.count ?? 0
+                Text(toRefill == 0 && rebuildCount > 0
+                     ? RefillChangeNoteCard.rebuildCountLabel(rebuildCount)
+                     : (toRefill == 1 ? String(localized: "1 tray to refill") : String(localized: "\(toRefill) trays to refill")))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

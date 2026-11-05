@@ -457,6 +457,9 @@ final class RefillWizardViewModel: ObservableObject {
     /// Machines whose change note was withdrawn (web) after the tour loaded
     /// it: nothing is rebuilt there, the packed units go back as leftovers.
     @Published var withdrawnRebuildMachines: Set<UUID> = []
+    /// Shown once when a change note turned out to be withdrawn only when the
+    /// machine was confirmed (slots may already have been rebuilt by hand).
+    @Published var rebuildWithdrawnNotice: String?
     /// Machine id → product id → when its rebuild units were ticked (a
     /// running number): ticked lines claim warehouse stock in this order.
     var rebuildTickSequence: [UUID: [UUID: Int]] = [:]
@@ -1764,6 +1767,12 @@ final class RefillWizardViewModel: ObservableObject {
                     }
                 }
 
+                // An empty slot is often on purpose (e.g. emptied by a slot
+                // change): offer to assign a product, but don't hold up the
+                // review — it starts as "stays unassigned".
+                for i in suggestions.indices where suggestions[i].reason == .unassigned {
+                    suggestions[i].isSkipped = true
+                }
                 self.replacements = suggestions
                 print("[RefillWizard] Found \(suggestions.count) replacement suggestions")
                 if !suggestions.isEmpty {
@@ -2733,6 +2742,9 @@ final class RefillWizardViewModel: ObservableObject {
                 // retry can never succeed. Nothing is switched; the packed
                 // units go back as leftovers and the tour carries on.
                 if String(describing: error).contains("no longer open") {
+                    if slots.contains(where: { $0.action == .done }) {
+                        rebuildWithdrawnNotice = String(localized: "The slot change at \(machine.machine.displayName) was withdrawn in the meantime, so nothing was switched in the app. If you already rebuilt a slot, put the old product back or tell the office.")
+                    }
                     markRebuildWithdrawn(machineId: machineId)
                     for i in slots.indices {
                         slots[i].action = .skip
@@ -3256,7 +3268,9 @@ final class RefillWizardViewModel: ObservableObject {
         let filledSlots = rebuiltSlots.filter {
             $0.action == .done && $0.item.toProductId != nil && $0.filled > 0
         }
-        let rebuildAdded = filledSlots.reduce(0) { $0 + $1.filled }
+        // Units moved over from another slot of the same machine were there
+        // already: only goods from the box count as added.
+        let rebuildAdded = filledSlots.reduce(0) { $0 + max(0, $1.filled - $1.moved) }
 
         tourLog.append(TourLogEntry(
             machineId: machineId,

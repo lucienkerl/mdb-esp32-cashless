@@ -24124,6 +24124,72 @@
           }
         }
       }
+    },
+    "1 tray already full": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Fach bereits voll"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 case déjà pleine"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 vak al vol"
+          }
+        }
+      }
+    },
+    "Slot change withdrawn": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umbau zurückgezogen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transformation annulée"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ombouw ingetrokken"
+          }
+        }
+      }
+    },
+    "The slot change at %@ was withdrawn in the meantime, so nothing was switched in the app. If you already rebuilt a slot, put the old product back or tell the office.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Umbau bei %@ wurde inzwischen zurückgezogen, in der App wurde deshalb nichts umgestellt. Hast du ein Fach schon umgebaut, bau es zurück oder gib im Büro Bescheid."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La transformation chez %@ a été annulée entre-temps ; rien n'a été modifié dans l'app. Si tu as déjà transformé une case, remets l'ancien produit ou préviens le bureau."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De ombouw bij %@ is intussen ingetrokken, daarom is er in de app niets omgezet. Heb je al een vak omgebouwd, zet het oude product terug of meld het op kantoor."
+          }
+        }
+      }
     }
   },
   "version": "1.1"
