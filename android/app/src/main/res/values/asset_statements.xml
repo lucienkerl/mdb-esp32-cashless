@@ -5,6 +5,8 @@
     <string name="asset_statements" translatable="false">
         [{
           \"include\": \"https://app.kerl-handel.de/.well-known/assetlinks.json\"
+        }, {
+          \"include\": \"https://app-test.kerl-handel.de/.well-known/assetlinks.json\"
         }]
     </string>
 </resources>

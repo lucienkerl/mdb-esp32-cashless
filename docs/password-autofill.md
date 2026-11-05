@@ -34,6 +34,7 @@ know at build time. For any other server (a self-hosted instance, a custom
 entry in the server picker) the password manager still fills the fields thanks
 to the hints, but offers the matching entry only after it was saved once from
 the app (it is then stored under the app, not the domain) or after the user
-links it by hand. A test environment with its own frontend domain can be added
-as a second `webcredentials:` entry plus its own file — the managers then offer
-both entries, they cannot know which server is selected.
+links it by hand. The test environment (`app-test.kerl-handel.de`, backend
+`supabase-test.kerl-handel.de`) is associated as a second domain and serves the
+same files from its own frontend (set `ANDROID_APP_SHA256` there too) — the
+managers then offer both entries, they cannot know which server is selected.
