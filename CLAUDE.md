@@ -170,7 +170,7 @@ no room for a UID. Full write-up: `docs/integrations/rfid-card-reader.md`.
 - `lte_mode` – cellular LTE mode selector u8 (1=Cat-M, 2=NB-IoT, 3=Both)
 
 **Reset paths and what they erase:**
-- **Factory reset** (boot button held 5 s, `factory_reset_task` in main.c, or the captive portal's "Reset this device" → `POST /api/v1/system/reset`) → `cred_backup_erase()` + `nvs_flash_erase()` wipe the **entire NVS partition** including all keys above, and the credentials backup. The only way to fully clear cellular config without overwriting it. The portal reset is refused (403) unless the request came in over the SoftAP itself (the REST server also listens on the STA/LAN side), and on a claimed device whose SoftAP has no password (anyone near the machine can join an open AP).
+- **Factory reset** (boot button held 5 s, `factory_reset_task` in main.c, or the captive portal's "Reset this device" → `POST /api/v1/system/reset`) → `cred_backup_erase()` + `nvs_flash_erase()` wipe the **entire NVS partition** including all keys above, and the credentials backup. The only way to fully clear cellular config without overwriting it. The portal reset goes through the LAN gate like every other state-changing endpoint (see "Captive portal access control" below): free over the SoftAP, signed with the SoftAP password over the LAN. It is also refused on a claimed device whose SoftAP has no password (anyone near the machine can join an open AP). The BOOT button never depends on the network or the server.
 - **NVS corruption recovery** (NVS init fails with `NO_FREE_PAGES`/`NEW_VERSION_FOUND`) → also a full `nvs_flash_erase`, **followed by a restore from the credentials backup** (below), so the device comes back claimed and on its WiFi instead of factory-new. The boot also restores when NVS is healthy but `company_id` is gone while a backup exists. Either case sets `restart_reason` to `nvs_erased_restored` / `nvs_lost_restored`.
 
 **Credentials backup (`cred_backup.c` / `cred_backup_format.h`)**: second copy of NVS namespace `vmflow` (all keys except `prov_code`, `restart_reason`, `last_uptime`) plus the WiFi STA SSID/password (pseudo keys `#wifi_ssid`/`#wifi_pass`), CRC-protected, in the **`phy_init` partition** — present in both partition tables but unused because `CONFIG_ESP_PHY_INIT_DATA_IN_PARTITION` is off (`cred_backup.c` refuses to build if it is turned on). No partition table change, so OTA-updated boards get it. Refreshed on every `UPLINK_UP` of a claimed device, rewritten only when the content changed. Restore never overwrites a key that exists; WiFi is restored in `network_init()` only when the STA config is empty. Host test: `mdb-slave-esp32s3/test/cred_backup/run.sh`.
@@ -224,6 +224,25 @@ wifi_connecting, ready_to_claim, claimed), shows a status banner with
 signal bars + operator + IP, and disables submit buttons during in-flight
 or registering states. The old combined `/api/v1/settings/set` endpoint
 was removed in P3.
+
+**Captive portal access control (`webui_auth.h`)**: the REST server listens on every interface,
+so it is reachable from the SoftAP *and* from the operator's LAN (STA) or the cellular side.
+`request_is_from_softap()` (local socket address == the AP's IP) splits the two. A SoftAP client is
+trusted as before — the AP is WPA2 with the backend-assigned `softap_pwd` once claimed. Any other
+client has to sign every state-changing request (`/system/skip-probe`, `/system/reset`,
+`/cellular/configure`, `/wifi/configure`, `/uplink/prefer`, `/claim`, plus `GET /wifi/scan`, which
+knocks the STA off its channel) with that same password: `GET /api/v1/auth/nonce` → `{nonce}`
+(16 random bytes, single use, 120 s, 4 slots), then `?n=<nonce>&s=<hex HMAC-SHA256(softap_pwd,
+nonce "\n" METHOD "\n" path "\n" body)>`. The password never crosses the network (no TLS on the
+device); the signature binds method, path and exact body bytes. 5 consecutive bad signatures
+lock LAN access for 5 min (429). No `softap_pwd` (unclaimed, or never synced) → LAN calls are
+refused (403) — SoftAP or BOOT button only. `lan_gate()` in `webui_server.c` applies it;
+`POST /api/v1/auth/check` is a signed no-op the portal uses to validate the typed password.
+`GET /system/info` stays unauthenticated (it is polled every 2 s), gains
+`access:{via:"softap"|"lan", lan_auth, locked}`, and omits company/device ids, server URL and
+broker over the LAN. The portal (`webui/index.html`) keeps the typed password in a JS variable
+only and signs with its own SHA-256/HMAC (between `BEGIN sha256`/`END sha256`) because
+`crypto.subtle` does not exist on plain HTTP. Host test: `mdb-slave-esp32s3/test/webui_auth/run.sh`.
 
 **Uplink switch — WiFi instead of cellular (Option A)**: a modem-equipped board can be switched
 to run on WiFi instead of cellular, and back, via the captive portal — never both at once, and
@@ -589,5 +608,11 @@ Firmware host-side tests need no board and compile the real sources:
 - `mdb-slave-esp32s3/test/cred_backup/run.sh` — `main/cred_backup_format.h`:
   round trip, erased/torn/bit-flipped images are rejected, identical content
   gives identical bytes (no needless flash rewrite).
+- `mdb-slave-esp32s3/test/webui_auth/run.sh` — `main/webui_auth.h` (nonce single
+  use/expiry/eviction, lockout, signature bound to method/path/body, exact signed
+  message layout) and, with Node, the portal's JS SHA-256/HMAC against Node's
+  crypto (RFC 4231 vectors, random cases, request signature).
+
+The `Firmware Host Tests` workflow runs every `mdb-slave-esp32s3/test/*/run.sh` on PRs touching the slave firmware.
 
 Edge function tests (Deno): `Docker/supabase/functions/mqtt-webhook/*.test.ts` (`mdb-log`, `suppress`, `slot-offset`, `tray-mapping`, `stock-urgency`, `product-stock`, `card-payload`) and `Docker/supabase/functions/_shared/*.test.ts` (`notification-i18n`, `scale`, `mqtt-publish` — the last drives the publisher against an in-process stub broker), run with `deno test -A` from the respective directory

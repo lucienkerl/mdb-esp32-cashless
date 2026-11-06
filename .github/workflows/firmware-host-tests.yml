@@ -1,0 +1,31 @@
+name: Firmware Host Tests
+
+# Host-side tests of the slave firmware (no board, no ESP-IDF): every
+# mdb-slave-esp32s3/test/*/run.sh compiles the real sources with the host
+# compiler and runs them.
+on:
+  pull_request:
+    paths:
+      - 'mdb-slave-esp32s3/**'
+      - '.github/workflows/firmware-host-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'mdb-slave-esp32s3/**'
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run host tests
+        run: |
+          set -e
+          for t in mdb-slave-esp32s3/test/*/run.sh; do
+            echo "::group::$t"
+            sh "$t"
+            echo "::endgroup::"
+          done
