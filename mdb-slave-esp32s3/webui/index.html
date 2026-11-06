@@ -108,6 +108,9 @@
     <dl class="uplink-details" id="sb_details" style="display:none"></dl>
   </div>
 
+  <!-- ============ LAN ACCESS (only shown when not on the SoftAP) ============ -->
+  <div id="lan_auth"></div>
+
   <!-- ============ DYNAMIC VIEW MOUNT POINT ============ -->
   <div id="view"></div>
 
@@ -253,15 +256,240 @@
     if (btn) btn.disabled = !!disable;
   }
 
+  /* ---------- SHA-256 / HMAC-SHA256 ----------
+   *
+   * Needed to sign requests over the LAN (see below). WebCrypto is no
+   * option: crypto.subtle only exists in a secure context (HTTPS or
+   * localhost) and this page is plain HTTP on a LAN or SoftAP address.
+   * Checked against Node's crypto (RFC 4231 vectors + random cases) by
+   * test/webui_auth/hmac_interop.mjs, which extracts the code between the
+   * BEGIN/END markers — keep them. */
+  /* BEGIN sha256 */
+  var SHA256_K = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+  ];
+  function sha256Rotr(x, n) { return (x >>> n) | (x << (32 - n)); }
+  function sha256(msg) {
+    var len = msg.length;
+    var total = ((len + 9 + 63) >> 6) << 6;
+    var buf = new Uint8Array(total);
+    buf.set(msg);
+    buf[len] = 0x80;
+    var bitsHi = Math.floor(len / 0x20000000), bitsLo = (len << 3) >>> 0;
+    buf[total - 8] = bitsHi >>> 24; buf[total - 7] = bitsHi >>> 16;
+    buf[total - 6] = bitsHi >>> 8;  buf[total - 5] = bitsHi;
+    buf[total - 4] = bitsLo >>> 24; buf[total - 3] = bitsLo >>> 16;
+    buf[total - 2] = bitsLo >>> 8;  buf[total - 1] = bitsLo;
+    var H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+    var W = new Array(64);
+    for (var off = 0; off < total; off += 64) {
+      var i;
+      for (i = 0; i < 16; i++) {
+        var p = off + 4 * i;
+        W[i] = (buf[p] << 24) | (buf[p + 1] << 16) | (buf[p + 2] << 8) | buf[p + 3];
+      }
+      for (i = 16; i < 64; i++) {
+        var w15 = W[i - 15], w2 = W[i - 2];
+        var s0 = sha256Rotr(w15, 7) ^ sha256Rotr(w15, 18) ^ (w15 >>> 3);
+        var s1 = sha256Rotr(w2, 17) ^ sha256Rotr(w2, 19) ^ (w2 >>> 10);
+        W[i] = (W[i - 16] + s0 + W[i - 7] + s1) | 0;
+      }
+      var a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+      for (i = 0; i < 64; i++) {
+        var S1 = sha256Rotr(e, 6) ^ sha256Rotr(e, 11) ^ sha256Rotr(e, 25);
+        var ch = (e & f) ^ (~e & g);
+        var t1 = (h + S1 + ch + SHA256_K[i] + W[i]) | 0;
+        var S0 = sha256Rotr(a, 2) ^ sha256Rotr(a, 13) ^ sha256Rotr(a, 22);
+        var maj = (a & b) ^ (a & c) ^ (b & c);
+        var t2 = (S0 + maj) | 0;
+        h = g; g = f; f = e; e = (d + t1) | 0;
+        d = c; c = b; b = a; a = (t1 + t2) | 0;
+      }
+      H[0] = (H[0] + a) | 0; H[1] = (H[1] + b) | 0; H[2] = (H[2] + c) | 0; H[3] = (H[3] + d) | 0;
+      H[4] = (H[4] + e) | 0; H[5] = (H[5] + f) | 0; H[6] = (H[6] + g) | 0; H[7] = (H[7] + h) | 0;
+    }
+    var out = new Uint8Array(32);
+    for (var j = 0; j < 8; j++) {
+      out[4 * j] = H[j] >>> 24; out[4 * j + 1] = H[j] >>> 16;
+      out[4 * j + 2] = H[j] >>> 8; out[4 * j + 3] = H[j];
+    }
+    return out;
+  }
+  function hmacSha256(key, msg) {
+    if (key.length > 64) key = sha256(key);
+    var k = new Uint8Array(64);
+    k.set(key);
+    var inner = new Uint8Array(64 + msg.length);
+    var outer = new Uint8Array(64 + 32);
+    for (var i = 0; i < 64; i++) { inner[i] = k[i] ^ 0x36; outer[i] = k[i] ^ 0x5c; }
+    inner.set(msg, 64);
+    outer.set(sha256(inner), 64);
+    return sha256(outer);
+  }
+  function utf8Bytes(s) {
+    if (typeof TextEncoder !== "undefined") return new TextEncoder().encode(s);
+    var bin = unescape(encodeURIComponent(s));
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  function bytesToHex(b) {
+    var s = "";
+    for (var i = 0; i < b.length; i++) s += (b[i] < 16 ? "0" : "") + b[i].toString(16);
+    return s;
+  }
+  /* Signature of one LAN request — must match wa_verify() in
+   * main/webui_auth.h byte for byte. */
+  function signRequest(password, nonce, method, path, body) {
+    var msg = nonce + "\n" + method + "\n" + path + "\n" + (body || "");
+    return bytesToHex(hmacSha256(utf8Bytes(password), utf8Bytes(msg)));
+  }
+  /* END sha256 */
+
+  /* ---------- Device requests (plain on the SoftAP, signed on the LAN) ----------
+   *
+   * On the device's own WiFi nothing changes: joining it already needed
+   * the password. Reached over the operator's LAN instead (access.via ==
+   * "lan" in /system/info), every request that changes something is
+   * signed with the device WiFi password: fetch a one-time nonce, sign
+   * nonce + method + path + body, append ?n=&s=. The password is kept in
+   * this variable only — never sent, never stored — so reloading the page
+   * asks for it again. */
+  var lanPassword = null;
+  var lanAuthMode = null;   /* last rendered #lan_auth state, see renderLanAuth */
+
+  function viaLan() {
+    return !!(lastInfo && lastInfo.access && lastInfo.access.via === "lan");
+  }
+
+  function jsonResponse(status, body) {
+    return { ok: status >= 200 && status < 300, status: status,
+             json: function () { return Promise.resolve(body); } };
+  }
+
+  function deviceFetch(method, path, bodyStr, passwordOverride) {
+    var opts = { method: method, headers: {}, cache: "no-store" };
+    if (bodyStr !== undefined && bodyStr !== null) {
+      opts.headers["Content-Type"] = "application/json";
+      opts.body = bodyStr;
+    }
+    if (!viaLan()) return fetch(path, opts);
+
+    var pwd = passwordOverride || lanPassword;
+    if (!pwd) {
+      return Promise.resolve(jsonResponse(401, {
+        error: "enter the device WiFi password at the top of this page first", auth: "required" }));
+    }
+    return fetch("/api/v1/auth/nonce", { cache: "no-store" })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        var sig = signRequest(pwd, j.nonce, method, path, bodyStr);
+        return fetch(path + "?n=" + j.nonce + "&s=" + sig, opts);
+      })
+      .then(function (r) {
+        if (!passwordOverride && (r.status === 401 || r.status === 429)) {
+          /* Wrong password (changed in the backend since?) or locked out:
+           * drop it and show the unlock panel again. */
+          lanPassword = null;
+          renderLanAuth(lastInfo, true);
+        }
+        return r;
+      });
+  }
+
   /* ---------- POST helper ---------- */
   function postJson(url, body) {
-    return fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
-    }).then(function (r) {
+    return deviceFetch("POST", url, JSON.stringify(body)).then(function (r) {
       return r.json().catch(function () { return { error: "invalid response from device" }; });
     });
+  }
+
+  /* LAN access panel above the views. Only rebuilt when its mode changes,
+   * so the 2 s poll never wipes a half-typed password. */
+  function renderLanAuth(info, force) {
+    var box = el("lan_auth");
+    if (!box || !info) return;
+    var a = info.access || { via: "softap" };
+    var mode;
+    if (a.via !== "lan")      mode = "hidden";
+    else if (!a.lan_auth)     mode = "unavailable";
+    else if (lanPassword)     mode = "unlocked";
+    else if (a.locked)        mode = "locked";
+    else                      mode = "ask";
+    if (mode === lanAuthMode && !force) return;
+    lanAuthMode = mode;
+
+    if (mode === "hidden") { box.innerHTML = ""; return; }
+    if (mode === "unavailable") {
+      box.innerHTML =
+        '<div class="info-banner warn" style="margin-bottom:14px;text-align:left">' +
+          '<strong>Read-only over the local network.</strong> ' +
+          'This device has no WiFi password yet, so it can only be changed from its own ' +
+          'WiFi network (VMflow-XXXXXX) or reset by holding the BOOT button for 5 seconds.' +
+        '</div>';
+      return;
+    }
+    if (mode === "locked") {
+      box.innerHTML =
+        '<div class="info-banner warn" style="margin-bottom:14px;text-align:left">' +
+          '<strong>Too many wrong passwords.</strong> Changes over the local network are ' +
+          'blocked for 5 minutes. The device\'s own WiFi and the BOOT button still work.' +
+        '</div>';
+      return;
+    }
+    if (mode === "unlocked") {
+      box.innerHTML =
+        '<div class="info-banner" style="margin-bottom:14px;text-align:left">' +
+          '<strong>Unlocked</strong> — changes over the local network are signed with the ' +
+          'device WiFi password (kept in this page only, never sent).' +
+          '<div style="margin-top:8px"><button type="button" id="lan_lock_btn" class="ghost">Lock</button></div>' +
+        '</div>';
+      el("lan_lock_btn").onclick = function () { lanPassword = null; renderLanAuth(lastInfo, true); };
+      return;
+    }
+    box.innerHTML =
+      '<div class="panel" id="form_lan_auth" style="text-align:left">' +
+        '<h2>Local network access</h2>' +
+        '<p class="muted" style="margin:4px 0 10px">You reached this device over the local network. ' +
+          'To change or reset it, enter its WiFi password — in the management UI under ' +
+          '<em>Devices</em>, tap the Wi-Fi icon of this device.</p>' +
+        '<form id="lan_auth_form" autocomplete="off">' +
+          '<label class="first">Device WiFi password</label>' +
+          '<input id="i_lan_pwd" type="password" autocapitalize="none" autocorrect="off">' +
+          '<div class="err-banner"></div>' +
+          '<button type="submit">Unlock</button>' +
+        '</form>' +
+      '</div>';
+    el("lan_auth_form").onsubmit = function (ev) {
+      ev.preventDefault();
+      var candidate = el("i_lan_pwd").value || "";
+      if (!candidate) { setError("#form_lan_auth", "Password required."); return; }
+      setError("#form_lan_auth", "");
+      disableSubmit("#form_lan_auth", true);
+      deviceFetch("POST", "/api/v1/auth/check", "{}", candidate)
+        .then(function (r) {
+          return r.json().catch(function () { return {}; }).then(function (j) {
+            if (r.ok && j && j.ok) {
+              lanPassword = candidate;
+              renderLanAuth(lastInfo, true);
+            } else {
+              setError("#form_lan_auth", (j && j.error) || "Unlock failed.");
+              disableSubmit("#form_lan_auth", false);
+            }
+          });
+        })
+        .catch(function () {
+          setError("#form_lan_auth", "Network error — please try again.");
+          disableSubmit("#form_lan_auth", false);
+        });
+    };
   }
 
   /* ---------- View renders ---------- */
@@ -298,7 +526,7 @@
   window.skipProbe = function() {
     var btn = el("skip_probe_btn");
     if (btn) { btn.disabled = true; btn.textContent = "Switching…"; }
-    fetch("/api/v1/system/skip-probe", { method: "POST" })
+    deviceFetch("POST", "/api/v1/system/skip-probe")
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
       .then(function (res) {
         if (!res.ok) {
@@ -888,7 +1116,7 @@
     wifiScanInFlight = true;
     if (scanBtn) scanBtn.disabled = true;
     listEl.innerHTML = '<div class="scanning-msg"><span class="spinner sm"></span>Scanning…</div>';
-    fetch("/api/v1/wifi/scan").then(function (r) { return r.json(); }).then(function (j) {
+    deviceFetch("GET", "/api/v1/wifi/scan").then(function (r) { return r.json(); }).then(function (j) {
       wifiNetworks = (j && j.networks) || [];
       renderWifiList();
     }).catch(function () {
@@ -1110,6 +1338,7 @@
   /* ---------- Top-level render ---------- */
   function render(info) {
     renderBanner(info);
+    renderLanAuth(info);
     renderView(info);
     /* Live-update the diagnostic block while the claimed view is
      * mounted. View itself only changes on state transition, but the
