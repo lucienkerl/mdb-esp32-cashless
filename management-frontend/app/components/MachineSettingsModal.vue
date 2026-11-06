@@ -14,12 +14,22 @@ import LocationPicker, { type LocationModel } from '~/components/LocationPicker.
 import { useMachines, type MachineSettingsPatch } from '~/composables/useMachines'
 import { useOrganization } from '~/composables/useOrganization'
 import { COUNTRY_OPTIONS } from '~/composables/useTaxSettings'
+import TemperatureSensorsSettings from '~/components/machine/TemperatureSensorsSettings.vue'
+import {
+  cleanTempSettings,
+  parseTempSettings,
+  type TempReading,
+  type TempSensorSetting,
+} from '~/lib/temperatureSensors'
 
 const props = defineProps<{
   open: boolean
   machineId: string
-  initial: Partial<LocationModel & { nayax_machine_id: string | null; item_number_offset: number; linked_selections: boolean }>
+  /** temp_sensors is the raw `vendingMachine.temp_sensors` column. */
+  initial: Partial<LocationModel & { nayax_machine_id: string | null; item_number_offset: number; linked_selections: boolean; temp_sensors: unknown }>
   publicListing: boolean
+  /** Latest readings of the board's temperature sensors, to name and pick them. */
+  tempReadings?: TempReading[]
 }>()
 
 const emit = defineEmits<{
@@ -31,7 +41,7 @@ const { t } = useI18n()
 const supabase = useSupabaseClient()
 const { updateMachineSettings } = useMachines()
 
-type MachineSettingsForm = LocationModel & { nayax_machine_id: string | null; item_number_offset: number; linked_selections: boolean }
+type MachineSettingsForm = LocationModel & { nayax_machine_id: string | null; item_number_offset: number; linked_selections: boolean; temp_sensors: TempSensorSetting[] }
 
 const form = ref<MachineSettingsForm>(cloneInitial())
 const saving = ref(false)
@@ -143,6 +153,7 @@ function cloneInitial(): MachineSettingsForm {
     nayax_machine_id: props.initial.nayax_machine_id ?? null,
     item_number_offset: props.initial.item_number_offset ?? 0,
     linked_selections: props.initial.linked_selections ?? false,
+    temp_sensors: parseTempSettings(props.initial.temp_sensors),
   }
 }
 
@@ -240,7 +251,10 @@ async function save() {
     // An emptied number input yields '' / NaN; the column is NOT NULL.
     const parsedOffset = Number(form.value.item_number_offset)
     form.value.item_number_offset = Number.isFinite(parsedOffset) ? Math.trunc(parsedOffset) : 0
-    await updateMachineSettings(props.machineId, form.value as MachineSettingsPatch)
+    await updateMachineSettings(props.machineId, {
+      ...form.value,
+      temp_sensors: cleanTempSettings(form.value.temp_sensors),
+    } as MachineSettingsPatch)
     await saveContact()
     emit('saved')
     emit('update:open', false)
@@ -342,6 +356,12 @@ function cancel() {
             <span class="block text-[10px] text-muted-foreground">{{ t('machineSettings.linkedSelectionsHint') }}</span>
           </span>
         </label>
+
+        <!-- Temperature sensors: names + which ones show next to the machine name -->
+        <TemperatureSensorsSettings
+          v-model="form.temp_sensors"
+          :readings="tempReadings ?? []"
+        />
 
         <!-- ── Contact overrides for printed posters ─────────── -->
         <div class="rounded-xl border bg-card p-4">

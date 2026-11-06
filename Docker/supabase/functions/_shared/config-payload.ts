@@ -27,6 +27,17 @@ export const CMD_MDB_TRACE = 0x35
 /** The firmware clamps to the same cap (MDB_TRACE_MAX_SECONDS). */
 export const MDB_TRACE_MAX_SECONDS = 1800
 
+/** Relay outputs (WROOM-1U only): param = 0 off / 1 on. */
+export const CMD_RELAY_1 = 0x33
+export const CMD_RELAY_2 = 0x34
+/** I/O test mode (WROOM-1U only): itemNumber = seconds, 0 = stop. */
+export const CMD_IO_TEST = 0x36
+/** One test beep on the buzzer. */
+export const CMD_BUZZER = 0x37
+
+/** The firmware clamps to the same cap (IO_TEST_MAX_SECONDS). */
+export const IO_TEST_MAX_SECONDS = 600
+
 export function buildConfigPayload(
   cmd: number,
   param: number,

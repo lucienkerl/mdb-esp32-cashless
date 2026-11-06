@@ -13,6 +13,7 @@ import { getProductImageUrl } from '@/composables/useProducts'
 import { hasSavedTour, clearSavedTourState } from '@/composables/useRefillWizard'
 import LocationPicker, { type LocationModel } from '~/components/LocationPicker.vue'
 import { usePosterFreshness } from '@/composables/usePosterFreshness'
+import MachineTemperatureBadges from '~/components/machine/MachineTemperatureBadges.vue'
 
 const { t, locale } = useI18n()
 const { organization } = useOrganization()
@@ -264,6 +265,13 @@ async function submitCreateMachine() {
               </CardHeader>
 
               <CardContent class="space-y-3">
+                <!-- Temperature sensors picked in the machine settings -->
+                <MachineTemperatureBadges
+                  :settings="machine.temp_sensors"
+                  :diagnostics="machine.embeddeds?.mdb_diagnostics"
+                  :online="machine.embeddeds?.status === 'online'"
+                />
+
                 <!-- Online, but the machine does not poll the reader -->
                 <span
                   v-if="connOf(machine.id).reader === 'inactive'"

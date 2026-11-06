@@ -96,7 +96,25 @@ once and compounded: a card balance of 8.20 reached the machine as 8.18.
 Regression tests: `mdb-slave-esp32s3/test/scale/run.sh` and
 `functions/_shared/scale.test.ts`.
 
-**MQTT topics**: `/{company_id}/{device_id}/{event}` where events are: `sale`, `status`, `paxcounter`, `dex`, `mdb-log`, `card`, `credit`, `ota`, `config`, `mdb-trace`
+**MQTT topics**: `/{company_id}/{device_id}/{event}` where events are: `sale`, `status`, `paxcounter`, `dex`, `mdb-log`, `card`, `credit`, `ota`, `config`, `mdb-trace`, `io`
+
+**I/O test (WROOM-1U only)**: the machine's admin "I/O test" tab (`components/machine/IoTestPanel.vue`, helpers in
+`app/lib/ioTest.ts`) is shown only when `mdb_diagnostics.board === 'wroom-1u'` — firmware adds `"board"` to every
+`/mdb-log` payload. Config cmd `0x36` (raw `itemNumber` = seconds, `0` = stop, capped at 600 s) starts `io_test_task`,
+which publishes plaintext JSON `{"active","left","in":[3],"relay":[2],"ntc","ow":[[{id,t}],[...]]}` to `/io` at QoS 0
+(on any input/relay change, else every 5 s; 1-Wire rescanned every 15 s) and puts the relays back as it found them when
+the test ends. `0x33`/`0x34` switch relay 1/2, `0x37` beeps the buzzer; all go through `send-device-config`
+(`io_test`, `relay1`, `relay2`, `buzzer`). The forwarder treats `/io` as live-only (no DLQ); `mqtt-webhook`
+(`io-state.ts`) overwrites `embeddeds.io_state`, which the page follows through realtime. 1-Wire scans are serialised
+by `s_onewire_mutex` (the 5-min sensor timer and the test task share the buses). Needs `topic write /+/+/io` in the ACL.
+
+**Temperature sensors**: every `/mdb-log` payload carries the latest readings as
+`"temps":{"ntc":41.3,"ow":[{"id":"<ROM id>","b":1,"t":21.5}]}` (cache filled at boot, by the 5-min sensor timer and by
+I/O test scans; `ow` absent on the original board), merged into `embeddeds.mdb_diagnostics.temps` with no webhook change.
+`vendingMachine.temp_sensors` (`[{id:"ntc"|<ROM id>,name,show}]`, display only) holds the operator's names and which
+sensors show next to the machine name (machine page header, Machines panel cards) via
+`components/machine/MachineTemperatureBadges.vue`; edited in Machine settings (`TemperatureSensorsSettings.vue`),
+helpers in `app/lib/temperatureSensors.ts`. The I/O test panel shows the same names.
 
 **Live MDB bus trace (`mdb_trace.h`)**: on-demand raw capture of every 9-bit word on the bus, shown in the
 machine's MDB tab (admin). Off by default; started by config cmd `0x35` (duration in seconds in the *raw*
