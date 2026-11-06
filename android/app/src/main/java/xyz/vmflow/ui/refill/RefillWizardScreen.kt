@@ -229,11 +229,6 @@ fun RefillWizardScreen(
 
                     RefillStep.PACKING -> PackingStep(
                         uiState = uiState,
-                        visiblePackingList = viewModel.visiblePackingList(),
-                        displayQuantity = viewModel::displayQuantity,
-                        maxPackingQuantity = viewModel::maxPackingQuantity,
-                        isPacked = viewModel::isPacked,
-                        isOutOfStockForMachine = viewModel::isOutOfStockForMachine,
                         chipItemCount = viewModel::chipItemCount,
                         chipIsFullyPacked = viewModel::chipIsFullyPacked,
                         onSelectWarehouse = viewModel::selectWarehouse,
@@ -245,15 +240,11 @@ fun RefillWizardScreen(
                         // Start Tour disabled under a screen full of ticks.
                         onReloadWarehouseStock = viewModel::reloadWarehouseStock,
                         onSelectChip = viewModel::selectChip,
-                        onTogglePackedAll = viewModel::togglePackedAll,
-                        onTogglePackedForMachine = viewModel::togglePackedForMachine,
-                        onSetPackingQuantity = viewModel::setPackingQuantity,
+                        onToggleLine = viewModel::toggleLine,
+                        onSetLineQuantity = viewModel::setLineQuantity,
                         onPackEverything = viewModel::packEverything,
                         onPackAllForMachine = viewModel::packAllForMachine,
                         onStartTour = viewModel::startTour,
-                        onToggleRebuildItem = viewModel::toggleRebuildItem,
-                        onSetRebuildQuantity = viewModel::setRebuildQuantity,
-                        onToggleRebuildTick = viewModel::toggleRebuildTick,
                         onCompleteTourNote = viewModel::completeTourNote
                     )
 
@@ -307,7 +298,9 @@ fun RefillWizardScreen(
                                 rebuild = if (uiState.rebuildMachineId == currentMachine.machine.id) {
                                     RebuildSectionState(
                                         slots = uiState.currentRebuild,
-                                        showReturnHint = uiState.selectedWarehouseId != null
+                                        showReturnHint = uiState.selectedWarehouseId != null,
+                                        packed = currentMachine.rebuildPacked,
+                                        withdrawn = currentMachine.machine.id in uiState.withdrawnRebuildMachines
                                     )
                                 } else {
                                     null
@@ -405,6 +398,23 @@ fun RefillWizardScreen(
                 pickerTrayId = null
             },
             onDismiss = { pickerTrayId = null }
+        )
+    }
+
+    // ── Slot change withdrawn ────────────────────────────────────────────
+    // The office withdrew a machine's change note while the refiller was
+    // already rebuilding it: nothing was switched in the app, so the slots
+    // they touched must be put back by hand.
+    uiState.rebuildWithdrawnNotice?.let { machineName ->
+        AlertDialog(
+            onDismissRequest = viewModel::clearRebuildWithdrawnNotice,
+            title = { Text(stringResource(R.string.refill_rebuild_withdrawn_title)) },
+            text = { Text(stringResource(R.string.refill_rebuild_withdrawn_notice, machineName)) },
+            confirmButton = {
+                TextButton(onClick = viewModel::clearRebuildWithdrawnNotice) {
+                    Text(stringResource(android.R.string.ok))
+                }
+            }
         )
     }
 

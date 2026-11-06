@@ -190,7 +190,6 @@ fun RefillStepContent(
     // refuses to accept for the write itself, so the read-out does not
     // accept it either.
     val traysToRefill = machine.trays.count { it.fillAmount > 0 && it.isInTour }
-    val canFillMore = rows.any { it.canIncrement }
 
     // Scroll targets for a grid tap. Derived from the very same conditions the
     // `LazyColumn` below emits its items under — kept adjacent so the two
@@ -267,31 +266,6 @@ fun RefillStepContent(
             }
 
             if (rows.isNotEmpty()) {
-                item(key = "fill-all") {
-                    OutlinedButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onFillAllTrays()
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .defaultMinSize(minHeight = 56.dp),
-                        enabled = canFillMore && !isSaving
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.VerticalAlignTop,
-                            // Decorative: the button's own label says it.
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = stringResource(R.string.refill_step_fill_all),
-                            style = MaterialTheme.typography.titleSmall
-                        )
-                    }
-                }
-
                 items(items = rows, key = { it.trayId }) { row ->
                     RefillTrayCard(
                         row = row,

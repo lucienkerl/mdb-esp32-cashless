@@ -32,6 +32,10 @@ services:
       # Publicly reachable frontend origin, used for the QR codes on printed
       # machine posters. Same value GoTrue gets as GOTRUE_SITE_URL.
       NUXT_PUBLIC_SITE_URL: ${SITE_URL}
+      # SHA-256 signing certificate fingerprint(s) of the Android app, comma-
+      # separated. Served in /.well-known/assetlinks.json so password managers
+      # offer the dashboard's saved login in the app. Empty = file not served.
+      NUXT_APP_ASSOCIATION_ANDROID_SHA256: ${ANDROID_APP_SHA256:-}
 
   # ==========================================================================
   # MQTT Broker & Forwarder

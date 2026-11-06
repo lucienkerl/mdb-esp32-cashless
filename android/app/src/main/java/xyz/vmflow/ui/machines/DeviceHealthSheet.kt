@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,6 +41,25 @@ import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import xyz.vmflow.R
+import xyz.vmflow.data.ConnectivityState
+import xyz.vmflow.data.StatusHistory
+import xyz.vmflow.data.DeviceNetwork
+import xyz.vmflow.data.connectivity
+import xyz.vmflow.data.deviceNetwork
+import xyz.vmflow.ui.components.ConnectionHistoryBar
+import xyz.vmflow.ui.components.ConnectivityTimeLine
+import xyz.vmflow.ui.components.SignalIcon
+import xyz.vmflow.ui.components.StatusChip
+import xyz.vmflow.ui.components.networkColor
+import xyz.vmflow.ui.components.networkKindLabel
+import xyz.vmflow.ui.components.networkQualityLabel
+import xyz.vmflow.ui.components.agoText
+import xyz.vmflow.ui.components.clockText
+import xyz.vmflow.ui.components.durationText
+import xyz.vmflow.ui.components.historyPercentLabel
+import xyz.vmflow.ui.components.readerHint
+import xyz.vmflow.ui.components.readerLabel
+import xyz.vmflow.ui.components.rememberNow
 import xyz.vmflow.data.RestartReason
 import xyz.vmflow.data.formatUptimeSeconds
 import xyz.vmflow.data.groupSuppressedByDay
@@ -51,7 +71,7 @@ import xyz.vmflow.models.MdbLogEntry
 import xyz.vmflow.models.SuppressedSale
 import xyz.vmflow.models.Tray
 import xyz.vmflow.ui.common.dayLabel
-import xyz.vmflow.ui.theme.OnlineGreen
+import xyz.vmflow.ui.theme.StockOrange
 import xyz.vmflow.ui.theme.StockRed
 import java.text.NumberFormat
 import java.util.Locale
@@ -85,8 +105,14 @@ fun DeviceHealthSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val zone = remember { TimeZone.currentSystemDefault() }
 
+    val now by rememberNow()
+
     LaunchedEffect(embedded?.id, isAdmin) {
         embedded?.id?.let { viewModel.load(it, isAdmin) }
+    }
+    // A status change adds a log row: reload so the bar ends in the current state.
+    LaunchedEffect(embedded?.status) {
+        embedded?.id?.let { viewModel.loadStatusLog(it) }
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
@@ -104,7 +130,10 @@ fun DeviceHealthSheet(
                     modifier = Modifier.padding(vertical = 8.dp)
                 )
             }
-            item { UptimeSection(embedded) }
+            item { ConnectionSection(embedded, uiState, now) }
+            embedded?.mdbDiagnostics.deviceNetwork?.let { net ->
+                item { NetworkSection(net, offline = embedded.connectivity(now).state == ConnectivityState.OFFLINE, now = now) }
+            }
             if (isAdmin) {
                 item { MdbDiagnosticsSection(embedded?.mdbDiagnostics) }
             }
@@ -117,37 +146,109 @@ fun DeviceHealthSheet(
     }
 }
 
-// ─── Uptime ──────────────────────────────────────────────────────────────
+// ─── Network ─────────────────────────────────────────────────────────────
 
+/** WiFi or cellular with signal, IP and when it was measured — web `ConnectivityCard.vue` "Network" column. */
 @Composable
-private fun UptimeSection(embedded: Embedded?) {
-    SectionCard(title = stringResource(R.string.device_health_section_uptime)) {
-        val isOnline = embedded?.isOnline == true
-        val since = embedded?.onlineSince ?: embedded?.statusAt
-
+private fun NetworkSection(net: DeviceNetwork, offline: Boolean, now: Instant) {
+    val weak = !offline && net.isWeak
+    val kind = networkKindLabel(net.kind)
+    SectionCard(title = stringResource(R.string.net_section)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // Green/red (not the app's usual online/offline-gray StatusChip
-            // palette) — this dot mirrors the iOS source's own coloring 1:1.
             Box(
                 modifier = Modifier
-                    .size(10.dp)
+                    .size(40.dp)
                     .clip(CircleShape)
-                    .background(if (isOnline) OnlineGreen else StockRed)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            if (isOnline && since != null) {
+                    .background(networkColor(net.tone, muted = offline).copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                SignalIcon(net.kind, net.level, net.tone, muted = offline, size = 22.dp)
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
                 Text(
-                    text = formatUptimeSince(since),
+                    text = net.name ?: kind,
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.Medium
                 )
-            } else {
                 Text(
-                    text = stringResource(R.string.device_health_offline),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = net.quality?.let { "$kind · ${networkQualityLabel(it)}" } ?: kind,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = if (weak) FontWeight.Medium else null,
+                    color = if (weak) networkColor(net.tone) else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        net.rssi?.let { ConnRow(stringResource(R.string.net_signal), "$it dBm") }
+        net.mode?.let { ConnRow(stringResource(R.string.net_mode), it) }
+        net.ip?.let { ConnRow(stringResource(R.string.net_ip), it) }
+        net.measuredAt?.let { ConnRow(stringResource(R.string.net_measured), agoText(it, now)) }
+        if (weak) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = stringResource(R.string.net_weak_hint),
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(StockOrange.copy(alpha = 0.12f))
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            )
+        }
+    }
+}
+
+// ─── Connection ──────────────────────────────────────────────────────────
+
+/**
+ * Status, since when, last contact and the machine's reader state, plus the
+ * 24-hour bar — the counterpart of the web's `ConnectivityCard.vue` and the
+ * iOS sheet's connection/history sections.
+ */
+@Composable
+private fun ConnectionSection(embedded: Embedded?, uiState: DeviceHealthUiState, now: Instant) {
+    val c = embedded.connectivity(now)
+    SectionCard(title = stringResource(R.string.conn_section_connection)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            StatusChip(connectivity = c)
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        ConnectivityTimeLine(connectivity = c, now = now, showsReader = false)
+        Spacer(modifier = Modifier.height(8.dp))
+
+        when (c.state) {
+            ConnectivityState.ONLINE -> c.onlineSince?.let {
+                ConnRow(stringResource(R.string.conn_online_since), durationText(now - it))
+            }
+            ConnectivityState.OFFLINE -> {
+                c.since?.let {
+                    ConnRow(stringResource(R.string.conn_offline_since), "${clockText(it, now)} (${agoText(it, now)})")
+                }
+                val start = c.onlineSince
+                val end = c.since
+                if (start != null && end != null && end > start) {
+                    ConnRow(stringResource(R.string.conn_online_before), durationText(end - start))
+                }
+            }
+            else -> {}
+        }
+        if (c.state != ConnectivityState.NEVER && c.state != ConnectivityState.NONE) {
+            ConnRow(
+                stringResource(R.string.conn_last_contact),
+                c.lastContactAt?.let { "${clockText(it, now)} (${agoText(it, now)})" } ?: "—"
+            )
+        }
+        ConnRow(
+            stringResource(R.string.conn_machine_mdb),
+            c.reader?.let { readerLabel(it) } ?: stringResource(R.string.device_health_unknown)
+        )
+        c.reader?.let {
+            Text(
+                text = readerHint(it),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
 
         val reason = embedded?.lastRestartReason
@@ -164,15 +265,59 @@ private fun UptimeSection(embedded: Embedded?) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+
+        val windowStart = uiState.statusWindowStart
+        if (embedded != null && windowStart != null) {
+            val history = remember(uiState.statusLog, embedded.status, now) {
+                StatusHistory.build(uiState.statusLog, embedded.status, windowStart, now)
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(
+                    text = stringResource(R.string.conn_history_title),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = historyPercentLabel(history),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            ConnectionHistoryBar(history)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(stringResource(R.string.conn_history_24h_ago), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.conn_history_now), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            history.outages.forEach { o ->
+                Text(
+                    text = stringResource(
+                        R.string.conn_history_outage,
+                        clockText(o.start, now),
+                        clockText(o.end, now),
+                        durationText(o.end - o.start)
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = StockRed
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun formatUptimeSince(sinceIso: String): String {
-    val since = runCatching { Instant.parse(sinceIso) }.getOrNull()
-        ?: return stringResource(R.string.device_health_offline)
-    val seconds = (Clock.System.now() - since).inWholeSeconds
-    return formatUptimeSeconds(seconds)
+private fun ConnRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+    }
 }
 
 // ─── MDB Status (admin) ────────────────────────────────────────────────

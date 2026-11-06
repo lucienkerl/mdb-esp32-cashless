@@ -3,6 +3,7 @@ package xyz.vmflow.ui.refill
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,22 +13,22 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckBox
-import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -52,7 +53,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -68,6 +72,7 @@ import xyz.vmflow.R
 import xyz.vmflow.data.LeftoverDestination
 import xyz.vmflow.data.RebuildAction
 import xyz.vmflow.data.RebuildSlot
+import xyz.vmflow.data.SlotChange
 import xyz.vmflow.data.SlotChangeItem
 import xyz.vmflow.ui.components.ProductImage
 import xyz.vmflow.ui.deals.formatEuro
@@ -100,153 +105,158 @@ import xyz.vmflow.ui.theme.StockRed
 data class ChangeNoteState(
     val machineId: String,
     val machineName: String,
-    val items: List<SlotChangeItem>,
-    /** The accepted slots need goods from the warehouse — they are in the packing list, marked violet. */
-    val hasRebuildGoods: Boolean
+    val items: List<SlotChangeItem>
 )
 
+/**
+ * A machine's change note as one violet banner ("Rebuild 3 slots · 12, 14,
+ * 23") plus the spirals to take along, the one thing not on the packing
+ * list. It opens in place and is information only: every planned slot is
+ * packed (its goods are ticked in the packing list like any other goods),
+ * and a slot that can't be done is skipped at the machine. Web
+ * `RefillChangeNote.vue`, iOS `ChangeNoteBanner`.
+ */
 @Composable
 fun ChangeNoteCard(
     note: ChangeNoteState,
-    enabled: Boolean,
-    onToggleItem: (itemId: String) -> Unit,
+    showMachineName: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val acceptedCount = note.items.count { it.accepted }
+    var expanded by remember(note.machineId) { mutableStateOf(false) }
+    val items = note.items.sortedBy { it.itemNumber }
+    val summary = pluralStringResource(R.plurals.refill_rebuild_count, items.size, items.size) +
+        " · " + items.joinToString(", ") { it.itemNumber.toString() }
+    val spiralCounts = items.filter { it.capacityChanges }
+        .groupingBy { it.toCapacity }.eachCount().toSortedMap()
+    val context = LocalContext.current
+    val takeAlong = stringResource(R.string.refill_rebuild_take_along)
+    val spirals = if (spiralCounts.isEmpty()) null else {
+        takeAlong + " " + spiralCounts.entries.joinToString(", ") { (cap, count) ->
+            context.getString(R.string.refill_rebuild_spiral_for, count, cap)
+        }
+    }
     Card(
         modifier = modifier.fillMaxWidth(),
-        border = BorderStroke(1.5.dp, StockOrange.copy(alpha = 0.6f)),
-        colors = CardDefaults.cardColors(
-            containerColor = StockOrange.copy(alpha = 0.06f)
-        )
+        border = BorderStroke(1.5.dp, RebuildViolet.copy(alpha = 0.5f)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.SwapHoriz,
-                    contentDescription = null,
-                    tint = StockOrange,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = stringResource(R.string.refill_rebuild_change_note),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = StockOrange
-                    )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(shape = CircleShape, color = RebuildViolet.copy(alpha = 0.15f), modifier = Modifier.size(40.dp)) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = RebuildViolet, modifier = Modifier.size(20.dp))
+                }
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                if (showMachineName) {
                     Text(
                         text = note.machineName,
                         style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                Text(
-                    text = stringResource(R.string.refill_rebuild_accepted_of, acceptedCount, note.items.size),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Text(text = summary, style = MaterialTheme.typography.bodyMedium, color = RebuildViolet)
+                if (spirals != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+                        Icon(Icons.Default.Inventory2, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(text = spirals, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    }
+                }
             }
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = stringResource(R.string.refill_rebuild_change_note_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            Icon(
+                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(modifier = Modifier.height(4.dp))
-
-            note.items.forEach { item ->
-                ChangeNoteItemRow(item = item, enabled = enabled, onToggle = { onToggleItem(item.id) })
-            }
-
-            if (note.hasRebuildGoods) {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                Text(
-                    text = stringResource(R.string.refill_rebuild_goods_in_pack_list),
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = RebuildViolet
-                )
+        }
+        if (expanded) {
+            items.forEach { item ->
+                HorizontalDivider()
+                ChangeNoteItemRow(item)
             }
         }
     }
 }
 
 @Composable
-private fun ChangeNoteItemRow(item: SlotChangeItem, enabled: Boolean, onToggle: () -> Unit) {
-    val emptyLabel = stringResource(R.string.refill_rebuild_empty_slot)
-    val contentAlpha = if (item.accepted) 1f else 0.5f
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = enabled, onClick = onToggle)
-            .defaultMinSize(minHeight = 48.dp)
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = if (item.accepted) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
-            contentDescription = stringResource(R.string.refill_rebuild_toggle_item, item.itemNumber),
-            tint = if (item.accepted) StockGreen else MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(
-            text = "#${item.itemNumber}",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha),
-            modifier = Modifier.width(36.dp)
-        )
-        Column(modifier = Modifier.weight(1f)) {
+private fun ChangeNoteItemRow(item: SlotChangeItem) {
+    Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Top) {
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
+            modifier = Modifier.size(40.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = item.itemNumber.toString(),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.surface
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                if (item.fromImagePath != null) {
+                    ProductImage(imagePath = item.fromImagePath, contentDescription = null, size = 24.dp, modifier = Modifier.alpha(0.5f))
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
                 Text(
-                    text = item.fromName ?: emptyLabel,
+                    text = item.fromName ?: stringResource(R.string.refill_rebuild_empty_slot),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha),
-                    modifier = Modifier
-                        .padding(horizontal = 4.dp)
-                        .size(14.dp)
-                )
-                Text(
-                    text = item.toName ?: emptyLabel,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            val details = buildList {
-                if (item.capacityChanges) {
-                    add(stringResource(R.string.refill_rebuild_change_spiral, item.fromCapacity, item.toCapacity))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (item.toImagePath != null) {
+                    ProductImage(imagePath = item.toImagePath, contentDescription = null, size = 24.dp)
+                    Spacer(modifier = Modifier.width(8.dp))
                 }
-                val toPrice = item.toPrice
-                if (item.hasPriceChange && toPrice != null) {
-                    add(stringResource(R.string.refill_rebuild_new_price, formatEuro(toPrice)))
-                }
-                if (item.ageChanged) add(ageChangeLabel(item))
-                if (!item.accepted) add(stringResource(R.string.refill_rebuild_not_this_tour))
-            }
-            if (details.isNotEmpty()) {
                 Text(
-                    text = details.joinToString(" · "),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (item.accepted) StockOrange else MaterialTheme.colorScheme.onSurfaceVariant
+                    text = item.toName ?: stringResource(R.string.refill_rebuild_empty_the_slot),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
                 )
+            }
+            val toPrice = item.toPrice
+            val showPrice = item.toProductId != null && item.hasPriceChange && toPrice != null
+            if (item.capacityChanges || showPrice || item.ageChanged) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (item.capacityChanges) {
+                        NoteTag(stringResource(R.string.refill_rebuild_spiral_tag, item.toCapacity), StockOrange)
+                    }
+                    if (showPrice && toPrice != null) NoteTag(formatEuro(toPrice), InfoBlue)
+                    if (item.ageChanged) NoteTag(ageLabel(item.toMinAge), StockRed)
+                }
             }
         }
     }
 }
+
+@Composable
+private fun NoteTag(text: String, color: Color) {
+    Surface(shape = RoundedCornerShape(6.dp), color = color.copy(alpha = 0.15f)) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = color,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+        )
+    }
+}
+
+private val InfoBlue = Color(0xFF3B82F6)
 
 // ─────────────────────────────────────────────────────────────────────────
 // At the machine
@@ -259,7 +269,11 @@ data class RebuildSectionState(
      * Leftovers are booked back at the end of the tour, which needs a
      * warehouse; without one the "take it with you" hint is not shown.
      */
-    val showReturnHint: Boolean
+    val showReturnHint: Boolean,
+    /** Units packed for the machine's rebuild, per product — caps what a slot can get. */
+    val packed: Map<String, Int> = emptyMap(),
+    /** The change note was withdrawn while the tour ran: nothing is rebuilt here. */
+    val withdrawn: Boolean = false
 )
 
 /** [RebuildSection]'s callbacks, bundled so the refill step's signature stays readable. */
@@ -271,6 +285,15 @@ data class RebuildActions(
     val onAgeSet: (itemId: String, value: Boolean) -> Unit
 )
 
+/**
+ * At the machine: the slots of the change note as a short list, one row per
+ * slot, ticked off like the goods when packing (iOS `RefillRebuildSection`,
+ * web `RefillRebuildSection.vue`). A row shows the slot, the new product
+ * instead of the old one, what to watch for (spiral, price, age) and the
+ * units going in. One tap on the circle marks the slot done; a new price or
+ * age limit is confirmed once on that tap. Tapping the row opens the amounts
+ * and "Not possible today".
+ */
 @Composable
 fun RebuildSection(
     state: RebuildSectionState,
@@ -278,236 +301,311 @@ fun RebuildSection(
     enabled: Boolean,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    var expanded by remember { mutableStateOf<String?>(null) }
+    var confirming by remember { mutableStateOf<String?>(null) }
+
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (state.withdrawn) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = StockRed.copy(alpha = 0.10f),
+                border = BorderStroke(1.dp, StockRed.copy(alpha = 0.4f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = stringResource(R.string.refill_rebuild_withdrawn_here),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = StockRed,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
+            return@Column
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp)) {
             Icon(
                 imageVector = Icons.Default.SwapHoriz,
                 contentDescription = null,
-                tint = StockOrange,
-                modifier = Modifier.size(20.dp)
+                tint = RebuildViolet,
+                modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = stringResource(R.string.refill_rebuild_at_machine_title),
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
-                color = StockOrange
+                color = RebuildViolet
             )
         }
 
-        if (state.showReturnHint) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        ) {
+            state.slots.forEachIndexed { index, slot ->
+                if (index > 0) HorizontalDivider()
+                val id = slot.item.id
+                RebuildSlotRow(
+                    slot = slot,
+                    expanded = expanded == id,
+                    maxFilled = SlotChange.maxRebuildFilled(state.slots, id, state.packed),
+                    skippedSources = SlotChange.skippedSourceSlots(state.slots, id),
+                    actions = actions,
+                    enabled = enabled,
+                    onTick = {
+                        when {
+                            slot.action != null -> actions.onAction(id, null)
+                            slot.needsConfirmation -> confirming = id
+                            else -> actions.onAction(id, RebuildAction.DONE)
+                        }
+                    },
+                    onToggleOpen = { expanded = if (expanded == id) null else id },
+                    onSkip = {
+                        actions.onAction(id, RebuildAction.SKIP)
+                        expanded = null
+                    }
+                )
+            }
+        }
+
+        if (state.showReturnHint && state.slots.all { it.action != null }) {
             Text(
                 text = stringResource(R.string.refill_rebuild_take_along_hint),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp)
             )
         }
+    }
 
-        state.slots.forEach { slot ->
-            RebuildSlotCard(slot = slot, actions = actions, enabled = enabled)
-        }
+    // Price / age set on the machine? Asked once when ticking.
+    val confirmSlot = state.slots.firstOrNull { it.item.id == confirming && it.action == null }
+    if (confirmSlot != null) {
+        val item = confirmSlot.item
+        val toPrice = item.toPrice
+        AlertDialog(
+            onDismissRequest = { confirming = null },
+            title = { Text(stringResource(R.string.refill_rebuild_slot_done, item.itemNumber)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (confirmSlot.needsPriceConfirmation && toPrice != null) {
+                        Text(stringResource(R.string.refill_rebuild_price_set, item.itemNumber, formatEuro(toPrice)))
+                    }
+                    if (confirmSlot.needsAgeConfirmation) {
+                        Text(stringResource(R.string.refill_rebuild_age_set) + ": " + ageChangeLabel(item))
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (confirmSlot.needsPriceConfirmation) actions.onPriceSet(item.id, true)
+                    if (confirmSlot.needsAgeConfirmation) actions.onAgeSet(item.id, true)
+                    actions.onAction(item.id, RebuildAction.DONE)
+                    confirming = null
+                }) { Text(stringResource(R.string.refill_rebuild_yes_set_on_machine)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirming = null }) { Text(stringResource(R.string.action_cancel)) }
+            }
+        )
     }
 }
 
 @Composable
-private fun RebuildSlotCard(slot: RebuildSlot, actions: RebuildActions, enabled: Boolean) {
+private fun RebuildSlotRow(
+    slot: RebuildSlot,
+    expanded: Boolean,
+    maxFilled: Int,
+    skippedSources: List<Int>,
+    actions: RebuildActions,
+    enabled: Boolean,
+    onTick: () -> Unit,
+    onToggleOpen: () -> Unit,
+    onSkip: () -> Unit
+) {
     val item = slot.item
-    val emptyLabel = stringResource(R.string.refill_rebuild_empty_slot)
-    val borderColor = when (slot.action) {
-        RebuildAction.DONE -> StockGreen
-        RebuildAction.SKIP -> MaterialTheme.colorScheme.outlineVariant
-        null -> StockOrange.copy(alpha = 0.6f)
-    }
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        border = BorderStroke(2.dp, borderColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+    val skipped = slot.action == RebuildAction.SKIP
+    val done = slot.action == RebuildAction.DONE
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Column(modifier = Modifier.fillMaxWidth().alpha(if (skipped) 0.7f else 1f)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // The circle: open → done (price / age confirmed first), done or skipped → open again
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clickable(enabled = enabled, onClick = onTick)
+            ) {
                 Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant
+                    shape = CircleShape,
+                    color = if (done) StockGreen else Color.Transparent,
+                    border = if (done) null else BorderStroke(2.dp, muted.copy(alpha = 0.4f)),
+                    modifier = Modifier.size(28.dp)
                 ) {
-                    Text(
-                        text = "#${item.itemNumber}",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                ProductImage(imagePath = item.fromImagePath, contentDescription = null, size = 32.dp)
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = item.fromName ?: emptyLabel,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .padding(horizontal = 4.dp)
-                        .size(16.dp)
-                )
-                ProductImage(imagePath = item.toImagePath, contentDescription = null, size = 32.dp)
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = item.toName ?: emptyLabel,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = buildString {
-                    append(stringResource(R.string.refill_rebuild_live_stock, slot.liveStock, item.fromCapacity))
-                    if (item.capacityChanges) {
-                        append(" · ")
-                        append(stringResource(R.string.refill_rebuild_change_spiral, item.fromCapacity, item.toCapacity))
-                    }
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            if (slot.action != RebuildAction.SKIP) {
-                Spacer(modifier = Modifier.height(10.dp))
-                NumberStepperField(
-                    label = stringResource(R.string.refill_rebuild_removed),
-                    value = slot.removed,
-                    max = null,
-                    enabled = enabled,
-                    onValue = { actions.onRemoved(item.id, it) }
-                )
-                if (item.toProductId != null) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    NumberStepperField(
-                        label = stringResource(R.string.refill_rebuild_filled, item.toCapacity),
-                        value = slot.filled,
-                        max = item.toCapacity,
-                        enabled = enabled,
-                        onValue = { actions.onFilled(item.id, it) }
-                    )
-                    Text(
-                        text = stringResource(R.string.refill_rebuild_fill_source, slot.moved, slot.fromVan),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 2.dp)
-                    )
-                }
-
-                val toPrice = item.toPrice
-                if (item.hasPriceChange && toPrice != null) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = StockOrange.copy(alpha = 0.10f),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .clickable(enabled = enabled) { actions.onPriceSet(item.id, !slot.priceSet) }
-                                .padding(horizontal = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Checkbox(
-                                checked = slot.priceSet,
-                                onCheckedChange = { actions.onPriceSet(item.id, it) },
-                                enabled = enabled
-                            )
-                            Text(
-                                text = stringResource(R.string.refill_rebuild_price_set, item.itemNumber, formatEuro(toPrice)),
-                                style = MaterialTheme.typography.bodyMedium
-                            )
+                    Box(contentAlignment = Alignment.Center) {
+                        if (done) {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                        } else if (skipped) {
+                            Icon(Icons.Default.Remove, contentDescription = null, tint = muted, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
+            }
 
-                if (item.ageChanged) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = StockOrange.copy(alpha = 0.10f),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .clickable(enabled = enabled) { actions.onAgeSet(item.id, !slot.ageSet) }
-                                .padding(horizontal = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Checkbox(
-                                checked = slot.ageSet,
-                                onCheckedChange = { actions.onAgeSet(item.id, it) },
-                                enabled = enabled
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(enabled = enabled, onClick = onToggleOpen)
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (skipped) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = item.itemNumber.toString(),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (skipped) muted else MaterialTheme.colorScheme.surface
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                val image = if (skipped) item.fromImagePath else item.toImagePath
+                if (image != null) {
+                    ProductImage(imagePath = image, contentDescription = null, size = 40.dp)
+                    Spacer(modifier = Modifier.width(10.dp))
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    if (skipped) {
+                        Text(
+                            text = stringResource(R.string.refill_rebuild_stays, item.fromName ?: stringResource(R.string.refill_rebuild_empty_slot)),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = stringResource(R.string.refill_rebuild_comes_again),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = muted
+                        )
+                    } else {
+                        Text(
+                            text = item.toName ?: stringResource(R.string.refill_rebuild_empty_the_slot),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (done) muted else MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (item.fromProductId != null) {
+                            Text(
+                                text = stringResource(R.string.refill_rebuild_instead, item.fromName ?: ""),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = muted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
-                            Column(modifier = Modifier.padding(vertical = 6.dp)) {
-                                Text(
-                                    text = stringResource(R.string.refill_rebuild_age_set),
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                                Text(
-                                    text = ageChangeLabel(item),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = StockOrange
-                                )
+                        }
+                        val toPrice = item.toPrice
+                        val showPrice = item.toProductId != null && item.hasPriceChange && toPrice != null
+                        if (item.capacityChanges || showPrice || item.ageChanged) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 2.dp)) {
+                                if (item.capacityChanges) {
+                                    NoteTag(stringResource(R.string.refill_rebuild_spiral_tag, item.toCapacity), StockOrange)
+                                }
+                                if (showPrice && toPrice != null) NoteTag(formatEuro(toPrice), InfoBlue)
+                                if (item.ageChanged) NoteTag(ageLabel(item.toMinAge), StockRed)
                             }
                         }
                     }
                 }
+                if (!skipped && item.toProductId != null) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = RebuildViolet.copy(alpha = if (expanded) 0.25f else 0.10f),
+                        modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 40.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 6.dp)) {
+                            Text(
+                                text = "+${slot.filled}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = RebuildViolet
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
             }
+        }
 
-            Spacer(modifier = Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                DecisionButton(
-                    label = stringResource(R.string.refill_rebuild_rebuilt),
-                    selected = slot.action == RebuildAction.DONE,
-                    selectedColor = StockGreen,
-                    icon = Icons.Default.Check,
-                    enabled = enabled && (slot.action == RebuildAction.DONE || !slot.needsAgeConfirmation),
-                    onClick = {
-                        actions.onAction(item.id, if (slot.action == RebuildAction.DONE) null else RebuildAction.DONE)
-                    },
-                    modifier = Modifier.weight(1f)
-                )
-                DecisionButton(
-                    label = stringResource(R.string.refill_rebuild_not_rebuilt),
-                    selected = slot.action == RebuildAction.SKIP,
-                    selectedColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    icon = Icons.Default.Close,
-                    enabled = enabled,
-                    onClick = {
-                        actions.onAction(item.id, if (slot.action == RebuildAction.SKIP) null else RebuildAction.SKIP)
-                    },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            if (slot.action == null && slot.needsAgeConfirmation) {
-                Text(
-                    text = stringResource(R.string.refill_rebuild_age_confirm_first),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = StockOrange,
-                    modifier = Modifier.padding(top = 6.dp)
-                )
-            }
-            if (slot.action == RebuildAction.SKIP) {
-                Text(
-                    text = stringResource(R.string.refill_rebuild_stays_open),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 6.dp)
-                )
+        // Amounts and "not possible today"
+        if (expanded) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(start = 52.dp, end = 12.dp, bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (!skipped) {
+                    if (item.fromProductId != null) {
+                        NumberStepperField(
+                            label = stringResource(R.string.refill_rebuild_take_out, item.fromName ?: ""),
+                            value = slot.removed,
+                            max = null,
+                            enabled = enabled,
+                            onValue = { actions.onRemoved(item.id, it) }
+                        )
+                    }
+                    if (item.toProductId != null) {
+                        NumberStepperField(
+                            label = stringResource(R.string.refill_rebuild_put_in, item.toName ?: ""),
+                            value = slot.filled,
+                            max = maxFilled,
+                            enabled = enabled,
+                            onValue = { actions.onFilled(item.id, it) }
+                        )
+                        Text(
+                            text = stringResource(R.string.refill_rebuild_fill_source, slot.moved, slot.fromVan),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = muted
+                        )
+                    }
+                    if (skippedSources.isNotEmpty() && slot.filled < item.toCapacity) {
+                        Text(
+                            text = if (skippedSources.size == 1) {
+                                stringResource(R.string.refill_rebuild_skipped_source_one, skippedSources.first())
+                            } else {
+                                stringResource(R.string.refill_rebuild_skipped_source_many, skippedSources.joinToString(", "))
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = StockOrange
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = onSkip,
+                        enabled = enabled,
+                        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 48.dp)
+                    ) {
+                        Text(stringResource(R.string.refill_rebuild_not_possible_today), color = muted)
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = { actions.onAction(item.id, null) },
+                        enabled = enabled,
+                        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 48.dp)
+                    ) {
+                        Text(stringResource(R.string.refill_rebuild_rebuild_after_all))
+                    }
+                }
             }
         }
     }
@@ -523,32 +621,6 @@ private fun ageLabel(minAge: Int?): String =
 @Composable
 private fun ageChangeLabel(item: SlotChangeItem): String =
     "${ageLabel(item.fromMinAge)} → ${ageLabel(item.toMinAge)}"
-
-@Composable
-private fun DecisionButton(
-    label: String,
-    selected: Boolean,
-    selectedColor: Color,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    OutlinedButton(
-        onClick = onClick,
-        enabled = enabled,
-        border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) selectedColor else MaterialTheme.colorScheme.outline),
-        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-            containerColor = if (selected) selectedColor.copy(alpha = 0.12f) else Color.Transparent,
-            contentColor = if (selected) selectedColor else MaterialTheme.colorScheme.onSurface
-        ),
-        modifier = modifier.defaultMinSize(minHeight = 48.dp)
-    ) {
-        Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(18.dp))
-        Spacer(modifier = Modifier.width(6.dp))
-        Text(text = label, maxLines = 1, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
-    }
-}
 
 /**
  * −/field/+ for a count. The field takes typed numbers (a spiral of 14 is

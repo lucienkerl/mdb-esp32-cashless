@@ -14,7 +14,7 @@ struct MachineCard: View {
                         .font(.headline)
                         .lineLimit(1)
 
-                    StatusBadge(isOnline: stats.machine.isOnline)
+                    ConnectivityStatusView(machine: stats.machine)
                 }
 
                 Spacer()

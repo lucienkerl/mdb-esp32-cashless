@@ -1,5 +1,7 @@
 package xyz.vmflow.ui.dashboard
 
+import xyz.vmflow.data.connectivity
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
@@ -76,8 +78,12 @@ data class DashboardUiState(
 ) {
     val todayRevenue: Double get() = machines.sumOf { it.todayRevenue }
     val todaySalesCount: Int get() = machines.sumOf { it.todaySalesCount }
-    val machinesOnline: Int get() = machines.count { it.machine.isOnline }
-    val totalMachines: Int get() = machines.size
+    /** Online / no response / offline over the whole fleet ([xyz.vmflow.data.DeviceConnectivity]). */
+    val fleet: xyz.vmflow.data.FleetConnectivity
+        get() = xyz.vmflow.data.FleetConnectivity.of(machines.map { it.machine.connectivity() })
+    val machinesOnline: Int get() = fleet.online
+    /** Machines that have a device: one without a device is not "offline". */
+    val totalMachines: Int get() = fleet.devices
     val stockAlerts: Int get() = machines.count {
         it.stockHealth != MachineWithStats.StockHealth.OK
     }

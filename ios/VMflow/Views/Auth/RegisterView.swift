@@ -60,8 +60,10 @@ struct RegisterView: View {
                     }
 
                     formField("Email", text: $email, field: .email) {
+                        // `.username` so the strong password suggested for the
+                        // `.newPassword` fields is saved under this email.
                         TextField("you@example.com", text: $email)
-                            .textContentType(.emailAddress)
+                            .textContentType(.username)
                             .keyboardType(.emailAddress)
                             .autocorrectionDisabled()
                             .textInputAutocapitalization(.never)

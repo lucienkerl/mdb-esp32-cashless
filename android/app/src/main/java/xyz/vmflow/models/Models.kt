@@ -3,6 +3,7 @@ package xyz.vmflow.models
 import kotlin.math.roundToInt
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 import xyz.vmflow.data.ExpirationStatus
 import xyz.vmflow.data.MachineStockSummary
 import xyz.vmflow.data.MachineStockTier
@@ -38,21 +39,7 @@ data class Embedded(
     @SerialName("last_restart_at") val lastRestartAt: String? = null,
     /** Timestamp the device last transitioned to "online" — start of the current uptime run, distinct from [statusAt] (last status write of any kind). */
     @SerialName("online_since") val onlineSince: String? = null
-) {
-    val isOnline: Boolean
-        get() {
-            if (status == null || statusAt == null) return false
-            if (status != "online") return false
-            return try {
-                val statusTime = kotlinx.datetime.Instant.parse(statusAt)
-                val now = kotlinx.datetime.Clock.System.now()
-                val diff = now - statusTime
-                diff.inWholeMinutes < 5
-            } catch (_: Exception) {
-                false
-            }
-        }
-}
+)
 
 /**
  * Live MDB status snapshot, published by the firmware into
@@ -68,7 +55,11 @@ data class MdbDiagnostics(
     val polls: Int? = null,
     val chkErr: Int? = null,
     val lastCmd: String? = null,
-    @SerialName("updated_at") val updatedAt: String? = null
+    @SerialName("updated_at") val updatedAt: String? = null,
+    /** Current uplink (WiFi or cellular) with signal, raw — read via `deviceNetwork` (data/DeviceNetwork.kt). */
+    val network: JsonElement? = null,
+    /** Older cellular-only uplink block, the fallback of `deviceNetwork`. */
+    val cellular: JsonElement? = null
 )
 
 /** One ESP32 reboot event. Maps to the `device_restarts` table. */
@@ -128,7 +119,6 @@ data class VendingMachineWithEmbedded(
     val embeddeds: Embedded? = null
 ) {
     val displayName: String get() = name ?: "Machine ${id.take(8)}"
-    val isOnline: Boolean get() = embeddeds?.isOnline == true
 }
 
 @Serializable

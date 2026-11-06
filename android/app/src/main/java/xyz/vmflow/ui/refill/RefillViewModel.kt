@@ -27,6 +27,7 @@ import xyz.vmflow.data.PlannedChange
 import xyz.vmflow.data.RebuildAction
 import xyz.vmflow.data.RebuildLeftover
 import xyz.vmflow.data.RebuildSlot
+import xyz.vmflow.data.RebuildTick
 import xyz.vmflow.data.RecentRemoval
 import xyz.vmflow.data.RecentRemovalRepository
 import xyz.vmflow.data.RefillRepository
@@ -204,6 +205,21 @@ data class RefillUiState(
      */
     val rebuildTicks: Map<String, Set<String>> = emptyMap(),
     /**
+     * Packing step: `machineId -> productId -> tick number` of the ticked
+     * rebuild lines. Lines get warehouse stock in the order they were ticked
+     * ("ticked = in the box", [SlotChange.commitRebuildInTickOrder]).
+     */
+    val rebuildTickSequence: Map<String, Map<String, Int>> = emptyMap(),
+    val rebuildTickCounter: Int = 0,
+    /** Machines whose change note was withdrawn in the office after the tour loaded it. Not persisted. */
+    val withdrawnRebuildMachines: Set<String> = emptySet(),
+    /**
+     * One-shot: name of the machine whose change note turned out withdrawn
+     * when slots were already marked rebuilt. Cleared by
+     * [RefillViewModel.clearRebuildWithdrawnNotice].
+     */
+    val rebuildWithdrawnNotice: String? = null,
+    /**
      * [warehouseStock] minus [rebuildCommitted]: the stock the normal packing
      * math ([RefillTourLogic]) may still hand out. Same keys as
      * [warehouseStock], so it is empty exactly when that is.
@@ -336,36 +352,12 @@ fun RefillUiState.rebuildNeed(machineId: String, productId: String): Int {
 }
 
 /**
- * The driver takes one machine's rebuild units of a product along: its
- * rebuild-only line is ticked, or the product is packed for that machine
- * anyway. Unticked units are not booked, like a normal product.
+ * The driver takes one machine's rebuild units of a product along: its line
+ * of the product is ticked ("ticked = in the box", [RefillViewModel.toggleLine]).
+ * One line covers refill and rebuild units alike. Unticked units are not booked.
  */
 fun RefillUiState.isRebuildTaken(machineId: String, productId: String): Boolean =
-    rebuildTicks[machineId]?.contains(productId) == true ||
-        packedItems[machineId]?.contains(productId) == true
-
-/**
- * Rebuild units shown for a product of one machine (packing step): what is
- * committed once ticked, otherwise what would be packed (the dialled amount
- * within what the warehouse can cover).
- */
-fun RefillUiState.rebuildDisplayQuantity(machineId: String, productId: String): Int {
-    if (isRebuildTaken(machineId, productId)) return rebuildCommitted[machineId]?.get(productId) ?: 0
-    val need = rebuildNeed(machineId, productId)
-    val wanted = minOf(rebuildCustomQuantities[machineId]?.get(productId) ?: need, need)
-    return minOf(wanted, maxRebuildQuantity(machineId, productId))
-}
-
-/** Upper bound of the packing step's rebuild stepper ([SlotChange.maxRebuildQuantity]). */
-fun RefillUiState.maxRebuildQuantity(machineId: String, productId: String): Int =
-    SlotChange.maxRebuildQuantity(
-        need = rebuildNeed(machineId, productId),
-        machineId = machineId,
-        productId = productId,
-        committed = rebuildCommitted,
-        warehouseStock = warehouseStock,
-        stockLoaded = stockLoaded
-    )
+    rebuildTicks[machineId]?.contains(productId) == true
 
 /**
  * Drives the refill wizard. This half of it loads machines/trays,
@@ -619,42 +611,6 @@ class RefillViewModel : ViewModel() {
     }
 
     /**
-     * Accepts or declines one slot of a machine's change note (packing step).
-     * A declined slot goes back into the normal refill and packs nothing for
-     * the rebuild; it stays open server-side for a later tour. Products of the
-     * machine that no longer need anything are unpacked, so a stale pin can't
-     * be charged to the warehouse. Ported from web `toggleRebuildItem`.
-     */
-    fun toggleRebuildItem(machineId: String, itemId: String) {
-        _uiState.update { state ->
-            if (state.step != RefillStep.PACKING || isTourInMemory(state)) return@update state
-            val toggled = state.copy(
-                machines = state.machines.map { machine ->
-                    val request = machine.changeRequest
-                    if (machine.machine.id != machineId || request == null) {
-                        machine
-                    } else {
-                        machine.copy(
-                            changeRequest = request.copy(
-                                items = request.items.map {
-                                    if (it.id == itemId) it.copy(accepted = !it.accepted) else it
-                                }
-                            )
-                        )
-                    }
-                }
-            )
-            val machine = toggled.machines.find { it.machine.id == machineId } ?: return@update state
-            val stillNeeded = RefillTourLogic.refillGroups(machine).mapTo(HashSet()) { it.productId }
-            var next = toggled
-            for (productId in toggled.packedItems[machineId].orEmpty()) {
-                if (productId !in stillNeeded) next = next.withUnpacked(machineId, productId)
-            }
-            next.withSyncedPackedState()
-        }
-    }
-
-    /**
      * Switches the active warehouse and reloads its stock and pick order.
      * The selection is written immediately (the picker must react at once);
      * the fetched data is written only if the selection still matches when
@@ -769,28 +725,40 @@ class RefillViewModel : ViewModel() {
     }
 
     /**
-     * Units the accepted change-note slots claim from the warehouse, machine
-     * by machine in tour order, ahead of any normal packing (web
-     * `recalculateCommittedQuantities`). Needs are computed from the stock
-     * known now: stock that moves to another slot of the same machine needs
-     * no warehouse stock ([SlotChange.rebuildPackNeeds]).
+     * Units the accepted change-note slots claim from the warehouse: the
+     * ticked lines in the order they were ticked, each seeing the refills of
+     * the other machines as taken ([SlotChange.commitRebuildInTickOrder]).
+     * Needs are computed from the stock known now: stock that moves to
+     * another slot of the same machine needs no warehouse stock
+     * ([SlotChange.rebuildPackNeeds]).
      */
-    private fun RefillUiState.computeRebuildCommitted(): Map<String, Map<String, Int>> =
-        SlotChange.commitRebuild(
-            needsByMachine = machines.mapNotNull { machine ->
-                val items = machine.acceptedChangeItems
-                if (items.isEmpty()) return@mapNotNull null
-                val id = machine.machine.id
-                // Only what the driver takes along counts, like a normal product.
-                id to SlotChange.rebuildPackNeeds(
-                    items,
-                    machine.trays.associate { it.tray.id to it.tray.currentStock }
-                ).filterKeys { isRebuildTaken(id, it) }
-            },
+    private fun RefillUiState.computeRebuildCommitted(): Map<String, Map<String, Int>> {
+        val ticks = mutableListOf<RebuildTick>()
+        machines.forEachIndexed { index, machine ->
+            val items = machine.acceptedChangeItems
+            if (items.isEmpty()) return@forEachIndexed
+            val id = machine.machine.id
+            val needs = SlotChange.rebuildPackNeeds(items, machine.trays.associate { it.tray.id to it.tray.currentStock })
+            for ((pid, need) in needs) {
+                if (need <= 0 || !isRebuildTaken(id, pid)) continue
+                ticks += RebuildTick(id, pid, need, rebuildTickSequence[id]?.get(pid) ?: Int.MAX_VALUE, index)
+            }
+        }
+        val refills = HashMap<String, MutableMap<String, Int>>()
+        for (machine in machines) {
+            for (pid in packedItems[machine.machine.id].orEmpty()) {
+                refills.getOrPut(pid) { HashMap() }[machine.machine.id] =
+                    RefillTourLogic.packingQuantity(machine, pid, customQuantities)
+            }
+        }
+        return SlotChange.commitRebuildInTickOrder(
+            ticks = ticks,
             warehouseStock = warehouseStock,
             stockLoaded = stockLoaded,
-            custom = rebuildCustomQuantities
+            custom = rebuildCustomQuantities,
+            refills = refills
         )
+    }
 
     /**
      * Re-opens the entry gate after a failed load, unless a tour is already
@@ -1246,46 +1214,19 @@ class RefillViewModel : ViewModel() {
      */
     fun chipItemCount(machineId: String?): Int {
         val state = _uiState.value
-        val scope = if (machineId == null) state.machines.map { it.machine.id }.toSet() else setOf(machineId)
-        var total = 0
-        for (item in state.packingList) {
-            for (need in item.machineNeeds) {
-                if (need.machineId !in scope) continue
-                val packed = isPacked(need.machineId, item.productId)
-                val outOfStock = isOutOfStockForMachine(need.machineId, item.productId)
-                if (outOfStock && !packed) continue
-                total += displayQuantity(need.machineId, item.productId)
-            }
-        }
-        return total
+        val scope = if (machineId == null) state.machines.map { it.machine.id } else listOf(machineId)
+        return scope.sumOf { id -> state.packLines(id).sumOf { it.total } }
     }
 
     /**
-     * True once every needed `(machine, product)` pair for a chip is both
-     * packed and packed at the highest quantity currently possible (a
-     * warehouse-capped pack still counts as "done" — the driver has done all
-     * they can). `null` requires every machine chip to be fully packed.
-     * Ported from iOS `chipIsFullyPacked`.
+     * True once every line of a chip is in the box. `null` requires every
+     * machine with lines to be done. Ported from iOS `chipIsFullyPacked`.
      */
     fun chipIsFullyPacked(machineId: String?): Boolean {
         val state = _uiState.value
-        if (machineId == null) {
-            if (state.machines.isEmpty()) return false
-            return state.machines.all { chipIsFullyPacked(it.machine.id) }
-        }
-        var hadAnyNeed = false
-        for (item in state.packingList) {
-            val need = item.machineNeeds.find { it.machineId == machineId } ?: continue
-            val packed = isPacked(machineId, item.productId)
-            val outOfStock = isOutOfStockForMachine(machineId, item.productId)
-            if (outOfStock && !packed) continue
-            hadAnyNeed = true
-            if (!packed) return false
-            val qty = displayQuantity(machineId, item.productId)
-            val maxQty = maxPackingQuantity(machineId, item.productId)
-            if (qty < minOf(need.quantity, maxQty)) return false
-        }
-        return hadAnyNeed
+        val scope = if (machineId == null) state.machines.map { it.machine.id } else listOf(machineId)
+        val lines = scope.flatMap { state.packLines(it) }
+        return lines.isNotEmpty() && lines.all { it.ticked }
     }
 
     /**
@@ -1299,37 +1240,80 @@ class RefillViewModel : ViewModel() {
     }
 
     /**
-     * Ticks or unticks a rebuild-only line for every machine in [machineIds]
-     * (the "All" chip covers several): unticks all when all are ticked.
-     * Only ticked rebuild units are booked.
+     * Ticks / unticks a machine's line of a product (refill and rebuild units
+     * under one tick, "in the box"). Ticking takes the rebuild units first (a
+     * planned slot cannot be done without them), then the refill, each pinned
+     * to what goes into the box. Ported from iOS `toggleLine`.
      */
-    fun toggleRebuildTick(productId: String, machineIds: List<String>) {
+    fun toggleLine(machineId: String, productId: String) {
         _uiState.update { state ->
-            if (state.step != RefillStep.PACKING || isTourInMemory(state) || machineIds.isEmpty()) return@update state
-            val tick = !machineIds.all { state.rebuildTicks[it]?.contains(productId) == true }
-            val ticks = state.rebuildTicks.toMutableMap()
-            for (id in machineIds) {
-                val set = ticks[id].orEmpty()
-                ticks[id] = if (tick) set + productId else set - productId
-            }
-            state.copy(rebuildTicks = ticks).withPackingList()
+            if (state.step != RefillStep.PACKING || isTourInMemory(state)) return@update state
+            state.withToggledLine(machineId, productId).withSyncedPackedState()
         }
     }
 
     /**
-     * Rebuild units of [productId] for one machine's accepted change-note
-     * slots, as the driver dials them (packing step) — e.g. only half a
-     * spiral of a new product. Clamped to `0..`[maxRebuildQuantity]; 0 still
-     * rebuilds the slot, the driver fills what is at hand.
+     * Sets a line's amount. The rebuild units are filled first (a planned
+     * slot needs its goods), the rest goes to the refill — so packing less
+     * takes it off the refill first. Ported from iOS `setLineQuantity`.
      */
-    fun setRebuildQuantity(machineId: String, productId: String, quantity: Int) {
+    fun setLineQuantity(machineId: String, productId: String, quantity: Int) {
         _uiState.update { state ->
             if (state.step != RefillStep.PACKING || isTourInMemory(state)) return@update state
-            val clamped = quantity.coerceIn(0, state.maxRebuildQuantity(machineId, productId))
-            val machineMap = state.rebuildCustomQuantities[machineId].orEmpty() + (productId to clamped)
-            state.copy(rebuildCustomQuantities = state.rebuildCustomQuantities + (machineId to machineMap))
-                .withPackingList()
+            val line = state.packLine(machineId, productId)
+            val total = quantity.coerceAtMost(line.maxQuantity).coerceAtLeast(0)
+            // Free the refill's claim first, so the rebuild can grow into it.
+            var next = if (line.hasRefill) state.withPinnedQuantity(machineId, productId, 0).withPackingList() else state
+            var rebuild = 0
+            if (line.rebuildNeed > 0) {
+                rebuild = minOf(total, next.maxRebuildQuantity(machineId, productId))
+                val machineMap = next.rebuildCustomQuantities[machineId].orEmpty() + (productId to rebuild)
+                next = next.copy(rebuildCustomQuantities = next.rebuildCustomQuantities + (machineId to machineMap))
+                    .withPackingList()
+            }
+            if (line.hasRefill) next = next.withPinnedQuantity(machineId, productId, total - rebuild)
+            next.withPackingList()
         }
+    }
+
+    private fun RefillUiState.withToggledLine(machineId: String, productId: String): RefillUiState {
+        val line = packLine(machineId, productId)
+        if (line.isUnavailable) return this
+        if (line.ticked) {
+            return copy(
+                rebuildTicks = rebuildTicks + (machineId to (rebuildTicks[machineId].orEmpty() - productId)),
+                rebuildCustomQuantities = rebuildCustomQuantities + (machineId to (rebuildCustomQuantities[machineId].orEmpty() - productId)),
+                rebuildTickSequence = rebuildTickSequence + (machineId to (rebuildTickSequence[machineId].orEmpty() - productId))
+            ).withUnpacked(machineId, productId).withPackingList()
+        }
+        var next = this
+        if (line.rebuildNeed > 0 && !isRebuildTaken(machineId, productId)) {
+            val seq = rebuildTickCounter + 1
+            next = next.copy(
+                rebuildTickCounter = seq,
+                rebuildTickSequence = rebuildTickSequence + (machineId to (rebuildTickSequence[machineId].orEmpty() + (productId to seq))),
+                rebuildTicks = rebuildTicks + (machineId to (rebuildTicks[machineId].orEmpty() + productId))
+            ).withPackingList()
+            // Pin what is in the box: a later tick must not change it.
+            val qty = next.rebuildCommitted[machineId]?.get(productId) ?: 0
+            next = next.copy(
+                rebuildCustomQuantities = next.rebuildCustomQuantities +
+                    (machineId to (next.rebuildCustomQuantities[machineId].orEmpty() + (productId to qty)))
+            ).withPackingList()
+        }
+        if (line.hasRefill) next = next.withPackedIfInStock(machineId, productId)
+        return next
+    }
+
+    /** Ticks every line of [machineIds] that is not in the box yet ("pack all"). */
+    private fun RefillUiState.withAllLinesTicked(machineIds: List<String>): RefillUiState {
+        var next = this
+        for (machineId in machineIds) {
+            for (productId in next.lineProductIds(machineId)) {
+                if (!next.isLineTicked(machineId, productId)) next = next.withToggledLine(machineId, productId)
+            }
+        }
+        return next
     }
 
     /**
@@ -1338,9 +1322,7 @@ class RefillViewModel : ViewModel() {
      * the quantity on pack, clears the pinned quantity on unpack. Re-derives
      * every machine's `isPacked`. Ported from iOS `togglePackedForMachine`.
      */
-    fun togglePackedForMachine(machineId: String, productId: String) {
-        _uiState.update { it.withTogglePacked(machineId, productId).withSyncedPackedState() }
-    }
+    fun togglePackedForMachine(machineId: String, productId: String) = toggleLine(machineId, productId)
 
     /**
      * Toggles the packed state for a product across every machine that needs
@@ -1351,17 +1333,15 @@ class RefillViewModel : ViewModel() {
      */
     fun togglePackedAll(productId: String) {
         _uiState.update { state ->
-            val item = state.packingList.find { it.productId == productId } ?: return@update state
-            val allPacked = item.machineNeeds.all { need ->
-                state.packedItems[need.machineId]?.contains(productId) == true
-            }
+            if (state.step != RefillStep.PACKING || isTourInMemory(state)) return@update state
+            val machineIds = state.machines.map { it.machine.id }
+                .filter { productId in state.lineProductIds(it) }
+            val lines = machineIds.map { state.packLine(it, productId) }.filter { !it.isUnavailable }
+            if (lines.isEmpty()) return@update state
+            val untick = lines.all { it.ticked }
             var next = state
-            for (need in item.machineNeeds) {
-                next = if (allPacked) {
-                    next.withUnpacked(need.machineId, productId)
-                } else {
-                    next.withPackedIfInStock(need.machineId, productId)
-                }
+            for (line in lines) {
+                if (line.ticked == untick) next = next.withToggledLine(line.machineId, productId)
             }
             next.withSyncedPackedState()
         }
@@ -1374,30 +1354,16 @@ class RefillViewModel : ViewModel() {
      */
     fun packEverything() {
         _uiState.update { state ->
-            // Rebuild-only lines first: they get the first claim on the stock.
-            var next = state.withAllRebuildLinesTicked(state.machines.map { it.machine.id })
-            for (item in state.packingList) {
-                for (need in item.machineNeeds) {
-                    next = next.withPackedIfInStock(need.machineId, item.productId)
-                }
-            }
-            next.withSyncedPackedState()
+            if (state.step != RefillStep.PACKING || isTourInMemory(state)) return@update state
+            state.withAllLinesTicked(state.machines.map { it.machine.id }).withSyncedPackedState()
         }
     }
 
-    /**
-     * Packs every needed product for one machine, skipping (not aborting on)
-     * out-of-stock pairs and leaving already-packed pairs untouched. Ported
-     * from iOS `packAllForMachine`.
-     */
+    /** Ticks every line of one machine. Ported from iOS `packAllForMachine`. */
     fun packAllForMachine(machineId: String) {
         _uiState.update { state ->
-            var next = state.withAllRebuildLinesTicked(listOf(machineId))
-            for (item in state.packingList) {
-                if (item.machineNeeds.none { it.machineId == machineId }) continue
-                next = next.withPackedIfInStock(machineId, item.productId)
-            }
-            next.withSyncedPackedState()
+            if (state.step != RefillStep.PACKING || isTourInMemory(state)) return@update state
+            state.withAllLinesTicked(listOf(machineId)).withSyncedPackedState()
         }
     }
 
@@ -1468,47 +1434,12 @@ class RefillViewModel : ViewModel() {
             .withPinnedCurrentQuantity(machineId, productId)
     }
 
-    /**
-     * Ticks every rebuild-only line of [machineIds] (the "pack all" buttons).
-     * Products refilled anyway follow their own packed tick.
-     */
-    private fun RefillUiState.withAllRebuildLinesTicked(machineIds: List<String>): RefillUiState {
-        val ticks = rebuildTicks.toMutableMap()
-        for (machine in machines) {
-            val id = machine.machine.id
-            if (id !in machineIds || machine.acceptedChangeItems.isEmpty()) continue
-            val refilled = packingList
-                .filter { item -> item.machineNeeds.any { it.machineId == id } }
-                .mapTo(HashSet()) { it.productId }
-            val needs = SlotChange.rebuildPackNeeds(
-                machine.acceptedChangeItems,
-                machine.trays.associate { it.tray.id to it.tray.currentStock }
-            )
-            ticks[id] = ticks[id].orEmpty() + needs.filter { (pid, n) -> n > 0 && pid !in refilled }.keys
-        }
-        return copy(rebuildTicks = ticks).withPackingList()
-    }
-
     /** Removes [productId] from [machineId]'s packed set and clears its pinned quantity. */
     private fun RefillUiState.withUnpacked(machineId: String, productId: String): RefillUiState {
         val currentSet = packedItems[machineId] ?: emptySet()
         if (productId !in currentSet) return this
         return copy(packedItems = packedItems + (machineId to (currentSet - productId)))
             .withClearedPinnedQuantity(machineId, productId)
-    }
-
-    /**
-     * Toggles one machine-product pair: unpacks (clearing the pin) if
-     * already packed, else packs it unless out of stock (pinning the
-     * quantity). Shared plumbing for [togglePackedForMachine].
-     */
-    private fun RefillUiState.withTogglePacked(machineId: String, productId: String): RefillUiState {
-        val currentSet = packedItems[machineId] ?: emptySet()
-        return if (productId in currentSet) {
-            withUnpacked(machineId, productId)
-        } else {
-            withPackedIfInStock(machineId, productId)
-        }
     }
 
     // ---------------------------------------------------------------------
@@ -1791,9 +1722,17 @@ class RefillViewModel : ViewModel() {
                 .filter { it.deficit > 0 && it.tray.id !in rebuildTrayIds }
                 .mapNotNull { it.tray.productId }
                 .toSet()
-            // An accepted change note makes the machine a stop on its own:
-            // a pure swap needs no units but still a visit (web `startTour`).
-            rm.copy(isPacked = neededProductIds.any { it in packedForMachine } || rebuildTrayIds.isNotEmpty())
+            // On the tour = at least one line of the machine is in the box
+            // (refill or rebuild units). A change note alone does not put a
+            // machine on the tour; only a pure swap, which needs nothing from
+            // the warehouse and so has no line to tick, still means a visit.
+            val rebuildTicked = rebuildTicks[rm.machine.id].orEmpty().isNotEmpty()
+            val pureSwap = rm.acceptedChangeItems.isNotEmpty() &&
+                SlotChange.rebuildPackNeeds(
+                    rm.acceptedChangeItems,
+                    rm.trays.associate { it.tray.id to it.tray.currentStock }
+                ).values.none { it > 0 }
+            rm.copy(isPacked = neededProductIds.any { it in packedForMachine } || rebuildTicked || pureSwap)
         }
         return copy(machines = newMachines).withPackingList()
     }
@@ -2420,10 +2359,22 @@ class RefillViewModel : ViewModel() {
         }
 
         viewModelScope.launch {
+            // Withdrawn in the office after the tour loaded it?
+            val status = machine.changeRequest?.id?.let { SlotChangeRepository.fetchRequestStatus(it) }
+            if (status != null && status != "open") {
+                _uiState.update { s ->
+                    if (s.rebuildMachineId != machineId) return@update s
+                    s.copy(
+                        withdrawnRebuildMachines = s.withdrawnRebuildMachines + machineId,
+                        currentRebuild = SlotChange.withdrawn(s.currentRebuild)
+                    )
+                }
+                return@launch
+            }
             val live = SlotChangeRepository.fetchTrayStocks(items.map { it.trayId }).getOrNull()
             if (live != null) {
                 _uiState.update { s ->
-                    if (s.rebuildMachineId != machineId || s.isSaving) return@update s
+                    if (s.rebuildMachineId != machineId || s.isSaving || machineId in s.withdrawnRebuildMachines) return@update s
                     s.copy(
                         currentRebuild = SlotChange.recomputeFill(
                             s.currentRebuild.map { slot ->
@@ -2460,11 +2411,22 @@ class RefillViewModel : ViewModel() {
 
     /** Units of the new product put in, clamped to the new capacity; 0 for a slot left empty. */
     fun setRebuildFilled(itemId: String, value: Int) {
-        updateRebuild(recompute = false) { slot ->
-            if (slot.item.id != itemId) return@updateRebuild slot
-            val filled = if (slot.item.toProductId == null) 0 else value.coerceIn(0, slot.item.toCapacity)
-            slot.copy(filled = filled, filledTouched = true)
+        _uiState.update { state ->
+            if (state.isSaving) return@update state
+            val machine = state.machines.find { it.machine.id == state.rebuildMachineId } ?: return@update state
+            val max = SlotChange.maxRebuildFilled(state.currentRebuild, itemId, machine.rebuildPacked)
+            state.copy(
+                currentRebuild = state.currentRebuild.map { slot ->
+                    if (slot.item.id != itemId) slot
+                    else slot.copy(filled = value.coerceAtMost(max).coerceAtLeast(0), filledTouched = true)
+                }
+            )
         }
+    }
+
+    /** Dismisses the "slot change withdrawn" notice. */
+    fun clearRebuildWithdrawnNotice() {
+        _uiState.update { it.copy(rebuildWithdrawnNotice = null) }
     }
 
     /** Marks a slot rebuilt / not rebuilt; `null` takes the decision back. */
@@ -2476,8 +2438,8 @@ class RefillViewModel : ViewModel() {
 
     /** The new price has been set at the machine's selection. */
     fun setRebuildPriceSet(itemId: String, value: Boolean) {
-        updateRebuild(recompute = false) { slot ->
-            if (slot.item.id == itemId) slot.copy(priceSet = value) else slot
+        updateRebuild(recompute = true) { slot ->
+            if (slot.item.id == itemId) SlotChange.withPriceSet(slot, value) else slot
         }
     }
 
@@ -2662,6 +2624,21 @@ class RefillViewModel : ViewModel() {
                 return Result.success(items.count { it.action == RebuildAction.DONE })
             }
             lastError = result.exceptionOrNull()
+            // Withdrawn in the office while the tour was running: a retry can
+            // never succeed. Nothing is switched; the packed units go back as
+            // leftovers and the tour carries on.
+            if (lastError?.message?.contains("no longer open") == true) {
+                val withdrawn = SlotChange.withdrawn(effective)
+                _uiState.update { s ->
+                    s.copy(
+                        withdrawnRebuildMachines = s.withdrawnRebuildMachines + machine.machine.id,
+                        currentRebuild = if (s.rebuildMachineId == machine.machine.id) withdrawn else s.currentRebuild,
+                        rebuildWithdrawnNotice = if (effective.any { it.action == RebuildAction.DONE }) machine.machine.displayName else s.rebuildWithdrawnNotice
+                    )
+                }
+                storeTourLeftovers(machine, SlotChange.leftovers(withdrawn, machine.rebuildPacked))
+                return Result.success(0)
+            }
         }
         return Result.failure(lastError ?: IllegalStateException("apply_slot_change failed"))
     }

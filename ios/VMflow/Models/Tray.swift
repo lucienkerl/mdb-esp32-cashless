@@ -41,7 +41,7 @@ struct Tray: Codable, Identifiable, Equatable, Hashable {
 
     /// Product display name, falling back to the slot number.
     var productName: String {
-        products?.name ?? "Slot \(itemNumber)"
+        products?.name ?? String(localized: "Slot \(itemNumber)")
     }
 
     /// Whether the product assigned to this tray is discontinued.

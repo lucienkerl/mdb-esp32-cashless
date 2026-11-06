@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ref as vueRef, computed as vueComputed } from 'vue'
 
-// Change note in the refill tour: accepted slots add their units to the
-// normal packing list, leave the normal refill, and are quit via
-// apply_slot_change BEFORE the normal refill RPC runs. Their leftovers are
-// booked back once, at the end of the tour.
+// Change note in the refill tour: every planned slot adds its units to the
+// normal packing list (one line per machine and product, one tick for refill
+// and rebuild), leaves the normal refill, and is quit via apply_slot_change
+// BEFORE the normal refill RPC runs. Their leftovers are booked back once, at
+// the end of the tour.
 
 ;(globalThis as any).ref = vueRef
 ;(globalThis as any).computed = vueComputed
@@ -12,8 +13,16 @@ import { ref as vueRef, computed as vueComputed } from 'vue'
 const { rpcCalls, inserts, applySlotChange, fetchOpenRequests } = vi.hoisted(() => ({
   rpcCalls: [] as { fn: string; args: any }[],
   inserts: [] as { table: string; row: any }[],
-  applySlotChange: vi.fn(async (_input: unknown) => ({ request_status: 'done' })),
+  applySlotChange: vi.fn(async (_input: unknown): Promise<{ request_status: string }> => ({ request_status: 'done' })),
   fetchOpenRequests: vi.fn(),
+}))
+
+const env = vi.hoisted(() => ({
+  machines: [{ id: 'm1', name: 'M1' }] as { id: string; name: string }[],
+  extraTrays: [] as any[],
+  stock: [{ product_id: 'cola', quantity: 30 }] as { product_id: string; quantity: number }[],
+  requestStatus: 'open',
+  applyError: null as string | null,
 }))
 
 const TRAYS = [
@@ -31,10 +40,11 @@ function query(data: unknown, table = '') {
 }
 const supabase = {
   from: (table: string) => query(
-    table === 'vendingMachine' ? [{ id: 'm1', name: 'M1' }]
-      : table === 'machine_trays' ? TRAYS
-        : table === 'warehouse_stock_batches' ? [{ product_id: 'cola', quantity: 30 }]
-          : table === 'warehouses' ? { name: 'Lager' } : [],
+    table === 'vendingMachine' ? env.machines
+      : table === 'machine_trays' ? [...TRAYS, ...env.extraTrays]
+        : table === 'warehouse_stock_batches' ? env.stock
+          : table === 'slot_change_requests' ? [{ status: env.requestStatus }]
+            : table === 'warehouses' ? { name: 'Lager' } : [],
     table,
   ),
   rpc: (fn: string, args: any) => {
@@ -70,7 +80,16 @@ describe('refill tour with a change note', () => {
   beforeEach(() => {
     rpcCalls.length = 0
     inserts.length = 0
-    applySlotChange.mockClear()
+    applySlotChange.mockReset()
+    applySlotChange.mockImplementation(async () => {
+      if (env.applyError) throw new Error(env.applyError)
+      return { request_status: 'done' }
+    })
+    env.machines = [{ id: 'm1', name: 'M1' }]
+    env.extraTrays = []
+    env.stock = [{ product_id: 'cola', quantity: 30 }]
+    env.requestStatus = 'open'
+    env.applyError = null
     fetchOpenRequests.mockResolvedValue(new Map([['m1', { id: 'r1', machine_id: 'm1', created_at: '', updated_at: '', note: null, items: [ITEM] }]]))
     try { localStorage.clear() } catch { /* ignore */ }
   })
@@ -93,16 +112,19 @@ describe('refill tour with a change note', () => {
     // Nothing is booked until cola is ticked as packed
     expect(w.rebuildCommitted('m1', 'cola')).toBe(0)
 
-    // The rebuild units sit on cola's normal packing row, not in a list of their own
-    expect(w.machinePackRows(machine)).toEqual([
-      expect.objectContaining({ kind: 'refill', product_id: 'cola', rebuild: 10 }),
+    // Refill and rebuild units of cola are one line with one tick
+    expect(w.packLines(machine)).toEqual([
+      expect.objectContaining({ product_id: 'cola', refill: 8, rebuild: 10, total: 18, slots: [12], ticked: false }),
     ])
-    expect(w.combinedPackRows.value).toEqual([
-      expect.objectContaining({ kind: 'refill', product_id: 'cola', rebuild: 10 }),
-    ])
+    expect(w.combinedPackCards.value.map(c => [c.product_id, c.lines.map(l => [l.machine_id, l.total])])).toEqual([['cola', [['m1', 18]]]])
+    expect(w.packBox.value).toEqual({ packed: 0, total: 18 })
+    expect(w.openPackLines.value).toHaveLength(1)
 
     w.togglePacked('m1', machine.tray_summary[0]!)
     expect(w.rebuildCommitted('m1', 'cola')).toBe(10)
+    expect(w.packLine(machine, 'cola')).toMatchObject({ ticked: true, refill: 8, rebuild: 10 })
+    expect(w.packBox.value).toEqual({ packed: 18, total: 18 })
+    expect(w.openPackLines.value).toEqual([])
     await w.startTour()
 
     const deductions = rpcCalls.filter(c => c.fn === 'deduct_warehouse_stock_fifo')
@@ -118,8 +140,8 @@ describe('refill tour with a change note', () => {
     await w.startTour()
 
     expect(w.rebuildReady.value).toBe(false)
-    w.setRebuildAction('i12', 'done')
     w.setRebuildPriceSet('i12', true)
+    w.setRebuildAction('i12', 'done')
     expect(w.rebuildLeftovers.value.map(l => [l.product_id, l.van, l.machine])).toEqual([['schorle', 0, 8]])
 
     await w.confirmMachineRefill()
@@ -160,44 +182,44 @@ describe('refill tour with a change note', () => {
     expect(w.hasPendingLeftovers.value).toBe(false)
   })
 
-  it('a product only the rebuild needs gets its own packing row in warehouse order', async () => {
+  it('a product only the rebuild needs gets its own line in warehouse order', async () => {
     fetchOpenRequests.mockResolvedValue(new Map([['m1', { id: 'r1', machine_id: 'm1', created_at: '', updated_at: '', note: null, items: [
       { ...ITEM, to_product_id: 'mate', to_name: 'Mate' },
     ] }]]))
     const w = await startedTour()
     const machine = w.machines.value[0]!
-    expect(w.machinePackRows(machine).map(r => [r.kind, r.product_id])).toEqual([['refill', 'cola'], ['rebuild', 'mate']])
-    expect(w.allPackedWithRebuild(machine)).toBe(false)
+    expect(w.packLines(machine).map(l => [l.product_id, l.refill_need, l.rebuild_need])).toEqual([['cola', 8, 0], ['mate', 0, 10]])
+    expect(w.allLinesTicked(machine)).toBe(false)
     w.togglePacked('m1', machine.tray_summary[0]!)
-    expect(w.allPackedWithRebuild(machine)).toBe(false)
-    w.toggleRebuildTick('m1', 'mate')
-    expect(w.allPackedWithRebuild(machine)).toBe(true)
-    expect(w.combinedPackRows.value.map(r => [r.kind, r.product_id])).toEqual([['refill', 'cola'], ['rebuild', 'mate']])
+    expect(w.allLinesTicked(machine)).toBe(false)
+    w.toggleLine('m1', 'mate')
+    expect(w.allLinesTicked(machine)).toBe(true)
+    expect(w.combinedPackCards.value.map(c => c.product_id)).toEqual(['cola', 'mate'])
   })
 
-  it('packs only part of the rebuild units when the refiller dials them down', async () => {
+  it('packing less takes it off the refill first', async () => {
     const w = await startedTour()
     const machine = w.machines.value[0]!
-    expect(w.maxRebuildQuantity('m1', 'cola')).toBe(10)
     w.togglePacked('m1', machine.tray_summary[0]!)
+    expect(w.packLine(machine, 'cola')).toMatchObject({ total: 18, max_quantity: 18 })
+    w.setLineQuantity('m1', 'cola', 13)
+    expect(w.packLine(machine, 'cola')).toMatchObject({ refill: 3, rebuild: 10 })
     // Only half a spiral of the new product for now
-    w.setRebuildQuantity('m1', 'cola', 5)
-    expect(w.rebuildCommitted('m1', 'cola')).toBe(5)
-    expect(w.machinePackRows(machine)).toEqual([
-      expect.objectContaining({ kind: 'refill', product_id: 'cola', rebuild: 5 }),
-    ])
-    // Never more than the slot needs, never below zero
-    w.setRebuildQuantity('m1', 'cola', 99)
-    expect(w.rebuildCommitted('m1', 'cola')).toBe(10)
-    w.setRebuildQuantity('m1', 'cola', -1)
-    expect(w.rebuildCommitted('m1', 'cola')).toBe(0)
-    w.setRebuildQuantity('m1', 'cola', 5)
+    w.setLineQuantity('m1', 'cola', 5)
+    expect(w.packLine(machine, 'cola')).toMatchObject({ refill: 0, rebuild: 5, shortfall: 13 })
+    // Never more than the line needs, never below zero
+    w.setLineQuantity('m1', 'cola', 99)
+    expect(w.packLine(machine, 'cola')).toMatchObject({ refill: 8, rebuild: 10 })
+    w.setLineQuantity('m1', 'cola', -1)
+    expect(w.packLine(machine, 'cola')).toMatchObject({ refill: 0, rebuild: 0, ticked: true })
+    w.setLineQuantity('m1', 'cola', 5)
 
     await w.startTour()
     const deductions = rpcCalls.filter(c => c.fn === 'deduct_warehouse_stock_fifo')
-    expect(deductions.map(d => [d.args.p_product_id, d.args.p_quantity])).toEqual([['cola', 13]])
+    expect(deductions.map(d => [d.args.p_product_id, d.args.p_quantity])).toEqual([['cola', 5]])
     // At the machine the fill suggestion follows what was packed
     expect(w.currentRebuild.value.map(s => [s.item.id, s.filled])).toEqual([['i12', 5]])
+    expect(w.currentTrays.value).toEqual([])
   })
 
   it('caps the rebuild units at the warehouse stock', async () => {
@@ -205,9 +227,11 @@ describe('refill tour with a change note', () => {
       { ...ITEM, to_product_id: 'mate', to_name: 'Mate' },
     ] }]]))
     const w = await startedTour()
-    // No mate in the warehouse
-    expect(w.maxRebuildQuantity('m1', 'mate')).toBe(0)
-    w.setRebuildQuantity('m1', 'mate', 3)
+    const machine = w.machines.value[0]!
+    // No mate in the warehouse: the line stays, with nothing to pack
+    expect(w.packLine(machine, 'mate')).toMatchObject({ max_quantity: 0, rebuild: 0, shortfall: 10, unavailable: false })
+    w.setLineQuantity('m1', 'mate', 3)
+    w.toggleLine('m1', 'mate')
     expect(w.rebuildCommitted('m1', 'mate')).toBe(0)
   })
 
@@ -220,8 +244,9 @@ describe('refill tour with a change note', () => {
     w.warehouseStock.value = new Map([['cola', 30], ['mate', 20]])
     const machine = w.machines.value[0]!
     w.togglePacked('m1', machine.tray_summary[0]!)
-    // The row still shows what would be packed
-    expect(w.machinePackRows(machine).find(r => r.kind === 'rebuild')).toMatchObject({ row: { need: 10, packed: 10 } })
+    // The line still shows what would be packed
+    expect(w.packLine(machine, 'mate')).toMatchObject({ rebuild_need: 10, rebuild: 10, ticked: false })
+    expect(w.openPackLines.value.map(l => [l.product_id, l.total])).toEqual([['mate', 10]])
     expect(w.rebuildCommitted('m1', 'mate')).toBe(0)
     await w.startTour()
     const deductions = rpcCalls.filter(c => c.fn === 'deduct_warehouse_stock_fifo')
@@ -236,20 +261,54 @@ describe('refill tour with a change note', () => {
     ] }]]))
     const w = await startedTour()
     w.warehouseStock.value = new Map([['cola', 30], ['mate', 20]])
-    w.setRebuildQuantity('m1', 'mate', 4)
-    w.toggleRebuildTick('m1', 'mate')
+    w.setLineQuantity('m1', 'mate', 4)
+    w.toggleLine('m1', 'mate')
     expect(w.rebuildCommitted('m1', 'mate')).toBe(4)
     await w.startTour()
     const deductions = rpcCalls.filter(c => c.fn === 'deduct_warehouse_stock_fifo')
     expect(deductions.map(d => [d.args.p_product_id, d.args.p_quantity])).toEqual([['mate', 4]])
   })
 
-  it('a declined slot is refilled normally and packs nothing for the rebuild', async () => {
+  it('lines get warehouse stock in the order they were ticked', async () => {
+    env.machines = [{ id: 'm1', name: 'M1' }, { id: 'm2', name: 'M2' }]
+    env.extraTrays = [{ id: 't21', machine_id: 'm2', item_number: 21, product_id: 'cola', capacity: 10, current_stock: 0, min_stock: 0, fill_when_below: 5, products: { name: 'Cola', image_path: null, sellprice: 2 } }]
+    env.stock = [{ product_id: 'cola', quantity: 12 }]
     const w = await startedTour()
-    w.toggleRebuildItem('m1', 'i12')
-    expect(w.rebuildNeeds('m1')).toEqual(new Map())
-    expect(w.rebuildCommitted('m1', 'cola')).toBe(0)
+    const m1 = w.machines.value.find(m => m.id === 'm1')!
+    const m2 = w.machines.value.find(m => m.id === 'm2')!
+
+    // M2's refill is in the box first: M1 only gets what is left, rebuild first
+    w.toggleLine('m2', 'cola')
+    expect(w.packLine(m2, 'cola')).toMatchObject({ refill: 10, ticked: true })
+    expect(w.packLine(m1, 'cola')).toMatchObject({ rebuild: 2, refill: 0, max_quantity: 2 })
+    w.toggleLine('m1', 'cola')
+    expect(w.packLine(m1, 'cola')).toMatchObject({ rebuild: 2, refill: 0, ticked: true })
+    // A later tick never takes units away from a line already in the box
+    expect(w.packLine(m2, 'cola')).toMatchObject({ refill: 10 })
+
+    // The other way round: M1's rebuild and refill first
+    w.toggleLine('m1', 'cola')
+    w.toggleLine('m2', 'cola')
+    w.toggleLine('m1', 'cola')
+    expect(w.packLine(m1, 'cola')).toMatchObject({ rebuild: 10, refill: 2, ticked: true })
+    expect(w.packLine(m2, 'cola')).toMatchObject({ refill: 0, unavailable: true })
+  })
+
+  it('every planned slot is packed: there is no decline at packing', async () => {
+    const w = await startedTour()
+    expect('toggleRebuildItem' in w).toBe(false)
+    expect(w.rebuildNeeds('m1')).toEqual(new Map([['cola', 10]]))
+    // A change note alone does not put the machine on the tour: its goods
+    // have to be in the box.
     expect(w.hasAnyPackedItems()).toBe(false)
+    w.toggleLine('m1', 'cola')
+    expect(w.hasAnyPackedItems()).toBe(true)
+  })
+
+  it('a machine whose rebuild goods are not ticked stays off the tour', async () => {
+    const w = await startedTour()
+    await w.startTour()
+    expect(w.machines.value).toEqual([])
   })
 
   it('skipping the machine leaves the slots open and returns the packed units at the end of the tour', async () => {
@@ -269,6 +328,7 @@ describe('refill tour with a change note', () => {
     w.togglePacked('m1', w.machines.value[0]!.tray_summary[0]!)
     await w.startTour()
 
+    w.setRebuildPriceSet('i12', true)
     w.setRebuildAction('i12', 'done')
     expect(w.currentRebuild.value[0]!.action).toBeNull()
     w.setRebuildAgeSet('i12', true)
@@ -283,5 +343,72 @@ describe('refill tour with a change note', () => {
     await w.confirmMachineRefill()
     const input = applySlotChange.mock.calls[0]![0] as any
     expect(input.items[0]).toMatchObject({ item_id: 'i12', action: 'done', age_set: true })
+  })
+
+  it('a slot whose price changes can only be quit after the new price is confirmed', async () => {
+    const w = await startedTour()
+    w.togglePacked('m1', w.machines.value[0]!.tray_summary[0]!)
+    await w.startTour()
+    w.setRebuildAction('i12', 'done')
+    expect(w.currentRebuild.value[0]!.action).toBeNull()
+    w.setRebuildPriceSet('i12', true)
+    w.setRebuildAction('i12', 'done')
+    expect(w.currentRebuild.value[0]!.action).toBe('done')
+    w.setRebuildPriceSet('i12', false)
+    expect(w.currentRebuild.value[0]!.action).toBeNull()
+  })
+
+  it('a slot gets no more than the goods meant for the rebuild', async () => {
+    const w = await startedTour()
+    w.togglePacked('m1', w.machines.value[0]!.tray_summary[0]!)
+    w.setLineQuantity('m1', 'cola', 6)  // 6 rebuild units, no refill
+    await w.startTour()
+    expect(w.maxRebuildFilled('i12')).toBe(6)
+    w.setRebuildFilled('i12', 9)
+    expect(w.currentRebuild.value[0]!.filled).toBe(6)
+  })
+
+  it('a slot loses the goods of a source slot that is skipped today', async () => {
+    fetchOpenRequests.mockResolvedValue(new Map([['m1', { id: 'r1', machine_id: 'm1', created_at: '', updated_at: '', note: null, items: [
+      // Schorle moves from slot 12 to slot 11, cola from 11 to 12
+      { ...ITEM, id: 'i11', tray_id: 't11', item_number: 11, from_product_id: 'cola', to_product_id: 'schorle', from_name: 'Cola', to_name: 'Schorle', from_price: 2, to_price: 1.8 },
+      ITEM,
+    ] }]]))
+    const w = await startedTour()
+    for (const line of w.packLines(w.machines.value[0]!)) w.toggleLine('m1', line.product_id)
+    await w.startTour()
+    expect(w.skippedSourceSlots('i12')).toEqual([])
+    const withSource = w.maxRebuildFilled('i12')
+    w.setRebuildAction('i11', 'skip')
+    expect(w.skippedSourceSlots('i12')).toEqual([11])
+    // Only the packed units are left once the cola of slot 11 stays put.
+    expect(w.maxRebuildFilled('i12')).toBeLessThan(withSource)
+  })
+
+  it('a change note withdrawn in the office is not rebuilt; its goods come back', async () => {
+    env.requestStatus = 'withdrawn'
+    const w = await startedTour()
+    w.togglePacked('m1', w.machines.value[0]!.tray_summary[0]!)
+    await w.startTour()
+    expect(w.withdrawnRebuildMachines.value.has('m1')).toBe(true)
+    expect(w.currentRebuild.value.map(s => [s.action, s.removed, s.filled])).toEqual([['skip', 0, 0]])
+    expect(w.rebuildReady.value).toBe(true)
+  })
+
+  it('a change note withdrawn while at the machine does not block the tour', async () => {
+    const w = await startedTour()
+    w.togglePacked('m1', w.machines.value[0]!.tray_summary[0]!)
+    await w.startTour()
+    w.setRebuildPriceSet('i12', true)
+    w.setRebuildAction('i12', 'done')
+    env.applyError = 'change request is no longer open'
+    await w.confirmMachineRefill()
+    expect(applySlotChange).toHaveBeenCalledTimes(1)
+    expect(w.confirmError.value).toBeNull()
+    expect(w.rebuildWithdrawnNotice.value).toBe('M1')
+    // The normal refill still ran; the rebuild units ride back
+    expect(rpcCalls.find(c => c.fn === 'refill_machine_trays')!.args.p_trays).toEqual([{ tray_id: 't11', fill_amount: 8 }])
+    expect(w.tourLog.value[0]!.slots_rebuilt).toBe(0)
+    expect(w.tourLeftoverRows.value).toEqual([expect.objectContaining({ product_id: 'cola', van: 10, machine: 0 })])
   })
 })

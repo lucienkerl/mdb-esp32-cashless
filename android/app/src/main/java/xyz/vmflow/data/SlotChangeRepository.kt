@@ -41,6 +41,9 @@ private data class SlotChangeRequestRow(
 )
 
 @Serializable
+private data class SlotRequestStatusRow(val status: String)
+
+@Serializable
 private data class SlotTrayStockRow(
     val id: String,
     @SerialName("current_stock") val currentStock: Int = 0
@@ -256,6 +259,24 @@ object SlotChangeRepository {
             Result.success(rows.associate { it.id to it.currentStock })
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    /**
+     * Status of a change request ("open", "done", "withdrawn"), or "missing"
+     * when the row is gone or no longer visible. `null` when the lookup
+     * failed — the caller then keeps the note and `apply_slot_change` tells.
+     */
+    suspend fun fetchRequestStatus(requestId: String): String? {
+        return try {
+            val rows = postgrest.from("slot_change_requests")
+                .select(Columns.raw("status")) {
+                    filter { eq("id", requestId) }
+                }
+                .decodeList<SlotRequestStatusRow>()
+            rows.firstOrNull()?.status ?: "missing"
+        } catch (e: Exception) {
+            null
         }
     }
 
