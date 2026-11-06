@@ -382,9 +382,6 @@ const currentMachineDone = computed(() =>
           @price="setRebuildPriceSet"
           @age="setRebuildAgeSet"
         />
-        <p v-if="currentRebuild.length > 0 && currentTrays.length > 0 && !currentMachineDone" class="px-1 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {{ t('refillRebuild.normalRefill') }}
-        </p>
         <div
           v-for="tray in currentTrays"
           :key="tray.id"
