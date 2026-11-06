@@ -1,25 +1,28 @@
 import SwiftUI
 
-/// Refill step, at the machine: rebuild the slots of the change note. The
-/// refiller counts what comes out (sales since packing are already in the live
-/// stock), fills the new product, sets the price and marks each slot rebuilt or
-/// not. Nothing is booked until the machine is confirmed (`apply_slot_change`).
-/// What is left over rides along in the van and is booked back at the end of
-/// the tour, on the summary step. Mirrors the PWA's `RefillRebuildSection.vue`.
+/// Refill step, at the machine: the slots of the change note as a short list,
+/// one row per slot, ticked off like the products when packing. A row shows
+/// the slot, the new product (instead of the old one), what to watch for
+/// (spiral, price, age) and the units going in. One tap on the circle marks
+/// the slot done; a slot with a new price or age limit asks once that it was
+/// set on the machine. Tapping the row opens the amounts (taken out / filled
+/// in) and "Not possible today". Nothing is booked until the machine is
+/// confirmed (`apply_slot_change`); leftovers ride along in the van and are
+/// booked back on the summary step.
 struct RefillRebuildSection: View {
     @ObservedObject var viewModel: RefillWizardViewModel
     let machineId: UUID
 
+    /// The slot whose amounts are open.
+    @State private var expanded: UUID?
+    /// The slot whose price / age setting is being confirmed before "done".
+    @State private var confirming: RebuildSlot?
+
     private var isPrepared: Bool { viewModel.currentRebuildMachineId == machineId }
+    private var slots: [RebuildSlot] { viewModel.currentRebuild }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Rebuild slots", systemImage: "arrow.left.arrow.right")
-                .font(.caption.weight(.semibold))
-                .textCase(.uppercase)
-                .foregroundStyle(.orange)
-                .padding(.horizontal, 4)
-
+        VStack(alignment: .leading, spacing: 8) {
             if !isPrepared {
                 HStack {
                     Spacer()
@@ -27,273 +30,328 @@ struct RefillRebuildSection: View {
                     Spacer()
                 }
                 .padding(.vertical, 12)
-            } else {
-                ForEach(viewModel.currentRebuild) { slot in
-                    slotCard(slot)
+            } else if viewModel.withdrawnRebuildMachines.contains(machineId) {
+                Label {
+                    Text("The slot change was withdrawn in the meantime. Don't rebuild anything here; the goods packed for it go back to the warehouse at the end of the tour.")
+                } icon: {
+                    Image(systemName: "arrow.uturn.backward.circle.fill")
                 }
-                // Without a warehouse nothing was deducted, so nothing is
-                // booked back.
-                if viewModel.selectedWarehouseId != nil {
-                    Label("Take removed goods with you – they are booked back at the end of the tour.", systemImage: "shippingbox")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 4)
+                .font(.subheadline)
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 14).fill(Color.orange.opacity(0.12)))
+            } else if !slots.isEmpty {
+                Label("Rebuild", systemImage: "arrow.left.arrow.right")
+                    .font(.caption.weight(.semibold))
+                    .textCase(.uppercase)
+                    .foregroundStyle(Color.rebuildViolet)
+                    .padding(.horizontal, 4)
+
+                VStack(spacing: 0) {
+                    ForEach(slots) { slot in
+                        if slot.id != slots.first?.id {
+                            Divider().padding(.leading, 60)
+                        }
+                        row(slot)
+                    }
+                }
+                .background(RoundedRectangle(cornerRadius: 14).fill(.regularMaterial))
+            }
+        }
+        .confirmationDialog(
+            confirming.map { String(localized: "Slot \($0.item.itemNumber)") } ?? "",
+            isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
+            titleVisibility: .visible,
+            presenting: confirming
+        ) { slot in
+            Button("Yes, set on the machine") {
+                HapticFeedback.success.fire()
+                if slot.needsPriceConfirmation { viewModel.setRebuildPriceSet(itemId: slot.id, value: true) }
+                if slot.needsAgeConfirmation { viewModel.setRebuildAgeSet(itemId: slot.id, value: true) }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    viewModel.setRebuildAction(itemId: slot.id, action: .done)
                 }
             }
+            Button("Cancel", role: .cancel) {}
+        } message: { slot in
+            Text(confirmationMessage(slot))
         }
     }
 
-    // MARK: - Slot Card
+    // MARK: - Row
 
-    private func slotCard(_ slot: RebuildSlot) -> some View {
+    private func row(_ slot: RebuildSlot) -> some View {
         let item = slot.item
-        let emptyLabel = String(localized: "Empty")
-        let borderColor: Color = {
-            switch slot.action {
-            case .done: return .green.opacity(0.6)
-            case .skip: return Color(.systemGray4)
-            case nil: return .orange.opacity(0.5)
-            }
-        }()
+        let isDone = slot.action == .done
+        let isSkipped = slot.action == .skip
+        let isOpen = expanded == slot.id
 
-        return VStack(alignment: .leading, spacing: 12) {
-            // Slot: old → new
-            HStack(alignment: .center, spacing: 10) {
-                Text(verbatim: "#\(item.itemNumber)")
-                    .font(.caption.bold())
-                    .monospacedDigit()
-                    .frame(minWidth: 36, minHeight: 28)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(.systemGray5)))
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                tick(slot)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        if item.fromProductId != nil {
-                            ProductImage(imagePath: item.fromImagePath, size: 28)
-                        }
-                        Text(item.fromName ?? emptyLabel)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
+                Button {
+                    HapticFeedback.light.fire()
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        expanded = isOpen ? nil : slot.id
                     }
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.turn.down.right")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        if item.toProductId != nil {
-                            ProductImage(imagePath: item.toImagePath, size: 28)
+                } label: {
+                    HStack(spacing: 10) {
+                        SlotNumberBadge(number: item.itemNumber, muted: isSkipped, size: 34)
+
+                        if isSkipped {
+                            if item.fromProductId != nil {
+                                ProductImage(imagePath: item.fromImagePath, size: 40)
+                            }
+                        } else if item.toProductId != nil {
+                            ProductImage(imagePath: item.toImagePath, size: 40)
                         }
-                        Text(item.toName ?? emptyLabel)
-                            .font(.subheadline.weight(.semibold))
-                            .lineLimit(2)
-                    }
-                }
-                Spacer(minLength: 0)
-            }
 
-            // Live stock + spiral change
-            VStack(alignment: .leading, spacing: 2) {
-                Text("In the slot now: \(slot.liveStock) of \(item.fromCapacity) (sales since packing included)")
-                    .foregroundStyle(.secondary)
-                if item.changesCapacity {
-                    Text("Change spiral (\(item.fromCapacity) → \(item.toCapacity))")
-                        .foregroundStyle(.orange)
-                }
-            }
-            .font(.caption)
-            .monospacedDigit()
-            .fixedSize(horizontal: false, vertical: true)
+                        VStack(alignment: .leading, spacing: 3) {
+                            if isSkipped {
+                                Text("\(item.fromName ?? String(localized: "Empty")) stays")
+                                    .font(.subheadline.weight(.semibold))
+                                Text("Comes up again on the next tour")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text(item.toName ?? String(localized: "Empty the slot"))
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(isDone ? .secondary : .primary)
+                                if item.fromProductId != nil {
+                                    Text("instead of \(item.fromName ?? "")")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                tags(slot)
+                            }
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
-            if slot.action != .skip {
-                // Taken out / filled in
-                HStack(alignment: .top, spacing: 12) {
-                    countField(
-                        title: Text("Taken out"),
-                        value: slot.removed,
-                        maxValue: nil,
-                        onChange: { viewModel.setRebuildRemoved(itemId: item.id, value: $0) }
-                    )
-                    if item.toProductId != nil {
-                        VStack(alignment: .leading, spacing: 4) {
-                            countField(
-                                title: Text("Filled in (max \(item.toCapacity))"),
-                                value: slot.filled,
-                                maxValue: item.toCapacity,
-                                onChange: { viewModel.setRebuildFilled(itemId: item.id, value: $0) }
-                            )
-                            Text("\(slot.moved) moved over · \(slot.fromVan) from the van")
-                                .font(.caption2)
+                        if !isSkipped && item.toProductId != nil {
+                            Text(verbatim: "+\(slot.filled)")
+                                .font(.title3.weight(.bold))
                                 .monospacedDigit()
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Color.rebuildViolet)
+                                .frame(minWidth: 48, minHeight: 40)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(Color.rebuildVioletFill.opacity(isOpen ? 0.25 : 0.13))
+                                )
                         }
                     }
-                }
-
-                // New price at the selection
-                if item.changesPrice, let price = item.toPrice {
-                    Button {
-                        HapticFeedback.light.fire()
-                        viewModel.setRebuildPriceSet(itemId: item.id, value: !slot.priceSet)
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: slot.priceSet ? "checkmark.square.fill" : "square")
-                                .font(.title3)
-                                .foregroundStyle(slot.priceSet ? Color.blue : Color.secondary)
-                            Text("Price at selection \(item.itemNumber) set to")
-                                + Text(verbatim: " ")
-                                + Text(verbatim: String(format: "%.2f \u{20AC}", price)).bold()
-                            Spacer(minLength: 0)
-                        }
-                        .font(.subheadline)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.1)))
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                // New age restriction at the selection
-                if item.changesAge {
-                    Button {
-                        HapticFeedback.light.fire()
-                        viewModel.setRebuildAgeSet(itemId: item.id, value: !slot.ageSet)
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: slot.ageSet ? "checkmark.square.fill" : "square")
-                                .font(.title3)
-                                .foregroundStyle(slot.ageSet ? Color.blue : Color.secondary)
-                            Text("Age setting changed on the machine")
-                                + Text(verbatim: " ")
-                                + Text(verbatim: item.ageChangeLabel).bold()
-                            Spacer(minLength: 0)
-                        }
-                        .font(.subheadline)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.red.opacity(0.1)))
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            // Rebuilt / not rebuilt
-            HStack(spacing: 8) {
-                actionButton(
-                    title: Text("Rebuilt"),
-                    systemImage: "checkmark",
-                    isSelected: slot.action == .done,
-                    tint: .green,
-                    isDisabled: slot.action != .done && slot.needsAgeConfirmation
-                ) {
-                    viewModel.setRebuildAction(itemId: item.id, action: slot.action == .done ? nil : .done)
-                }
-                actionButton(
-                    title: Text("Not rebuilt"),
-                    systemImage: "xmark",
-                    isSelected: slot.action == .skip,
-                    tint: .gray
-                ) {
-                    viewModel.setRebuildAction(itemId: item.id, action: slot.action == .skip ? nil : .skip)
-                }
-            }
-
-            if slot.action == nil && slot.needsAgeConfirmation {
-                Text("Confirm the age setting first")
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if slot.action == .skip {
-                Text("Stays as it is and comes up again on the next tour.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(14)
-        .background {
-            RoundedRectangle(cornerRadius: 14)
-                .fill(.regularMaterial)
-                .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
-        }
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(borderColor, lineWidth: 2))
-        .opacity(slot.action == .skip ? 0.75 : 1)
-    }
-
-    /// Number with large −/+ buttons (one-handed use, like the refill cards).
-    private func countField(
-        title: Text,
-        value: Int,
-        maxValue: Int?,
-        onChange: @escaping (Int) -> Void
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            title
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            HStack(spacing: 6) {
-                Button {
-                    HapticFeedback.light.fire()
-                    onChange(value - 1)
-                } label: {
-                    Image(systemName: "minus")
-                        .font(.body.weight(.semibold))
-                        .frame(width: 40, height: 40)
-                        .background(Circle().fill(.fill.tertiary))
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(value <= 0)
+            }
 
-                Text(verbatim: "\(value)")
-                    .font(.title3.bold())
-                    .monospacedDigit()
-                    .frame(minWidth: 36)
-
-                Button {
-                    HapticFeedback.light.fire()
-                    onChange(value + 1)
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.body.weight(.semibold))
-                        .frame(width: 40, height: 40)
-                        .background(Circle().fill(Color.blue.opacity(0.12)))
-                        .foregroundStyle(.blue)
-                }
-                .buttonStyle(.plain)
-                .disabled(maxValue.map { value >= $0 } ?? false)
+            if isOpen {
+                details(slot)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .opacity(isSkipped ? 0.7 : 1)
     }
 
-    private func actionButton(
-        title: Text,
-        systemImage: String,
-        isSelected: Bool,
-        tint: Color,
-        isDisabled: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button {
+    /// The big circle: open → done (asking for price / age first when they
+    /// change), done or skipped → open again.
+    private func tick(_ slot: RebuildSlot) -> some View {
+        let isDone = slot.action == .done
+        let isSkipped = slot.action == .skip
+        return Button {
             HapticFeedback.light.fire()
-            action()
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: systemImage)
-                title
+            if slot.action != nil {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    viewModel.setRebuildAction(itemId: slot.id, action: nil)
+                }
+            } else if slot.needsConfirmation {
+                confirming = slot
+            } else {
+                HapticFeedback.success.fire()
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    viewModel.setRebuildAction(itemId: slot.id, action: .done)
+                }
             }
-            .font(.subheadline.weight(.medium))
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .foregroundStyle(isSelected ? Color.white : Color.primary)
-            .background(RoundedRectangle(cornerRadius: 10).fill(isSelected ? tint : Color.clear))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(isSelected ? tint : Color(.systemGray3), lineWidth: 1))
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(isDone ? Color.green : Color.clear)
+                Circle()
+                    .strokeBorder(isDone ? Color.green : Color(.systemGray3), lineWidth: 2)
+                if isDone {
+                    Image(systemName: "checkmark")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.white)
+                } else if isSkipped {
+                    Image(systemName: "minus")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 30, height: 30)
+            .frame(width: 44, height: 44)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(isDisabled)
-        .opacity(isDisabled ? 0.4 : 1)
+        .accessibilityLabel(Text("Slot \(slot.item.itemNumber) done"))
+        .accessibilityAddTraits(isDone ? .isSelected : [])
+    }
+
+    /// What to watch for at this slot: new spiral, new price, new age limit.
+    @ViewBuilder
+    private func tags(_ slot: RebuildSlot) -> some View {
+        let item = slot.item
+        let price = item.changesPrice ? item.toPrice : nil
+        if item.changesCapacity || price != nil || item.changesAge {
+            HStack(spacing: 6) {
+                if item.changesCapacity {
+                    tag(Text("Spiral \(item.toCapacity)"), color: .orange)
+                }
+                if let price {
+                    tag(Text(verbatim: String(format: "%.2f \u{20AC}", price)), color: .blue)
+                }
+                if item.changesAge {
+                    tag(Text(verbatim: SlotChangeRequestItem.ageLabel(item.toMinAge)), color: .red)
+                }
+            }
+            .padding(.top, 1)
+        }
+    }
+
+    private func tag(_ text: Text, color: Color) -> some View {
+        text
+            .font(.caption2.weight(.semibold))
+            .monospacedDigit()
+            .foregroundStyle(color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 5).fill(color.opacity(0.14)))
+    }
+
+    // MARK: - Details (amounts, not possible today)
+
+    private func details(_ slot: RebuildSlot) -> some View {
+        let item = slot.item
+        return VStack(alignment: .leading, spacing: 8) {
+            if slot.action != .skip {
+                if item.fromProductId != nil {
+                    amountRow(
+                        title: Text("Take out \(item.fromName ?? "")"),
+                        value: slot.removed,
+                        max: nil
+                    ) { viewModel.setRebuildRemoved(itemId: slot.id, value: $0) }
+                }
+                if item.toProductId != nil {
+                    amountRow(
+                        title: Text("Put in \(item.toName ?? "")"),
+                        value: slot.filled,
+                        max: viewModel.maxRebuildFilled(itemId: item.id)
+                    ) { viewModel.setRebuildFilled(itemId: slot.id, value: $0) }
+                    Text("\(slot.moved) from other slots · \(slot.fromVan) from the box")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+
+                let skipped = viewModel.skippedSourceSlots(itemId: item.id)
+                if !skipped.isEmpty && slot.filled < item.toCapacity {
+                    Label {
+                        Text(skipped.count == 1
+                             ? String(localized: "Slot \(skipped[0]) is not rebuilt today, so this slot gets fewer units.")
+                             : String(localized: "Slots \(skipped.map { String($0) }.joined(separator: ", ")) are not rebuilt today, so this slot gets fewer units."))
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Button {
+                    HapticFeedback.light.fire()
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        viewModel.setRebuildAction(itemId: slot.id, action: .skip)
+                        expanded = nil
+                    }
+                } label: {
+                    Text("Not possible today")
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .tint(Color.secondary)
+            } else {
+                Button {
+                    HapticFeedback.light.fire()
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        viewModel.setRebuildAction(itemId: slot.id, action: nil)
+                    }
+                } label: {
+                    Text("Rebuild after all")
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding(.leading, 54)
+    }
+
+    private func amountRow(title: Text, value: Int, max: Int?, onChange: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 10) {
+            title
+                .font(.subheadline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                HapticFeedback.light.fire()
+                onChange(value - 1)
+            } label: {
+                Image(systemName: "minus")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 44, height: 44)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(.fill.tertiary))
+            }
+            .buttonStyle(.plain)
+            .disabled(value <= 0)
+
+            Text(verbatim: "\(value)")
+                .font(.title3.bold())
+                .monospacedDigit()
+                .frame(minWidth: 32)
+
+            Button {
+                HapticFeedback.light.fire()
+                onChange(value + 1)
+            } label: {
+                Image(systemName: "plus")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 44, height: 44)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.blue.opacity(0.12)))
+                    .foregroundStyle(.blue)
+            }
+            .buttonStyle(.plain)
+            .disabled(max.map { value >= $0 } ?? false)
+        }
+    }
+
+    // MARK: - Confirmation
+
+    /// "Price at selection 12 set to 2.00 €" / "Age setting changed on the
+    /// machine: 18+" — what the refiller confirms before the slot is done.
+    private func confirmationMessage(_ slot: RebuildSlot) -> String {
+        let item = slot.item
+        var lines: [String] = []
+        if slot.needsPriceConfirmation, let price = item.toPrice {
+            lines.append(String(localized: "Price at selection \(item.itemNumber) set to") + " " + String(format: "%.2f \u{20AC}", price))
+        }
+        if slot.needsAgeConfirmation {
+            lines.append(String(localized: "Age setting changed on the machine") + ": " + SlotChangeRequestItem.ageLabel(item.toMinAge))
+        }
+        return lines.joined(separator: "\n")
     }
 }

@@ -10,6 +10,7 @@ import { clampCredit, decodeCardPayload } from './card-payload.ts';
 import { deliverCredit } from '../_shared/deliver-credit.ts';
 import { InvalidTraceError, parseMdbTrace, PRUNE_EVERY_N_BATCHES, TRACE_RETENTION_MS, type MdbTraceBatch } from './mdb-trace.ts';
 import { InvalidIoStateError, parseIoState, type IoState } from './io-state.ts';
+import { applyHeartbeatSignal, applyStatusNetwork, parseStatusExtras } from './network-status.ts';
 
 // Sale payload format version carried in byte 1 of the 19-byte XOR-encrypted
 // payload. v2 adds per-device monotonic sale_seq (bytes 14-17) + time_uncertain
@@ -132,25 +133,9 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Parse extra key:value segments (parts[3+]) into a cellular block.
-      // Old firmware sends only 3 parts; new cellular firmware sends extras
-      // like "uplink:cellular|op:Vodafone DE|rssi:-78|mode:LTE-M|ip:10.0.0.1".
-      // parts.slice(3) returns [] when length is 3, so this is a no-op for
-      // legacy 3-segment status payloads.
-      const cellular: Record<string, string | number> = {};
-      for (const seg of parts.slice(3)) {
-        const colonIdx = seg.indexOf(':');
-        if (colonIdx <= 0) continue;
-        const key = seg.slice(0, colonIdx).trim();
-        const val = seg.slice(colonIdx + 1).trim();
-        if (!key || !val) continue;
-        if (key === 'rssi') {
-          const n = parseInt(val, 10);
-          if (!Number.isNaN(n)) cellular[key] = n;
-        } else {
-          cellular[key] = val;
-        }
-      }
+      // Extra key:value segments (parts[3+]): uplink kind, network and signal.
+      // Old firmware sends only 3 parts → no extras → diagnostics untouched.
+      const networkExtras = parseStatusExtras(parts.slice(3));
 
       const updatePayload: Record<string, any> = {
         status,
@@ -171,17 +156,18 @@ Deno.serve(async (req) => {
         updatePayload.firmware_build_date = firmwareBuildDate;
       }
 
-      // Merge cellular telemetry into mdb_diagnostics jsonb if present.
+      // Merge uplink telemetry into mdb_diagnostics jsonb if present.
       // Read-modify-write so we don't clobber other diagnostic fields the
       // mdb-log handler may have written (state, addr, polls, chkErr, etc).
-      if (Object.keys(cellular).length > 0) {
+      if (Object.keys(networkExtras).length > 0) {
         const { data: existing } = await adminClient
           .from('embeddeds')
           .select('mdb_diagnostics')
           .eq('id', deviceId)
           .maybeSingle();
-        const prev = (existing?.mdb_diagnostics as Record<string, unknown> | null) ?? {};
-        updatePayload.mdb_diagnostics = { ...prev, cellular };
+        const prev = (existing?.mdb_diagnostics as Record<string, unknown> | null) ?? null;
+        const next = applyStatusNetwork(prev, networkExtras, new Date().toISOString());
+        if (next) updatePayload.mdb_diagnostics = next;
       }
 
       const { error } = await adminClient
@@ -239,9 +225,12 @@ Deno.serve(async (req) => {
       // written by other handlers (e.g. cellular telemetry from the
       // status-payload parser) are preserved. Without this merge, every
       // 5-minute mdb-log heartbeat would wipe `cellular`, making the
-      // CellularHealthBadge disappear shortly after every reconnect.
+      // network badge disappear shortly after every reconnect.
       const prevDiag = (deviceRow.mdb_diagnostics as Record<string, unknown> | null) ?? {};
-      const diagPayload = { ...prevDiag, ...diag, updated_at: new Date().toISOString() };
+      // A live WiFi `rssi` goes into the `network` block, not top level.
+      const nowIso = new Date().toISOString();
+      const diagFields = applyHeartbeatSignal(diag, prevDiag.network, nowIso);
+      const diagPayload = { ...prevDiag, ...diagFields, updated_at: nowIso };
 
       // If device is sending mdb-log, it's clearly online — fix status if
       // the forwarder missed the initial 'online' message (e.g. after server restart)

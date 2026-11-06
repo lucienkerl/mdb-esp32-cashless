@@ -10,8 +10,8 @@ import { useRefillWizard, hasSavedTour } from '@/composables/useRefillWizard'
 import { formatCurrency } from '@/lib/utils'
 import RefillChangeNote from '@/components/refill/RefillChangeNote.vue'
 import RefillRebuildSection from '@/components/refill/RefillRebuildSection.vue'
-import RefillRebuildPackRow from '@/components/refill/RefillRebuildPackRow.vue'
-import RefillRebuildQuantity from '@/components/refill/RefillRebuildQuantity.vue'
+import RefillPackCard from '@/components/refill/RefillPackCard.vue'
+import AppModal from '@/components/AppModal.vue'
 import RefillTourLeftovers from '@/components/refill/RefillTourLeftovers.vue'
 import RefillTourNotes from '@/components/refill/RefillTourNotes.vue'
 import RefillTourNoteDialog from '@/components/refill/RefillTourNoteDialog.vue'
@@ -26,16 +26,13 @@ const {
   currentTrays, currentTraysLoading,
   tourLog, tourSummary, currentMachine, totalMachinesInTour, currentMachineNumber,
   completedMachineIds, allMachinesCompleted,
-  pickingMode, sortedMachines, combinedPickList, allPackedCombined,
-  isPacked, togglePacked, effectiveDeficit,
-  isOutOfWarehouseStock, hasPartialStock, hasAnyPackedItems, effectiveStockHealth,
-  isPackedCombined, togglePackedCombined, effectiveDeficitCombined,
-  setCustomQuantity, getCustomQuantity, getMaxCustomQuantity, getDisplayedPackingQty,
+  pickingMode, sortedMachines,
+  hasAnyPackedItems, effectiveStockHealth, getWarehouseAvailable,
   initTour, loadWarehouseStock, startTour,
   adjustFillAmount, confirmMachineRefill, confirmError, skipMachine, goToMachine, isMachineCompleted, resetWizard,
   resumeTour,
-  isItemAccepted, toggleRebuildItem, rebuildCommitted, rebuildNeeds, maxRebuildQuantity, setRebuildQuantity,
-  combinedPackRows, machinePackRows, isRebuildTicked, toggleRebuildTick, isRebuildTickedCombined, toggleRebuildTickCombined, allPackedWithRebuild,
+  packLines, toggleLine, setLineQuantity, allLinesTicked, machinesReady, openPackLines, combinedPackCards,
+  maxRebuildFilled, skippedSourceSlots, withdrawnRebuildMachines, rebuildWithdrawnNotice,
   currentRebuild, rebuildReady, returnBatchLabel,
   setRebuildRemoved, setRebuildFilled, setRebuildAction, setRebuildPriceSet, setRebuildAgeSet,
   tourLeftoverRows, hasPendingLeftovers, leftoversReturned, returningLeftovers, returnLeftoversError,
@@ -68,6 +65,13 @@ function finishTour(to: string) {
 watch(currentStep, (step) => {
   if (step === 'summary' && hasPendingLeftovers.value) void loadTourExpirySuggestions()
 }, { immediate: true })
+
+// Tour start with lines not in the box: show what stays in the warehouse first.
+const openLinesDialog = ref(false)
+function onStartTour() {
+  if (openPackLines.value.length > 0) openLinesDialog.value = true
+  else void startTour()
+}
 
 const machinesWithChangeNote = computed(() => machines.value.filter(m => (m.change_request?.items.length ?? 0) > 0))
 
@@ -191,103 +195,31 @@ const currentMachineDone = computed(() =>
         </div>
 
         <!-- ── COMBINED PICKING MODE ──────────────────────────────────── -->
-        <div v-if="pickingMode === 'combined'" class="flex flex-col gap-3 pb-20 sm:pb-24">
-          <Card v-for="machine in machinesWithChangeNote" :key="`note-${machine.id}`">
-            <CardHeader class="pb-2 px-4 sm:px-6">
-              <CardTitle class="text-base font-semibold truncate">{{ machine.name }}</CardTitle>
-            </CardHeader>
-            <CardContent class="px-4 sm:px-6">
-              <RefillChangeNote
-                :items="machine.change_request!.items"
-                :accepted="isItemAccepted"
-                @toggle="toggleRebuildItem(machine.id, $event)"
-              />
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent class="space-y-1 px-4 py-3 sm:px-6">
-              <div class="flex items-center justify-between mb-2">
-                <p class="text-xs font-medium text-muted-foreground uppercase tracking-wide">{{ t('refill.packForMachine') }}</p>
-                <span
-                  v-if="allPackedCombined"
-                  class="text-xs font-medium text-green-600"
-                >
-                  {{ t('refill.allPacked') }}
-                </span>
-              </div>
-              <ul class="space-y-0.5">
-                <template v-for="row in combinedPackRows" :key="row.product_id">
-                <!-- Only needed for a slot rebuild -->
-                <li
-                  v-if="row.kind === 'rebuild'"
-                  class="flex items-center gap-2.5 rounded-lg border-l-4 border-violet-500 bg-violet-500/5 px-2 py-2.5 -mx-2 transition-colors cursor-pointer select-none hover:bg-violet-500/10"
-                  @click="toggleRebuildTickCombined(row.product_id)"
-                >
-                  <RefillRebuildPackRow
-                    :row="row.row"
-                    :ticked="isRebuildTickedCombined(row.product_id)"
-                    :subtitle="t('refillRebuild.forRebuildIn', { machines: row.row.machines.join(', ') })"
-                  />
-                </li>
-                <template v-else>
-                <li
-                  v-for="item in [row.item]"
-                  :key="item.product_id"
-                  class="flex items-center gap-2.5 rounded-lg px-2 py-2.5 -mx-2 transition-colors cursor-pointer select-none hover:bg-muted/50 active:bg-muted"
-                  @click="togglePackedCombined(item.product_id)"
-                >
-                  <!-- Checkbox -->
-                  <span
-                    class="flex h-6 w-6 shrink-0 items-center justify-center rounded border-2 transition-colors"
-                    :class="isPackedCombined(item.product_id)
-                      ? 'bg-primary border-primary text-primary-foreground'
-                      : 'border-muted-foreground/30'"
-                  >
-                    <svg v-if="isPackedCombined(item.product_id)" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5"><polyline points="20 6 9 17 4 12" /></svg>
-                  </span>
-                  <!-- Product image -->
-                  <img
-                    v-if="item.image_path"
-                    :src="getProductImageUrl(item.image_path)"
-                    :alt="item.product_name"
-                    class="h-10 w-10 shrink-0 rounded object-cover transition-opacity"
-                    :class="isPackedCombined(item.product_id) ? 'opacity-40' : ''"
-                  />
-                  <span
-                    v-else
-                    class="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-muted text-xs text-muted-foreground transition-opacity"
-                    :class="isPackedCombined(item.product_id) ? 'opacity-40' : ''"
-                  >
-                    {{ item.product_name.charAt(0) }}
-                  </span>
-                  <!-- Product info -->
-                  <div class="min-w-0 flex-1 transition-all" :class="isPackedCombined(item.product_id) ? 'text-muted-foreground/50' : ''">
-                    <span class="text-sm block">
-                      {{ effectiveDeficitCombined(item.product_id) }}&times; {{ item.product_name }}
-                      <span v-if="item.sellprice != null" class="ml-1 text-xs font-medium text-muted-foreground tabular-nums">
-                        {{ formatCurrency(item.sellprice, locale) }}
-                      </span>
-                      <span v-if="row.rebuild > 0" class="ml-1 rounded bg-violet-500/15 px-1 text-xs font-medium text-violet-700 tabular-nums dark:text-violet-300">
-                        {{ t('refillRebuild.rebuildBadge', { n: row.rebuild }) }}
-                      </span>
-                    </span>
-                    <span class="text-xs text-muted-foreground block">
-                      {{ t('refill.forMachines', { machines: item.machines.map(m => m.name).join(', ') }) }}
-                    </span>
-                    <span v-if="isPackedCombined(item.product_id)" class="text-[11px] text-primary/60 block">
-                      {{ t('refill.adjustPerMachine') }}
-                    </span>
-                  </div>
-                </li>
-                </template>
-                </template>
-              </ul>
-            </CardContent>
-          </Card>
+        <!-- One card per product, one line per machine: refill and rebuild
+             units of a machine share one tick ("in the box") and one amount. -->
+        <div v-if="pickingMode === 'combined'" class="flex flex-col gap-3 pb-28 sm:pb-32">
+          <RefillChangeNote
+            v-for="machine in machinesWithChangeNote"
+            :key="`note-${machine.id}`"
+            :items="machine.change_request!.items"
+            :machine-name="machine.name"
+          />
+          <RefillPackCard
+            v-for="card in combinedPackCards"
+            :key="card.product_id"
+            :product-name="card.product_name"
+            :image-path="card.image_path"
+            :sellprice="card.sellprice"
+            :lines="card.lines"
+            :stock="getWarehouseAvailable({ product_id: card.product_id })"
+            show-machines
+            @toggle="toggleLine($event.machine_id, $event.product_id)"
+            @set="(line, v) => setLineQuantity(line.machine_id, line.product_id, v)"
+          />
         </div>
 
         <!-- ── PER-MACHINE PICKING MODE ───────────────────────────────── -->
-        <div v-else class="flex flex-col gap-3 pb-20 sm:pb-24 md:grid md:grid-cols-2 xl:grid-cols-3 md:gap-4">
+        <div v-else class="flex flex-col gap-3 pb-28 sm:pb-32 md:grid md:grid-cols-2 xl:grid-cols-3 md:gap-4">
           <Card
             v-for="machine in sortedMachines"
             :key="machine.id"
@@ -298,193 +230,85 @@ const currentMachineDone = computed(() =>
               <CardTitle class="text-base font-semibold truncate">
                 {{ machine.name }}
               </CardTitle>
-              <span
-                class="ml-2 inline-block h-3 w-3 shrink-0 rounded-full"
-                :class="{
-                  'bg-red-500': effectiveStockHealth(machine) === 'critical',
-                  'bg-amber-500': effectiveStockHealth(machine) === 'low',
-                  'bg-blue-500': effectiveStockHealth(machine) === 'fill',
-                  'bg-green-500': effectiveStockHealth(machine) === 'ok',
-                }"
-              />
+              <span class="ml-2 flex shrink-0 items-center gap-2">
+                <span v-if="allLinesTicked(machine)" class="text-xs font-medium text-green-600">{{ t('refill.allPacked') }}</span>
+                <span
+                  class="inline-block h-3 w-3 rounded-full"
+                  :class="{
+                    'bg-red-500': effectiveStockHealth(machine) === 'critical',
+                    'bg-amber-500': effectiveStockHealth(machine) === 'low',
+                    'bg-blue-500': effectiveStockHealth(machine) === 'fill',
+                    'bg-green-500': effectiveStockHealth(machine) === 'ok',
+                  }"
+                />
+              </span>
             </CardHeader>
 
             <CardContent v-if="effectiveStockHealth(machine) !== 'ok' || machine.change_request" class="space-y-3 px-4 sm:px-6">
-              <!-- Stock bar -->
-              <div class="flex items-center gap-2">
-                <div class="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                  <div
-                    class="h-full rounded-full transition-all"
-                    :class="{
-                      'bg-red-500': machine.stock_percent < 20,
-                      'bg-amber-500': machine.stock_percent >= 20 && machine.stock_percent < 50,
-                      'bg-green-500': machine.stock_percent >= 50,
-                    }"
-                    :style="{ width: `${machine.stock_percent}%` }"
-                  />
-                </div>
-                <span class="text-xs font-medium text-muted-foreground w-8 text-right">{{ machine.stock_percent }}%</span>
-              </div>
-
-              <!-- Change note (slot re-assignment) -->
-              <RefillChangeNote
-                v-if="machine.change_request"
-                :items="machine.change_request.items"
-                :accepted="isItemAccepted"
-                @toggle="toggleRebuildItem(machine.id, $event)"
+              <RefillChangeNote v-if="machine.change_request" :items="machine.change_request.items" />
+              <RefillPackCard
+                v-for="line in packLines(machine)"
+                :key="line.product_id"
+                :product-name="line.product_name"
+                :image-path="line.image_path"
+                :sellprice="line.sellprice"
+                :lines="[line]"
+                :stock="getWarehouseAvailable({ product_id: line.product_id })"
+                @toggle="toggleLine(machine.id, line.product_id)"
+                @set="(l, v) => setLineQuantity(machine.id, l.product_id, v)"
               />
-
-              <!-- Packing checklist -->
-              <div v-if="machinePackRows(machine).length > 0" class="space-y-2">
-                <div class="flex items-center justify-between">
-                  <p class="text-xs font-medium text-muted-foreground uppercase tracking-wide">{{ t('refill.packForMachine') }}</p>
-                  <span
-                    v-if="allPackedWithRebuild(machine)"
-                    class="text-xs font-medium text-green-600"
-                  >
-                    {{ t('refill.allPacked') }}
-                  </span>
-                </div>
-                <ul class="space-y-0.5">
-                  <template v-for="row in machinePackRows(machine)" :key="row.product_id ?? row.product_name">
-                  <!-- Only needed for a slot rebuild -->
-                  <li
-                    v-if="row.kind === 'rebuild'"
-                    class="flex items-center gap-2.5 rounded-lg border-l-4 border-violet-500 bg-violet-500/5 px-2 py-2.5 -mx-2 transition-colors cursor-pointer select-none hover:bg-violet-500/10"
-                    @click="toggleRebuildTick(machine.id, row.product_id)"
-                  >
-                    <RefillRebuildPackRow :row="row.row" :ticked="isRebuildTicked(machine.id, row.product_id)" />
-                    <RefillRebuildQuantity
-                      :value="row.row.packed"
-                      :max="maxRebuildQuantity(machine.id, row.product_id)"
-                      @set="setRebuildQuantity(machine.id, row.product_id, $event)"
-                    />
-                  </li>
-                  <template v-else>
-                  <li
-                    v-for="item in [row.item]"
-                    :key="item.product_id ?? item.product_name"
-                    class="flex items-center gap-2.5 rounded-lg px-2 py-2.5 -mx-2 transition-colors"
-                    :class="isOutOfWarehouseStock(item)
-                      ? 'opacity-50 cursor-not-allowed'
-                      : 'cursor-pointer select-none hover:bg-muted/50 active:bg-muted'"
-                    @click="togglePacked(machine.id, item)"
-                  >
-                    <!-- Checkbox — larger touch target -->
-                    <span
-                      class="flex h-6 w-6 shrink-0 items-center justify-center rounded border-2 transition-colors"
-                      :class="isOutOfWarehouseStock(item, machine.id)
-                        ? 'border-muted-foreground/20 bg-muted'
-                        : isPacked(machine.id, item)
-                          ? 'bg-primary border-primary text-primary-foreground'
-                          : 'border-muted-foreground/30'"
-                    >
-                      <svg v-if="isPacked(machine.id, item) && !isOutOfWarehouseStock(item, machine.id)" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5"><polyline points="20 6 9 17 4 12" /></svg>
-                    </span>
-                    <!-- Product image -->
-                    <img
-                      v-if="item.image_path"
-                      :src="getProductImageUrl(item.image_path)"
-                      :alt="item.product_name"
-                      class="h-10 w-10 shrink-0 rounded object-cover transition-opacity"
-                      :class="isPacked(machine.id, item) || isOutOfWarehouseStock(item, machine.id) ? 'opacity-40' : ''"
-                    />
-                    <span
-                      v-else
-                      class="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-muted text-xs text-muted-foreground transition-opacity"
-                      :class="isPacked(machine.id, item) || isOutOfWarehouseStock(item, machine.id) ? 'opacity-40' : ''"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4"><rect width="18" height="18" x="3" y="3" rx="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" /></svg>
-                    </span>
-                    <!-- Product name + quantity -->
-                    <span class="min-w-0 flex-1 text-sm transition-all" :class="isPacked(machine.id, item) ? 'text-muted-foreground/50' : ''">
-                      <template v-if="isOutOfWarehouseStock(item, machine.id)">
-                        <span class="text-muted-foreground">{{ item.deficit }}&times; {{ item.product_name }}</span>
-                        <span v-if="item.sellprice != null" class="ml-1 text-xs font-medium text-muted-foreground tabular-nums">
-                          {{ formatCurrency(item.sellprice, locale) }}
-                        </span>
-                        <span class="ml-1 text-xs text-red-500 dark:text-red-400">{{ t('machines.notInStock') }}</span>
-                      </template>
-                      <template v-else-if="isPacked(machine.id, item) && item.product_id && selectedWarehouseId">
-                        <span class="truncate block">
-                          {{ item.product_name }}
-                          <span v-if="item.sellprice != null" class="ml-1 text-xs font-medium text-muted-foreground tabular-nums">
-                            {{ formatCurrency(item.sellprice, locale) }}
-                          </span>
-                        </span>
-                        <span v-if="hasPartialStock(item, machine.id)" class="text-xs text-amber-500 dark:text-amber-400">{{ t('machines.needed', { count: item.deficit }) }}</span>
-                      </template>
-                      <template v-else-if="hasPartialStock(item, machine.id)">
-                        {{ effectiveDeficit(item, machine.id) }}&times; {{ item.product_name }}
-                        <span v-if="item.sellprice != null" class="ml-1 text-xs font-medium text-muted-foreground tabular-nums">
-                          {{ formatCurrency(item.sellprice, locale) }}
-                        </span>
-                        <span class="ml-1 text-xs text-amber-500 dark:text-amber-400">{{ t('machines.needed', { count: item.deficit }) }}</span>
-                      </template>
-                      <template v-else>
-                        {{ effectiveDeficit(item, machine.id) }}&times; {{ item.product_name }}
-                        <span v-if="item.sellprice != null" class="ml-1 text-xs font-medium text-muted-foreground tabular-nums">
-                          {{ formatCurrency(item.sellprice, locale) }}
-                        </span>
-                      </template>
-                      <span v-if="item.product_id && rebuildNeeds(machine.id).get(item.product_id)" class="mt-1 flex items-center gap-2">
-                        <span class="rounded bg-violet-500/15 px-1 text-xs font-medium text-violet-700 dark:text-violet-300">
-                          {{ t('refillRebuild.rebuildRow') }}
-                        </span>
-                        <RefillRebuildQuantity
-                          :value="row.rebuild"
-                          :max="maxRebuildQuantity(machine.id, item.product_id)"
-                          @set="setRebuildQuantity(machine.id, item.product_id!, $event)"
-                        />
-                      </span>
-                    </span>
-                    <!-- Quantity adjuster (shown when item is checked and has warehouse context) -->
-                    <div
-                      v-if="isPacked(machine.id, item) && item.product_id && selectedWarehouseId"
-                      class="flex items-center gap-1 shrink-0"
-                      @click.stop
-                    >
-                      <button
-                        class="inline-flex h-8 w-8 items-center justify-center rounded-lg border text-sm font-semibold active:bg-muted disabled:opacity-30 transition-colors"
-                        :disabled="getDisplayedPackingQty(machine.id, item) <= 1"
-                        @click="setCustomQuantity(machine.id, item.product_id!, getDisplayedPackingQty(machine.id, item) - 1)"
-                      >&minus;</button>
-                      <span class="inline-flex h-8 min-w-10 items-center justify-center rounded-lg bg-primary/10 px-1.5 text-sm font-bold tabular-nums text-primary">
-                        {{ getDisplayedPackingQty(machine.id, item) }}
-                      </span>
-                      <button
-                        class="inline-flex h-8 w-8 items-center justify-center rounded-lg border text-sm font-semibold active:bg-muted disabled:opacity-30 transition-colors"
-                        :disabled="getDisplayedPackingQty(machine.id, item) >= getMaxCustomQuantity(machine.id, item)"
-                        @click="setCustomQuantity(machine.id, item.product_id!, getDisplayedPackingQty(machine.id, item) + 1)"
-                      >+</button>
-                    </div>
-                  </li>
-                  </template>
-                  </template>
-                </ul>
-              </div>
             </CardContent>
           </Card>
         </div>
 
-        <!-- Start Tour button — fixed bottom bar on mobile -->
+        <!-- Start Tour — fixed bottom bar on mobile -->
         <div class="fixed bottom-[calc(3.5rem+env(safe-area-inset-bottom))] md:bottom-0 inset-x-0 z-20 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 p-3 sm:p-4 md:pb-[max(1rem,env(safe-area-inset-bottom))]">
-          <button
-            :disabled="!hasAnyPackedItems() || tourStarting"
-            class="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary px-6 text-base font-medium text-primary-foreground shadow-lg transition-colors hover:bg-primary/90 disabled:opacity-50"
-            @click="startTour"
-          >
-            <IconTruck v-if="!tourStarting" class="h-5 w-5" />
-            <span v-if="tourStarting">{{ t('refill.startingTour') }}</span>
-            <span v-else>{{ t('refill.startTour') }}</span>
-          </button>
-          <p v-if="!hasAnyPackedItems()" class="mt-1.5 text-center text-xs text-muted-foreground">
-            {{ t('refill.noItemsPacked') }}
-          </p>
-          <p v-else class="mt-1.5 text-center text-xs text-muted-foreground">
-            {{ t('refill.warehouseDeductionHint') }}
-          </p>
+          <div class="mx-auto flex max-w-3xl items-center gap-3">
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-medium">{{ t('refillRebuild.machinesReady', { n: machinesReady }, machinesReady) }}</p>
+            </div>
+            <button
+              :disabled="!hasAnyPackedItems() || tourStarting"
+              class="inline-flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-base font-medium text-primary-foreground shadow-lg transition-colors hover:bg-primary/90 disabled:opacity-50"
+              @click="onStartTour"
+            >
+              <IconTruck v-if="!tourStarting" class="h-5 w-5" />
+              <span v-if="tourStarting">{{ t('refill.startingTour') }}</span>
+              <span v-else>{{ t('refill.startTour') }}</span>
+            </button>
+          </div>
         </div>
+
+        <!-- Tour start while lines are not ticked: what stays in the warehouse -->
+        <AppModal
+          v-model:open="openLinesDialog"
+          :title="t('refillRebuild.openLinesTitle', { n: openPackLines.length }, openPackLines.length)"
+          :description="t('refillRebuild.openLinesHint')"
+        >
+          <ul class="divide-y rounded-lg border">
+            <li v-for="line in openPackLines" :key="`${line.machine_id}-${line.product_id}`" class="flex items-center gap-3 px-3 py-2.5">
+              <img v-if="line.image_path" :src="getProductImageUrl(line.image_path)" alt="" class="size-9 shrink-0 rounded object-cover" />
+              <span v-else class="flex size-9 shrink-0 items-center justify-center rounded bg-muted text-xs text-muted-foreground">{{ line.product_name.charAt(0) }}</span>
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-semibold">{{ line.product_name }}</span>
+                <span class="block text-xs text-muted-foreground">{{ line.machine_name }}</span>
+                <span v-if="line.rebuild > 0" class="block text-xs font-semibold text-violet-700 dark:text-violet-300">
+                  ⇄ {{ line.slots.length === 1 ? t('refillRebuild.slotOne', { n: line.slots[0] }) : t('refillRebuild.slotMany', { list: line.slots.join(', ') }) }}
+                </span>
+              </span>
+              <span class="text-lg font-bold tabular-nums">{{ line.total }}</span>
+            </li>
+          </ul>
+          <p v-if="openPackLines.some(l => l.rebuild > 0)" class="mt-3 text-sm text-violet-700 dark:text-violet-300">{{ t('refillRebuild.openLinesRebuildHint') }}</p>
+          <div class="mt-4 flex flex-col gap-2">
+            <button class="inline-flex h-12 items-center justify-center rounded-xl bg-primary px-4 font-medium text-primary-foreground" @click="openLinesDialog = false">
+              {{ t('refillRebuild.keepPacking') }}
+            </button>
+            <button class="inline-flex h-11 items-center justify-center rounded-xl border px-4 text-sm font-medium hover:bg-muted" @click="openLinesDialog = false; startTour()">
+              {{ t('refillRebuild.startWithout') }}
+            </button>
+          </div>
+        </AppModal>
       </template>
     </template>
 
@@ -530,6 +354,14 @@ const currentMachineDone = computed(() =>
         </div>
       </div>
 
+      <div v-if="rebuildWithdrawnNotice" class="flex items-start gap-3 rounded-lg border border-orange-500/50 bg-orange-500/10 p-3 text-sm">
+        <p class="min-w-0 flex-1">
+          <b class="block">{{ t('refillRebuild.withdrawnTitle') }}</b>
+          {{ t('refillRebuild.withdrawnNotice', { machine: rebuildWithdrawnNotice }) }}
+        </p>
+        <button class="shrink-0 rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-muted" @click="rebuildWithdrawnNotice = null">{{ t('common.close') }}</button>
+      </div>
+
       <div v-if="currentTraysLoading" class="text-muted-foreground px-1">{{ t('common.loading') }}</div>
 
       <div v-else-if="currentTrays.length === 0 && currentRebuild.length === 0" class="text-muted-foreground text-sm px-1">
@@ -541,15 +373,15 @@ const currentMachineDone = computed(() =>
         <RefillRebuildSection
           v-if="currentRebuild.length > 0 && !currentMachineDone"
           :slots="currentRebuild"
+          :max-filled="maxRebuildFilled"
+          :skipped-sources="skippedSourceSlots"
+          :withdrawn="withdrawnRebuildMachines.has(currentMachine.id)"
           @removed="setRebuildRemoved"
           @filled="setRebuildFilled"
           @action="setRebuildAction"
           @price="setRebuildPriceSet"
           @age="setRebuildAgeSet"
         />
-        <p v-if="currentRebuild.length > 0 && currentTrays.length > 0 && !currentMachineDone" class="px-1 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {{ t('refillRebuild.normalRefill') }}
-        </p>
         <div
           v-for="tray in currentTrays"
           :key="tray.id"

@@ -1,70 +1,78 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { IconArrowRight, IconArrowsExchange } from '@tabler/icons-vue'
+import { computed, ref } from 'vue'
+import { IconArrowsExchange, IconBox, IconChevronDown, IconChevronUp } from '@tabler/icons-vue'
 import type { SlotChangeItem } from '@/composables/useSlotChangeRequests'
+import { getProductImageUrl } from '@/composables/useProducts'
 import { formatCurrency } from '@/lib/utils'
 import { ageChanged } from '@/lib/slotChange'
 
-// Packing step: the machine's change note. The refiller accepts (default) or
-// declines each slot; accepted slots add their rebuild units to the normal
-// packing list (violet rows/badges, in warehouse order). Declined slots stay
-// open for a later tour.
+// Packing step: a machine's change note as one violet banner ("Rebuild 3
+// slots · 12, 14, 23") plus the spirals to take along, the only thing not on
+// the packing list. It opens in place and is information only: every planned
+// slot is packed (its goods are ticked into the box in the packing list like
+// any other goods), and a slot that can't be done is skipped at the machine.
 
 const props = defineProps<{
   items: SlotChangeItem[]
-  accepted: (itemId: string) => boolean
+  /** Machine name, shown in the combined list. */
+  machineName?: string
 }>()
-const emit = defineEmits<{ (e: 'toggle', itemId: string): void }>()
 const { t, locale } = useI18n()
+const expanded = ref(false)
 
+const sorted = computed(() => [...props.items].sort((a, b) => a.item_number - b.item_number))
+const summary = computed(() =>
+  `${t('refillRebuild.rebuildCount', { n: sorted.value.length }, sorted.value.length)} · ${sorted.value.map(i => i.item_number).join(', ')}`)
+const spirals = computed(() => {
+  const byCap = new Map<number, number>()
+  for (const i of sorted.value) {
+    if (i.to_capacity !== i.from_capacity) byCap.set(i.to_capacity, (byCap.get(i.to_capacity) ?? 0) + 1)
+  }
+  if (byCap.size === 0) return null
+  const list = [...byCap.entries()].sort((a, b) => a[0] - b[0])
+    .map(([cap, count]) => t('refillRebuild.spiralFor', { count, cap }))
+  return `${t('refillRebuild.takeAlong')} ${list.join(', ')}`
+})
 function age(n: number | null) { return n == null ? t('refillRebuild.noAgeLimit') : t('refillRebuild.ageFrom', { n }) }
-const acceptedCount = computed(() => props.items.filter(i => props.accepted(i.id)).length)
 </script>
 
 <template>
-  <div class="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
-    <div class="flex items-center justify-between gap-2">
-      <p class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400">
-        <IconArrowsExchange class="size-4" />
-        {{ t('refillRebuild.changeNote') }}
-      </p>
-      <span class="text-xs text-muted-foreground tabular-nums">{{ t('refillRebuild.acceptedOf', { n: acceptedCount, total: items.length }) }}</span>
-    </div>
-    <p class="text-xs text-muted-foreground">{{ t('refillRebuild.changeNoteHint') }}</p>
+  <div class="overflow-hidden rounded-xl border-[1.5px] border-violet-500/50 bg-card">
+    <button type="button" class="flex w-full items-center gap-3 p-3 text-left" :aria-expanded="expanded" @click="expanded = !expanded">
+      <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-violet-700 dark:text-violet-300">
+        <IconArrowsExchange class="size-5" />
+      </span>
+      <span class="min-w-0 flex-1">
+        <span v-if="machineName" class="block font-semibold">{{ machineName }}</span>
+        <span class="block text-sm text-violet-700 dark:text-violet-300">{{ summary }}</span>
+        <span v-if="spirals" class="mt-0.5 flex items-center gap-1.5 text-sm font-semibold">
+          <IconBox class="size-4 shrink-0" />{{ spirals }}
+        </span>
+      </span>
+      <IconChevronUp v-if="expanded" class="size-4 shrink-0 text-muted-foreground" />
+      <IconChevronDown v-else class="size-4 shrink-0 text-muted-foreground" />
+    </button>
 
-    <ul class="space-y-1">
-      <li
-        v-for="item in items"
-        :key="item.id"
-        class="flex cursor-pointer select-none items-center gap-2 rounded-md px-1.5 py-1.5 hover:bg-muted/50"
-        :class="accepted(item.id) ? '' : 'opacity-50'"
-        @click="emit('toggle', item.id)"
-      >
-        <span
-          class="flex h-5 w-5 shrink-0 items-center justify-center rounded border-2"
-          :class="accepted(item.id) ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/30'"
-        >
-          <svg v-if="accepted(item.id)" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="h-3 w-3"><polyline points="20 6 9 17 4 12" /></svg>
-        </span>
-        <span class="w-7 shrink-0 font-mono text-xs text-muted-foreground">#{{ item.item_number }}</span>
-        <span class="min-w-0 flex-1 text-sm">
-          <span class="truncate">{{ item.from_name ?? t('slotPlan.empty') }}</span>
-          <IconArrowRight class="mx-1 inline size-3.5 text-muted-foreground" />
-          <b class="truncate">{{ item.to_name ?? t('slotPlan.empty') }}</b>
-          <span v-if="item.to_capacity !== item.from_capacity" class="ml-1 text-xs text-amber-600 tabular-nums">
-            {{ t('slotPlan.changeSpiral', { from: item.from_capacity, to: item.to_capacity }) }}
-          </span>
-          <span v-if="item.to_product_id && item.to_price != null && item.to_price !== item.from_price" class="ml-1 rounded bg-amber-500/15 px-1 text-xs text-amber-700 tabular-nums dark:text-amber-400">
-            {{ t('refillRebuild.newPrice', { price: formatCurrency(item.to_price, locale) }) }}
-          </span>
-          <span v-if="ageChanged(item)" class="ml-1 rounded bg-red-500/15 px-1 text-xs text-red-700 dark:text-red-400">
-            {{ age(item.from_min_age) }} → {{ age(item.to_min_age) }}
-          </span>
-          <span v-if="!accepted(item.id)" class="ml-1 text-xs text-muted-foreground">{{ t('refillRebuild.notThisTour') }}</span>
-        </span>
+    <ul v-if="expanded">
+      <li v-for="item in sorted" :key="item.id" class="flex items-start gap-3 border-t p-3">
+        <span class="inline-flex size-10 shrink-0 items-center justify-center rounded-lg bg-foreground/90 text-base font-bold tabular-nums text-background">{{ item.item_number }}</span>
+        <div class="min-w-0 flex-1 space-y-1">
+          <p class="flex items-center gap-2 text-sm text-muted-foreground">
+            <img v-if="item.from_image_path" :src="getProductImageUrl(item.from_image_path)" alt="" class="size-6 rounded object-cover opacity-50" />
+            {{ item.from_name ?? t('slotPlan.empty') }}
+          </p>
+          <p class="flex items-center gap-2 font-semibold">
+            <img v-if="item.to_image_path" :src="getProductImageUrl(item.to_image_path)" alt="" class="size-6 rounded object-cover" />
+            <span v-else-if="!item.to_product_id" class="size-6 rounded border-[1.5px] border-dashed border-muted-foreground" />
+            {{ item.to_name ?? t('refillRebuild.emptySlot') }}
+          </p>
+          <p class="flex flex-wrap gap-1.5 text-xs font-semibold tabular-nums">
+            <span v-if="item.to_capacity !== item.from_capacity" class="rounded-md bg-orange-500/15 px-1.5 py-0.5 text-orange-700 dark:text-orange-400">{{ t('refillRebuild.spiralTag', { n: item.to_capacity }) }}</span>
+            <span v-if="item.to_product_id && item.to_price != null && item.to_price !== item.from_price" class="rounded-md bg-blue-500/15 px-1.5 py-0.5 text-blue-700 dark:text-blue-400">{{ formatCurrency(item.to_price, locale) }}</span>
+            <span v-if="ageChanged(item)" class="rounded-md bg-red-500/15 px-1.5 py-0.5 text-red-700 dark:text-red-400">{{ age(item.to_min_age) }}</span>
+          </p>
+        </div>
       </li>
     </ul>
-
-    <p v-if="acceptedCount > 0" class="border-t pt-2 text-xs text-violet-700 dark:text-violet-300">{{ t('refillRebuild.packInListHint') }}</p>
   </div>
 </template>

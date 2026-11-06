@@ -124,7 +124,7 @@ object DashboardRepository : DashboardDataSource {
     private const val SALE_WITH_PRODUCT_COLUMNS =
         "id, created_at, item_price, item_number, machine_id, embedded_id, channel, product_id, products(name, image_path)"
     private const val MACHINE_COLUMNS =
-        "id, name, location_lat, location_lon, country_code, embeddeds(id, status, status_at, subdomain, mac_address, firmware_version)"
+        "id, name, location_lat, location_lon, country_code, embeddeds(id, status, status_at, subdomain, mac_address, firmware_version, mdb_diagnostics, online_since)"
     private const val TRAY_COLUMNS =
         "id, machine_id, item_number, product_id, capacity, current_stock, min_stock, fill_when_below, products(id, name, image_path, discontinued, sellprice)"
 
@@ -186,7 +186,7 @@ object DashboardRepository : DashboardDataSource {
 
         return MachineStockHealth(
             total = machines.size,
-            online = machines.count { it.isOnline },
+            online = machines.count { it.connectivity().isConnected },
             criticalMachines = buckets.critical,
             lowMachines = buckets.low,
         )

@@ -13,6 +13,9 @@ struct DeviceHealthSheet: View {
 
     @State private var restarts: [DeviceRestart] = []
     @State private var mdbLogs: [MdbLogEntry] = []
+    @State private var statusLog: [StatusLogRow] = []
+    /// Ticks every 30 s so "contact 2 min ago" and the online → no response switch move on.
+    @State private var now = Date()
     @State private var isLoadingRestarts = false
     @State private var isLoadingMdbLogs = false
     @State private var loadError: String?
@@ -24,7 +27,9 @@ struct DeviceHealthSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                uptimeSection
+                connectionSection
+                networkSection
+                historySection
                 if isAdmin { mdbDiagnosticsSection }
                 restartHistorySection
                 if isAdmin { mdbHistorySection }
@@ -35,6 +40,15 @@ struct DeviceHealthSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(String(localized: "Done")) { dismiss() }
+                }
+            }
+            .task(id: embedded?.status) {
+                await loadStatusLog()
+            }
+            .task {
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(30))
+                    now = Date()
                 }
             }
             .task {
@@ -56,23 +70,38 @@ struct DeviceHealthSheet: View {
         }
     }
 
-    // MARK: - Uptime
+    // MARK: - Connection
 
-    private var uptimeSection: some View {
-        Section(String(localized: "Uptime")) {
-            HStack(spacing: 10) {
-                Circle()
-                    .fill(embedded?.isOnline == true ? Color.green : Color.red)
-                    .frame(width: 10, height: 10)
-                if embedded?.isOnline == true, let since = embedded?.onlineSince ?? embedded?.statusAt {
-                    Text(uptimeString(since: since))
+    @ViewBuilder
+    private var connectionSection: some View {
+        let c = detailViewModel.machine.connectivity(now: now)
+        Section(String(localized: "Connection")) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(ConnectivityText.color(c.state))
+                        .frame(width: 10, height: 10)
+                    Text(ConnectivityText.state(c))
                         .font(.title3.weight(.semibold))
-                        .monospacedDigit()
-                } else {
-                    Text(String(localized: "Offline"))
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(ConnectivityText.color(c.state))
                 }
+                Text(ConnectivityText.time(c, now: now))
+                    .font(.subheadline)
+                ConnectivityNotice(connectivity: c)
+            }
+            .padding(.vertical, 4)
+
+            if c.state == .online, let since = c.onlineSince {
+                LabeledContent(String(localized: "Online since"), value: "\(ConnectivityText.duration(now.timeIntervalSince(since))) (\(ConnectivityText.clock(since, now: now)))")
+            }
+            if c.state == .offline, let since = c.since, let start = c.onlineSince, since > start {
+                LabeledContent(String(localized: "Online before that"), value: ConnectivityText.duration(since.timeIntervalSince(start)))
+            }
+            if c.state != .offline, let last = c.lastContactAt {
+                LabeledContent(String(localized: "Last contact"), value: "\(ConnectivityText.ago(last, now: now)) (\(ConnectivityText.clock(last, now: now)))")
+            }
+            if let reader = c.reader {
+                LabeledContent(String(localized: "Machine (MDB)"), value: ConnectivityText.reader(reader))
             }
             if let reason = embedded?.lastRestartReason, let at = embedded?.lastRestartAt {
                 Text("\(restartReasonLabel(reason)) · \(at.formatted(.relative(presentation: .named)))")
@@ -82,8 +111,86 @@ struct DeviceHealthSheet: View {
         }
     }
 
-    private func uptimeString(since: Date) -> String {
-        formatUptime(Int(max(0, Date().timeIntervalSince(since))))
+    // MARK: - Network
+
+    @ViewBuilder
+    private var networkSection: some View {
+        if let n = embedded?.mdbDiagnostics?.deviceNetwork {
+            let offline = detailViewModel.machine.connectivity(now: now).state == .offline
+            let weak = !offline && NetworkText.isWeak(n)
+            let kind = NetworkText.kind(n.kind)
+            Section {
+                HStack(spacing: 12) {
+                    RoundedRectangle(cornerRadius: 9)
+                        .fill(offline ? Color(.systemGray3) : NetworkText.color(n.tone))
+                        .frame(width: 36, height: 36)
+                        .overlay {
+                            SignalIcon(kind: n.kind, level: n.level, tone: n.tone, size: 22, tint: .white)
+                        }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(n.name ?? kind)
+                            .font(.headline)
+                        Text(n.quality.map { "\(kind) · \(NetworkText.quality($0))" } ?? kind)
+                            .font(.subheadline)
+                            .foregroundStyle(weak ? NetworkText.color(n.tone) : .secondary)
+                    }
+                }
+                .padding(.vertical, 2)
+                if let rssi = n.rssi {
+                    LabeledContent(String(localized: "Signal"), value: "\(rssi) dBm")
+                }
+                if let mode = n.mode {
+                    LabeledContent(String(localized: "Mode"), value: mode)
+                }
+                if let ip = n.ip {
+                    LabeledContent(String(localized: "IP address")) {
+                        Text(ip).font(.body.monospaced())
+                    }
+                }
+                if let at = n.measuredAt {
+                    LabeledContent(String(localized: "Measured"), value: ConnectivityText.ago(at, now: now))
+                }
+            } header: {
+                Text(String(localized: "Network"))
+            } footer: {
+                if weak {
+                    Text(String(localized: "A weak signal can cause connection drops. Move the router or a repeater closer to the machine."))
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var historySection: some View {
+        let history = StatusHistory.build(
+            rows: statusLog,
+            currentStatus: embedded?.status,
+            windowStart: now.addingTimeInterval(-24 * 3600),
+            now: now
+        )
+        Section {
+            VStack(alignment: .leading, spacing: 6) {
+                ConnectionHistoryBar(history: history)
+                HStack {
+                    Text(String(localized: "24h ago"))
+                    Spacer()
+                    Text(String(localized: "now"))
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                Text(ConnectionHistoryBar.percentLabel(history))
+                    .font(.subheadline)
+                ForEach(Array(history.outages.suffix(3).enumerated()), id: \.offset) { _, o in
+                    let to = o.end >= now.addingTimeInterval(-1) ? String(localized: "now") : ConnectivityText.clock(o.end, now: now)
+                    Text(String(localized: "Offline \(ConnectivityText.clock(o.start, now: now))–\(to) (\(ConnectivityText.duration(o.end.timeIntervalSince(o.start))))"))
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(.vertical, 4)
+        } header: {
+            Text(String(localized: "Last 24 hours"))
+        }
     }
 
     // MARK: - MDB Status (admin)
@@ -261,6 +368,26 @@ struct DeviceHealthSheet: View {
         } catch is CancellationError {
         } catch {
             loadError = error.localizedDescription
+        }
+    }
+
+    private func loadStatusLog() async {
+        guard let embeddedId = embedded?.id else { return }
+        let since = Date().addingTimeInterval(-24 * 3600)
+        do {
+            statusLog = try await SupabaseService.shared.client
+                .from("embedded_status_log")
+                .select("status, prev_status, created_at")
+                .eq("embedded_id", value: embeddedId.uuidString)
+                .gte("created_at", value: since.ISO8601Format())
+                .order("created_at", ascending: true)
+                .execute()
+                .value
+        } catch is CancellationError {
+        } catch {
+            // The history is a nice-to-have: an older server without the table
+            // must not put an error alert over the rest of the sheet.
+            statusLog = []
         }
     }
 

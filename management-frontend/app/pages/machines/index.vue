@@ -2,7 +2,10 @@
 definePageMeta({ middleware: 'auth' })
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { IconTruck, IconPlayerPlay, IconArrowsExchange, IconRefresh, IconPrinter } from '@tabler/icons-vue'
+import { IconTruck, IconPlayerPlay, IconArrowsExchange, IconRefresh, IconPrinter, IconPackage } from '@tabler/icons-vue'
+import DeviceStatusChip from '@/components/DeviceStatusChip.vue'
+import { connectivityRank, summarizeFleet } from '@/lib/connectivity'
+import { textClass } from '@/composables/useConnectivity'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { reasonLabel } from '@/composables/useDeviceRestarts'
 import { formatCurrency } from '@/lib/utils'
@@ -48,14 +51,43 @@ onMounted(async () => {
 import { fuzzyFilter } from '@/lib/fuzzySearch'
 
 const machineSearch = ref('')
-const machineSortKey = ref<'name' | 'todayRevenue' | 'monthRevenue' | 'stockHealth'>('name')
+const machineSortKey = ref<'status' | 'name' | 'todayRevenue' | 'monthRevenue' | 'stockHealth'>('status')
+
+// ── Connectivity ─────────────────────────────────────────────────────────────
+const conn = useConnectivity()
+const connectivityById = computed(() => new Map(machines.value.map(m => [m.id, conn.of(m.embeddeds)])))
+const connOf = (id: string) => connectivityById.value.get(id) ?? conn.of(null)
+const fleet = computed(() => summarizeFleet([...connectivityById.value.values()]))
+
+type StatusFilter = 'all' | 'attention' | 'online' | 'none'
+const statusFilter = ref<StatusFilter>('all')
+const statusFilters = computed(() => [
+  { key: 'all' as const, label: t('connectivity.filter.all'), count: machines.value.length, dot: '' },
+  { key: 'attention' as const, label: t('connectivity.filter.attention'), count: fleet.value.attention, dot: 'bg-red-500' },
+  { key: 'online' as const, label: t('connectivity.filter.online'), count: fleet.value.online, dot: 'bg-green-500' },
+  { key: 'none' as const, label: t('connectivity.filter.noDevice'), count: fleet.value.none, dot: 'bg-muted-foreground/40' },
+].filter(f => f.key === 'all' || f.count > 0))
+
+function matchesStatusFilter(id: string): boolean {
+  const c = connOf(id)
+  switch (statusFilter.value) {
+    case 'attention': return c.needsAttention
+    case 'online': return c.state === 'online' || c.state === 'updating'
+    case 'none': return c.state === 'none'
+    default: return true
+  }
+}
 
 const sortedMachines = computed(() => {
   const filtered = fuzzyFilter(machines.value, machineSearch.value, [
     m => m.name,
-  ])
+  ]).filter(m => matchesStatusFilter(m.id))
   const key = machineSortKey.value
   return [...filtered].sort((a, b) => {
+    if (key === 'status') {
+      const r = connectivityRank(connOf(a.id)) - connectivityRank(connOf(b.id))
+      return r !== 0 ? r : (a.name ?? '').localeCompare(b.name ?? '')
+    }
     if (key === 'name') return (a.name ?? '').localeCompare(b.name ?? '')
     if (key === 'todayRevenue') return (b.today_revenue ?? 0) - (a.today_revenue ?? 0)
     if (key === 'monthRevenue') return (b.this_month_revenue ?? 0) - (a.this_month_revenue ?? 0)
@@ -172,12 +204,28 @@ async function submitCreateMachine() {
             v-model="machineSortKey"
             class="h-8 rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
+            <option value="status">{{ t('common.status') }}</option>
             <option value="name">{{ t('common.name') }}</option>
             <option value="todayRevenue">{{ t('common.today') }} ({{ t('common.revenue') }})</option>
             <option value="monthRevenue">{{ t('common.thisMonth') }} ({{ t('common.revenue') }})</option>
             <option value="stockHealth">{{ t('machines.stockHealth') }}</option>
           </select>
           </div>
+        </div>
+        <div v-if="statusFilters.length > 1" class="flex flex-wrap gap-2" role="radiogroup" :aria-label="t('common.status')">
+          <button
+            v-for="f in statusFilters"
+            :key="f.key"
+            type="button"
+            role="radio"
+            :aria-checked="statusFilter === f.key"
+            class="inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors"
+            :class="statusFilter === f.key ? 'border-foreground bg-foreground text-background' : 'bg-background text-muted-foreground hover:text-foreground'"
+            @click="statusFilter = f.key"
+          >
+            <span v-if="f.dot" class="size-2 rounded-full" :class="f.dot" />
+            {{ f.label }} <span class="tabular-nums">{{ f.count }}</span>
+          </button>
         </div>
         <div v-if="sortedMachines.length === 0" class="text-sm text-muted-foreground">{{ t('common.noResults') }}</div>
         <div v-else class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -188,10 +236,15 @@ async function submitCreateMachine() {
             class="block rounded-xl transition-shadow hover:shadow-md"
           >
             <Card class="h-full">
-              <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle class="text-base font-semibold truncate">
-                  {{ machine.name ?? t('machines.unnamedMachine') }}
-                </CardTitle>
+              <CardHeader class="flex flex-row items-start justify-between space-y-0 pb-2">
+                <div class="min-w-0">
+                  <CardTitle class="text-base font-semibold truncate">
+                    {{ machine.name ?? t('machines.unnamedMachine') }}
+                  </CardTitle>
+                  <p class="mt-0.5 truncate text-xs" :class="textClass(connOf(machine.id).state)">
+                    {{ conn.timeLabel(connOf(machine.id)) }}
+                  </p>
+                </div>
                 <div class="ml-2 flex items-center gap-1.5 shrink-0">
                   <!-- Recent restart indicator -->
                   <TooltipProvider v-if="machine.embeddeds?.last_restart_at && isRecentRestart(machine.embeddeds.last_restart_at)">
@@ -207,16 +260,7 @@ async function submitCreateMachine() {
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
-                  <!-- Stock health dot -->
-                  <span
-                    class="inline-block h-3 w-3 rounded-full"
-                    :class="{
-                      'bg-red-500': (machine.stock_health ?? 'ok') === 'critical',
-                      'bg-amber-500': (machine.stock_health ?? 'ok') === 'low',
-                      'bg-blue-500': (machine.stock_health ?? 'ok') === 'fill',
-                      'bg-green-500': (machine.stock_health ?? 'ok') === 'ok',
-                    }"
-                  />
+                  <DeviceStatusChip :connectivity="connOf(machine.id)" />
                 </div>
               </CardHeader>
 
@@ -227,6 +271,14 @@ async function submitCreateMachine() {
                   :diagnostics="machine.embeddeds?.mdb_diagnostics"
                   :online="machine.embeddeds?.status === 'online'"
                 />
+
+                <!-- Online, but the machine does not poll the reader -->
+                <span
+                  v-if="connOf(machine.id).reader === 'inactive'"
+                  class="inline-flex w-fit items-center rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-400"
+                >
+                  {{ t('connectivity.reader.inactive') }}
+                </span>
 
                 <!-- Sales analytics -->
                 <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
@@ -262,7 +314,8 @@ async function submitCreateMachine() {
 
                 <!-- Healthy machine with no stock issues at all -->
                 <template v-if="(machine.stock_health ?? 'ok') === 'ok' && (machine.no_stock_trays ?? 0) === 0">
-                  <p class="text-sm text-muted-foreground">
+                  <p class="flex items-center gap-1.5 text-sm text-muted-foreground">
+                    <IconPackage class="size-4 shrink-0" :class="(machine.total_trays ?? 0) > 0 ? 'text-green-500' : 'text-muted-foreground'" aria-hidden="true" />
                     <template v-if="(machine.total_trays ?? 0) > 0">
                       {{ t('machines.allStocked', { count: machine.total_trays }) }}
                     </template>
@@ -284,6 +337,16 @@ async function submitCreateMachine() {
 
                   <!-- Badges row -->
                   <div class="flex flex-wrap items-center gap-1.5">
+                    <IconPackage
+                      class="size-4 shrink-0"
+                      :class="{
+                        'text-red-500': (machine.stock_health ?? 'ok') === 'critical',
+                        'text-amber-500': (machine.stock_health ?? 'ok') === 'low',
+                        'text-blue-500': (machine.stock_health ?? 'ok') === 'fill',
+                        'text-green-500': (machine.stock_health ?? 'ok') === 'ok',
+                      }"
+                      aria-hidden="true"
+                    />
                     <span
                       v-if="(machine.empty_trays ?? 0) > 0"
                       class="inline-flex items-center gap-1 rounded-md bg-red-500/10 px-2 py-0.5 text-xs font-semibold text-red-500"

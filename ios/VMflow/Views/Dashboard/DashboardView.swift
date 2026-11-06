@@ -160,7 +160,7 @@ struct DashboardView: View {
     private var kpiSection: some View {
         VStack(spacing: 12) {
             // Offline-machines warning banner — only when something is wrong.
-            if viewModel.machinesTotal > 0 && viewModel.machinesOnline < viewModel.machinesTotal {
+            if viewModel.fleet.attention > 0 {
                 offlineMachinesBanner
             }
 
@@ -208,9 +208,14 @@ struct DashboardView: View {
         }
     }
 
-    /// Red banner shown above the KPI grid when not every machine is online.
+    /// Red banner shown above the KPI grid when a device is offline, silent,
+    /// or its machine does not talk to the reader.
     private var offlineMachinesBanner: some View {
-        let offline = viewModel.machinesTotal - viewModel.machinesOnline
+        let fleet = viewModel.fleet
+        var details = [String(localized: "\(fleet.online) of \(fleet.devices) devices online")]
+        if fleet.offline > 0 { details.append(String(localized: "\(fleet.offline) offline")) }
+        if fleet.stale > 0 { details.append(String(localized: "\(fleet.stale) not responding")) }
+        if fleet.readerInactive > 0 { details.append(String(localized: "\(fleet.readerInactive) not talking to the reader")) }
         return Button {
             onNavigate(.machines)
         } label: {
@@ -220,10 +225,10 @@ struct DashboardView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     // Two distinct keys so both pluralize cleanly in the catalog;
                     // interpolating the "s" made the string unlocalizable.
-                    (offline == 1 ? Text("1 machine offline") : Text("\(offline) machines offline"))
+                    (fleet.attention == 1 ? Text("1 machine needs attention") : Text("\(fleet.attention) machines need attention"))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.red)
-                    Text("Tap to view")
+                    Text(verbatim: details.joined(separator: " · "))
                         .font(.caption2)
                         .foregroundStyle(.red.opacity(0.8))
                 }

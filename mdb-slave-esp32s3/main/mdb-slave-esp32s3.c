@@ -2410,6 +2410,17 @@ static void ota_update_task(void *arg) {
     vTaskDelete(NULL);
 }
 
+/* Copy user text (SSID) into the '|'-separated status payload: '|' and
+ * control characters become '_' so the payload keeps its segments. */
+static void status_safe_copy(char *dst, size_t len, const char *src) {
+    size_t i = 0;
+    for (; src[i] && i + 1 < len; i++) {
+        unsigned char ch = (unsigned char) src[i];
+        dst[i] = (ch == '|' || ch < 0x20 || ch == 0x7f) ? '_' : (char) ch;
+    }
+    dst[i] = '\0';
+}
+
 // Publish MDB diagnostics snapshot via MQTT.
 // Called event-driven on state changes and periodically as heartbeat.
 static void publish_mdb_diag(void) {
@@ -2463,6 +2474,14 @@ static void publish_mdb_diag(void) {
      * can show the sensors an operator picked on the Machines panel. */
     if (n > 0 && n < (int) msg_size) {
         n += temps_append_json(msg + n, msg_size - n);
+    }
+
+    /* Live WiFi signal on every heartbeat: the status payload only carries
+     * the value from connect time. Cellular is left out on purpose — the
+     * modem samples CSQ only while registering, so it has no fresher value. */
+    int8_t wifi_rssi;
+    if (n > 0 && n < (int) msg_size && network_get_wifi_rssi(&wifi_rssi)) {
+        n += snprintf(msg + n, msg_size - n, ",\"rssi\":%d", wifi_rssi);
     }
 
     if (n > 0 && n < (int) msg_size - 1) {
@@ -2565,7 +2584,8 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 
 		network_status_t ns;
 		network_get_status(&ns);
-		if (ns.modem_present && n > 0 && n < (int)sizeof(status_msg)) {
+		bool on_wifi = strcmp(ns.uplink_kind, "wifi") == 0;
+		if (ns.modem_present && !on_wifi && n > 0 && n < (int)sizeof(status_msg)) {
 		    /* modem_lte_mode_t enum to short string, mirroring captive-portal helper */
 		    const char *mode_str = (ns.cellular_mode == MODEM_LTE_MODE_CATM)  ? "LTE-M"  :
 		                           (ns.cellular_mode == MODEM_LTE_MODE_NBIOT) ? "NB-IoT" :
@@ -2576,6 +2596,17 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 		             ns.cellular_rssi_dbm,
 		             mode_str,
 		             ns.cellular_ip[0] ? ns.cellular_ip : "0.0.0.0");
+		} else if (on_wifi && ns.wifi_ssid[0] && n > 0 && n < (int)sizeof(status_msg)) {
+		    /* Same shape for WiFi so the dashboard can show network + signal
+		     * like it does for cellular. The SSID is user text: '|' would split
+		     * the payload, control characters would garble it. */
+		    char ssid[sizeof(ns.wifi_ssid)];
+		    status_safe_copy(ssid, sizeof(ssid), ns.wifi_ssid);
+		    snprintf(status_msg + n, sizeof(status_msg) - n,
+		             "|uplink:wifi|ssid:%s|rssi:%d|ip:%s",
+		             ssid,
+		             ns.wifi_rssi,
+		             ns.wifi_ip[0] ? ns.wifi_ip : "0.0.0.0");
 		}
 		ESP_LOGI(TAG, "MQTT: publishing '%s' to '%s'", status_msg, topic_);
 		esp_mqtt_client_publish(mqttClient, topic_, status_msg, 0, 1, 1);

@@ -101,6 +101,12 @@ void network_disable_modem_probe(void);
 
 network_state_t network_get_state(void);
 
+/* Live RSSI (dBm) of the WiFi access point while the uplink is WiFi.
+ * Returns false (and leaves *out alone) on cellular, offline or without a
+ * reading. Cheap and stack-light — safe from the esp_timer task, unlike
+ * network_get_status(), which carries the whole snapshot. */
+bool network_get_wifi_rssi(int8_t *out);
+
 /* Refresh and return current network status. Cheap to call. */
 void network_get_status(network_status_t *out);
 

@@ -366,6 +366,66 @@ class SlotChangeTest {
         assertFalse(SlotChange.ageSetPayload(done))
     }
 
+    @Test
+    fun `rebuilt needs the price confirmation and unticking it takes the decision back`() {
+        val slot = RebuildSlot(item = item("i12", "t12", "schorle", "cola", 10, 10).copy(fromPrice = 1.8, toPrice = 2.0), liveStock = 3, removed = 3)
+        assertTrue(slot.needsPriceConfirmation)
+        assertEquals(null, SlotChange.withAction(slot, RebuildAction.DONE).action)
+        val done = SlotChange.withAction(SlotChange.withPriceSet(slot, true), RebuildAction.DONE)
+        assertEquals(RebuildAction.DONE, done.action)
+        assertEquals(null, SlotChange.withPriceSet(done, false).action)
+        assertEquals(RebuildAction.SKIP, SlotChange.withPriceSet(slot.copy(action = RebuildAction.SKIP), false).action)
+    }
+
+    @Test
+    fun `rebuild stock goes to the lines in the order they were ticked`() {
+        val ticks = listOf(
+            RebuildTick("m1", "cola", need = 8, seq = 2, index = 0),
+            RebuildTick("m2", "cola", need = 8, seq = 1, index = 1)
+        )
+        val out = SlotChange.commitRebuildInTickOrder(ticks, mapOf("cola" to 10), true, emptyMap(), emptyMap())
+        // m2 was ticked first and gets its 8; m1 only what is left.
+        assertEquals(8, out["m2"]?.get("cola"))
+        assertEquals(2, out["m1"]?.get("cola"))
+        // Other machines' refills are taken; a custom amount is honoured.
+        val withRefill = SlotChange.commitRebuildInTickOrder(
+            ticks, mapOf("cola" to 10), true, mapOf("m2" to mapOf("cola" to 3)), mapOf("cola" to mapOf("m1" to 4))
+        )
+        assertEquals(3, withRefill["m2"]?.get("cola"))
+        assertEquals(7, withRefill["m1"]?.get("cola"))
+        // Without loaded stock nothing is restricted.
+        val unloaded = SlotChange.commitRebuildInTickOrder(ticks, emptyMap(), false, emptyMap(), emptyMap())
+        assertEquals(8, unloaded["m1"]?.get("cola"))
+    }
+
+    @Test
+    fun `a slot is filled at most with moved and packed units`() {
+        val slots = listOf(
+            RebuildSlot(item = item("i12", "t12", "schorle", "cola", 10, 8), liveStock = 0, removed = 0),
+            RebuildSlot(item = item("i13", "t13", "cola", "mate", 10, 10), liveStock = 5, removed = 5)
+        )
+        // 5 cola come out of slot 13, 2 were packed: at most 7 of the 8.
+        assertEquals(7, SlotChange.maxRebuildFilled(slots, "i12", mapOf("cola" to 2)))
+        // Never more than the new spiral.
+        assertEquals(8, SlotChange.maxRebuildFilled(slots, "i12", mapOf("cola" to 10)))
+        // Slot 13 skipped today: its cola stays put, and slot 12 learns why.
+        val skipped = slots.map { if (it.item.id == "i13") it.copy(action = RebuildAction.SKIP) else it }
+        assertEquals(2, SlotChange.maxRebuildFilled(skipped, "i12", mapOf("cola" to 2)))
+        assertEquals(listOf(13), SlotChange.skippedSourceSlots(skipped, "i12"))
+        assertEquals(emptyList<Int>(), SlotChange.skippedSourceSlots(slots, "i12"))
+    }
+
+    @Test
+    fun `a withdrawn change note rebuilds nothing`() {
+        val slots = listOf(
+            RebuildSlot(item = item("i12", "t12", "schorle", "cola", 10, 10), liveStock = 3, removed = 3, filled = 8, action = RebuildAction.DONE)
+        )
+        val out = SlotChange.withdrawn(slots).single()
+        assertEquals(RebuildAction.SKIP, out.action)
+        assertEquals(0, out.removed)
+        assertEquals(0, out.filled)
+    }
+
     // ─── queueReplacement (useMachineAnalysis.applySwap merge) ───
 
     private fun pendingItem(trayId: String, toProductId: String?, toCapacity: Int) = SlotChangeItem(
