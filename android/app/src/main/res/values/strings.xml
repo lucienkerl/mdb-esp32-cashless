@@ -774,23 +774,15 @@
     <string name="refill_rebuild_change_note_hint">Requested by the office. Untick a slot to leave it as it is this time; it stays open for a later tour.</string>
     <string name="refill_rebuild_toggle_item">Rebuild slot %1$d on this tour</string>
     <string name="refill_rebuild_empty_slot">Empty</string>
-    <string name="refill_rebuild_change_spiral">Change spiral (%1$d → %2$d)</string>
     <string name="refill_rebuild_new_price">new price %1$s</string>
     <string name="refill_rebuild_not_this_tour">not this tour</string>
     <string name="refill_rebuild_needed">(%1$d needed)</string>
     <string name="refill_rebuild_at_machine_title">Rebuild slots</string>
-    <string name="refill_rebuild_live_stock">In the slot now: %1$d of %2$d (sales since packing included)</string>
-    <string name="refill_rebuild_removed">Taken out</string>
-    <string name="refill_rebuild_filled">Filled in (max %1$d)</string>
     <string name="refill_rebuild_fill_source">%1$d moved over · %2$d from the van</string>
     <string name="refill_rebuild_price_set">Price at selection %1$d set to %2$s</string>
     <string name="refill_rebuild_age_set">Age setting changed on the machine</string>
     <string name="refill_rebuild_age_none">no age limit</string>
     <string name="refill_rebuild_age_min">%1$d+</string>
-    <string name="refill_rebuild_age_confirm_first">Confirm the age setting first.</string>
-    <string name="refill_rebuild_rebuilt">Rebuilt</string>
-    <string name="refill_rebuild_not_rebuilt">Not rebuilt</string>
-    <string name="refill_rebuild_stays_open">Stays as it is and comes up again on the next tour.</string>
     <string name="refill_rebuild_decide_all">Mark every slot of the change note as rebuilt or not rebuilt first.</string>
     <string name="refill_rebuild_to_warehouse">To warehouse</string>
     <string name="refill_rebuild_write_off">Write off</string>
@@ -911,6 +903,51 @@
     <string name="product_delete">Delete product</string>
     <string name="product_delete_confirm">Delete “%1$s”? This cannot be undone.</string>
     <string name="warehouse_intake_create_product">Create new product</string>
+    <string name="refill_pack_line_refill">%1$d refill</string>
+    <string name="refill_pack_line_no_stock">Refill: no stock</string>
+    <string name="refill_pack_line_rebuild">%1$d rebuild</string>
+    <string name="refill_pack_slot_one">slot %1$s</string>
+    <string name="refill_pack_slot_many">slots %1$s</string>
+    <string name="refill_pack_in_box">In the box: %1$d of %2$d units</string>
+    <string name="refill_pack_in_box_label">In the box</string>
+    <string name="refill_pack_open_lines_hint">These goods stay in the warehouse and are not booked.</string>
+    <string name="refill_pack_open_lines_rebuild_hint">If goods for a slot are missing at the machine, mark it “Not rebuilt” there. The slot comes up again next tour.</string>
+    <string name="refill_pack_keep_packing">Keep packing</string>
+    <string name="refill_pack_start_without">Start without these goods</string>
+    <string name="refill_rebuild_take_along">Take along:</string>
+    <string name="refill_rebuild_spiral_for">%1$d× spiral for %2$d</string>
+    <string name="refill_rebuild_spiral_tag">Spiral %1$d</string>
+    <string name="refill_rebuild_empty_the_slot">Empty the slot</string>
+    <string name="refill_rebuild_skipped_source_one">Slot %1$d is not rebuilt today, so this slot gets fewer units.</string>
+    <string name="refill_rebuild_skipped_source_many">Slots %1$s are not rebuilt today, so this slot gets fewer units.</string>
+    <string name="refill_rebuild_withdrawn_here">The slot change was withdrawn in the meantime. Don\'t rebuild anything here; the goods packed for it go back to the warehouse at the end of the tour.</string>
+    <string name="refill_rebuild_withdrawn_title">Slot change withdrawn</string>
+    <string name="refill_rebuild_withdrawn_notice">The slot change at %1$s was withdrawn in the meantime, so nothing was switched in the app. If you already rebuilt a slot, put the old product back or tell the office.</string>
+    <string name="refill_rebuild_slot_done">Slot %1$d done</string>
+    <string name="refill_rebuild_stays">%1$s stays</string>
+    <string name="refill_rebuild_comes_again">Comes up again on the next tour</string>
+    <string name="refill_rebuild_instead">instead of %1$s</string>
+    <string name="refill_rebuild_yes_set_on_machine">Yes, set on the machine</string>
+    <string name="refill_rebuild_take_out">Take out %1$s</string>
+    <string name="refill_rebuild_put_in">Put in %1$s</string>
+    <string name="refill_rebuild_not_possible_today">Not possible today</string>
+    <string name="refill_rebuild_rebuild_after_all">Rebuild after all</string>
+    <plurals name="refill_pack_still_missing">
+        <item quantity="one">%1$d still missing</item>
+        <item quantity="other">%1$d still missing</item>
+    </plurals>
+    <plurals name="refill_pack_machines_ready">
+        <item quantity="one">%1$d machine ready</item>
+        <item quantity="other">%1$d machines ready</item>
+    </plurals>
+    <plurals name="refill_pack_open_lines_title">
+        <item quantity="one">%1$d line not in the box</item>
+        <item quantity="other">%1$d lines not in the box</item>
+    </plurals>
+    <plurals name="refill_rebuild_count">
+        <item quantity="one">Rebuild %1$d slot</item>
+        <item quantity="other">Rebuild %1$d slots</item>
+    </plurals>
     <!-- Device connectivity -->
     <string name="conn_state_online">Online</string>
     <string name="conn_state_stale">No response</string>

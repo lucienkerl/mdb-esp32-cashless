@@ -149,6 +149,10 @@ object RefillReviewLogic {
                             currentProductImage = tray.products?.imagePath,
                             currentStock = tray.currentStock,
                             reason = reason,
+                            // An empty slot (e.g. emptied by a slot change)
+                            // must not hold up the review: it starts as
+                            // "stays unassigned", assigning stays possible.
+                            isSkipped = reason == ReplacementReason.UNASSIGNED,
                         )
                     )
                 }

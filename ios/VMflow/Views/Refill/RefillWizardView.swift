@@ -85,6 +85,14 @@ struct RefillWizardView: View {
             Button("Finish anyway", role: .destructive) { startNewTour() }
             Button("Resume", role: .cancel) { resumeSavedTour() }
         }
+        .alert("Slot change withdrawn", isPresented: .init(
+            get: { viewModel.rebuildWithdrawnNotice != nil },
+            set: { if !$0 { viewModel.rebuildWithdrawnNotice = nil } }
+        )) {
+            Button("OK") { viewModel.rebuildWithdrawnNotice = nil }
+        } message: {
+            Text(viewModel.rebuildWithdrawnNotice ?? "")
+        }
         .alert("Error", isPresented: .init(
             get: { viewModel.error != nil },
             set: { if !$0 { viewModel.error = nil } }

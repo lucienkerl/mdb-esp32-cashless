@@ -1,6 +1,15 @@
 package xyz.vmflow.ui.refill
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.draw.alpha
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.CircleShape
@@ -29,7 +38,6 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DisabledByDefault
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalShipping
-import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Warning
@@ -73,11 +81,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import xyz.vmflow.R
 import xyz.vmflow.data.MachineStockTier
-import xyz.vmflow.data.RebuildPackRow
 import xyz.vmflow.data.RefillTourLogic
 import xyz.vmflow.data.SlotChange
-import xyz.vmflow.models.CombinedPackingItem
-import xyz.vmflow.models.MachineNeed
 import xyz.vmflow.models.RefillMachine
 import xyz.vmflow.models.Warehouse
 import xyz.vmflow.ui.components.ProductImage
@@ -90,30 +95,20 @@ import xyz.vmflow.ui.theme.VMflowBlueLight
 
 /**
  * Pack step — the screen a driver uses to load the van from a warehouse
- * before setting out. Product-centric: one card per product, each listing
- * the machines that need it with a per-machine quantity stepper.
+ * before setting out. Product-centric: one card per product with one line
+ * per machine. A line holds everything the machine gets of the product —
+ * the refill and the units for its slot rebuilds — under one tick ("in the
+ * box") and one amount. Ported from iOS `PackingStepView.swift`
+ * (`AllPackingList`, `MachinePackingList`, `PackProductCard`, `PackLineRow`,
+ * `bottomBar`, `OpenPackLinesSheet`).
  *
- * Ported from iOS `PackingStepView.swift` (its `warehousePicker`, `ChipBar`,
- * `HeaderStrip`, `AllPackingList`, `MachinePackingList` and `bottomBar`),
- * adapted to Android idiom: an `ExposedDropdownMenuBox` for the warehouse
- * picker, Material `FilterChip`s in a **wrapping** [FlowRow] for the chip
- * bar (a plain `Row` pushed the fourth chip off a 360 dp screen in the
- * warehouse module — a Phase 4 review finding), and one card composable for
- * both chip modes instead of iOS's two near-identical list subviews.
- *
- * **Every quantity comes from the ViewModel.** [displayQuantity] fills the
- * stepper's value, [maxPackingQuantity] its upper bound; nothing here
- * recomputes a packing quantity from trays or stock. The only arithmetic in
- * this file sums those helper outputs for a product's total/shortfall badge,
- * exactly as iOS's view does.
+ * **Every quantity comes from the state's line API** ([packLine] and
+ * friends in `PackLines.kt`); nothing here recomputes a packing quantity
+ * from trays or stock.
  *
  * No ViewModel reference: like `WarehouseStockTab`, this takes the immutable
  * [RefillUiState] plus already-bound callbacks.
  *
- * @param visiblePackingList `RefillViewModel.visiblePackingList()` — rows
- *   with no warehouse stock left and nothing packed are already dropped
- *   there, so an unavailable product is **hidden**, not greyed out (unless
- *   something is packed for it, in which case it stays adjustable).
  * @param onReloadWarehouseStock re-fetches the warehouse's stock and pick
  *   order (and the warehouse list itself when there is no selection) — the
  *   retry path for a failed stock fetch, and deliberately *not* a reload of
@@ -122,70 +117,44 @@ import xyz.vmflow.ui.theme.VMflowBlueLight
 @Composable
 fun PackingStep(
     uiState: RefillUiState,
-    visiblePackingList: List<CombinedPackingItem>,
-    displayQuantity: (machineId: String, productId: String) -> Int,
-    maxPackingQuantity: (machineId: String, productId: String) -> Int,
-    isPacked: (machineId: String, productId: String) -> Boolean,
-    isOutOfStockForMachine: (machineId: String, productId: String) -> Boolean,
     chipItemCount: (machineId: String?) -> Int,
     chipIsFullyPacked: (machineId: String?) -> Boolean,
     onSelectWarehouse: (String) -> Unit,
     onReloadWarehouseStock: () -> Unit,
     onSelectChip: (machineId: String?) -> Unit,
-    onTogglePackedAll: (productId: String) -> Unit,
-    onTogglePackedForMachine: (machineId: String, productId: String) -> Unit,
-    onSetPackingQuantity: (machineId: String, productId: String, quantity: Int) -> Unit,
+    onToggleLine: (machineId: String, productId: String) -> Unit,
+    onSetLineQuantity: (machineId: String, productId: String, quantity: Int) -> Unit,
     onPackEverything: () -> Unit,
     onPackAllForMachine: (machineId: String) -> Unit,
     onStartTour: () -> Unit,
     modifier: Modifier = Modifier,
-    onToggleRebuildItem: (machineId: String, itemId: String) -> Unit = { _, _ -> },
-    onSetRebuildQuantity: (machineId: String, productId: String, quantity: Int) -> Unit = { _, _, _ -> },
-    onToggleRebuildTick: (productId: String, machineIds: List<String>) -> Unit = { _, _ -> },
     onCompleteTourNote: (noteId: String) -> Unit = {}
 ) {
     val haptic = LocalHapticFeedback.current
 
-    // Chips: "All" plus one per machine that actually has a need, in the
-    // tour's urgency order. `machines` is already narrowed to the tour's
-    // machines (RefillTourLogic.tourMachines); the need filter additionally
-    // drops a machine whose needs vanished (e.g. after a replacement).
-    val machineIdsWithNeeds = uiState.packingList
-        .flatMap { item -> item.machineNeeds.map { it.machineId } }
-        .toSet()
-    val chipMachines = uiState.machines.filter { it.machine.id in machineIdsWithNeeds }
+    // Chips: "All" plus one per machine with something to pack or rebuild,
+    // in the tour's urgency order.
+    val chipMachines = uiState.machines.filter { machine ->
+        uiState.lineProductIds(machine.machine.id).isNotEmpty() ||
+            machine.changeRequest?.items?.isNotEmpty() == true
+    }
 
     // A chip whose machine has since lost every need (or vanished) falls back
     // to "All" rather than rendering an empty list under a dead chip.
     val activeChip = uiState.activeChip?.takeIf { id -> chipMachines.any { it.machine.id == id } }
-    val activeMachineName = chipMachines
-        .firstOrNull { it.machine.id == activeChip }?.machine?.displayName
 
     // …and the correction is written back, or the dead id stays selected in
     // the ViewModel and the filter silently snaps back to it the moment that
-    // machine regains a need. iOS writes the snap-back too
-    // (`RefillWizardViewModel.swift:1084`).
+    // machine regains a need.
     val chipSelectionIsStale = uiState.activeChip != null && activeChip == null
     LaunchedEffect(chipSelectionIsStale) {
         if (chipSelectionIsStale) onSelectChip(null)
     }
 
-    // The "All" chip's tick, derived here rather than read from
-    // `chipIsFullyPacked(null)`: that folds over the ViewModel's *unfiltered*
-    // machine list, and a machine with no need at all never counts as packed
-    // (its `hadAnyNeed` stays false). Android's list contains every machine
-    // with any tray — unlike iOS's, which is pre-filtered to machines needing
-    // a refill — so the tick could never light, and via `isPartial` the header
-    // stayed orange on a fully packed van forever.
-    val allChipFullyPacked = chipMachines.isNotEmpty() &&
-        chipMachines.all { chipIsFullyPacked(it.machine.id) }
-    val isActiveChipFullyPacked =
-        if (activeChip == null) allChipFullyPacked else chipIsFullyPacked(activeChip)
+    val allChipFullyPacked = chipIsFullyPacked(null)
 
-    // Chip label state resolved here, next to the row states and for the same
-    // reason (see the note below `PackingStep`): a leaf composable that called
-    // the ViewModel read-helpers itself would freeze its count and tick the
-    // moment anything made it skippable.
+    // Chip label state resolved here, next to the card states and for the same
+    // reason (see the note below `PackingStep`).
     val chipStates = buildList {
         add(
             ChipState(
@@ -211,27 +180,22 @@ fun PackingStep(
         }
     }
 
-    val changeNotes = changeNotes(uiState, activeChip)
+    val changeNotes = uiState.machines
+        .filter { machine ->
+            machine.changeRequest?.items?.isNotEmpty() == true &&
+                (activeChip == null || machine.machine.id == activeChip)
+        }
+        .map { machine ->
+            ChangeNoteState(
+                machineId = machine.machine.id,
+                machineName = machine.machine.displayName,
+                items = machine.changeRequest?.items.orEmpty()
+            )
+        }
 
-    // Units the accepted change-note slots need, per product, for the
-    // machines in scope — merged into the normal list below rather than
-    // listed separately, so the warehouse walk stays one pass.
-    val rebuildRows = rebuildPackRows(uiState, activeChip)
-    // The same units per machine, each with its own stepper.
-    val rebuildLines = rebuildLines(uiState, activeChip)
-
-
-    val rows = packRows(
-        uiState = uiState,
-        visiblePackingList = visiblePackingList,
-        activeChip = activeChip,
-        displayQuantity = displayQuantity,
-        maxPackingQuantity = maxPackingQuantity,
-        isPacked = isPacked,
-        isOutOfStockForMachine = isOutOfStockForMachine,
-        rebuildUnits = rebuildRows.associate { it.productId to it.committed }
-    )
-    val entries = packEntries(rows, rebuildRows, uiState.pickOrder)
+    val cards = packCards(uiState, activeChip)
+    val openLines = uiState.openPackLines
+    var showOpenLines by remember { mutableStateOf(false) }
 
     Column(modifier = modifier.fillMaxSize()) {
         LazyColumn(
@@ -263,12 +227,9 @@ fun PackingStep(
             }
 
             // Not gated on a selected warehouse: the stock fetch failing, the
-            // *warehouses* fetch failing (which leaves no selection at all)
-            // and a company with zero warehouses all read as "no stock
-            // loaded" to the capping logic, so all of them need the same
-            // warning and the same way out. No flash during the initial load
-            // — the wizard shell replaces this whole step with a spinner
-            // while `isLoading`.
+            // *warehouses* fetch failing and a company with zero warehouses
+            // all read as "no stock loaded" to the capping logic, so all of
+            // them need the same warning and the same way out.
             if (!uiState.stockLoaded) {
                 item(key = "stock-warning") {
                     StockCapWarningCard(onReload = onReloadWarehouseStock)
@@ -288,103 +249,55 @@ fun PackingStep(
                 }
             }
 
-            item(key = "header-strip") {
-                PackHeaderStrip(
-                    activeChip = activeChip,
-                    activeMachineName = activeMachineName,
-                    itemCount = chipItemCount(activeChip),
-                    isFullyPacked = isActiveChipFullyPacked,
-                    anyPacked = rows.any { it.anyPacked }
-                )
-            }
-
-            // Change notes ("Änderungsvermerk") first: accepting or declining a
-            // slot changes what the product cards below ask for. What the
-            // accepted slots need is in the list below, marked violet.
+            // The change notes: information only. Their goods are in the
+            // cards below; only the spirals to take along are not.
             items(items = changeNotes, key = { "change-note-${it.machineId}" }) { note ->
-                ChangeNoteCard(
-                    note = note,
-                    enabled = !uiState.isSaving,
-                    onToggleItem = { itemId ->
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onToggleRebuildItem(note.machineId, itemId)
-                    }
-                )
+                ChangeNoteCard(note = note, showMachineName = activeChip == null)
             }
 
-            if (entries.isEmpty()) {
+            if (cards.isEmpty()) {
                 if (changeNotes.isEmpty()) {
                     item(key = "empty") {
                         PackEmptyState(isMachineChip = activeChip != null)
                     }
                 }
             } else {
-                items(items = entries, key = { it.key }) { entry ->
-                    when (entry) {
-                        is PackEntry.Normal -> {
-                            val row = entry.row
-                            ProductPackCard(
-                                row = row,
-                                rebuildLines = rebuildLines[row.productId].orEmpty(),
-                                showMachineNames = activeChip == null,
-                                onSetRebuildQuantity = { machineId, quantity ->
-                                    onSetRebuildQuantity(machineId, row.productId, quantity)
-                                },
-                                showAllMachinesToggle = activeChip == null,
-                                onTogglePackedAll = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onTogglePackedAll(row.productId)
-                                },
-                                onTogglePackedForMachine = { machineId ->
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onTogglePackedForMachine(machineId, row.productId)
-                                },
-                                onSetQuantity = { machineId, quantity ->
-                                    onSetPackingQuantity(machineId, row.productId, quantity)
-                                }
-                            )
+                items(items = cards, key = { it.productId }) { card ->
+                    PackProductCard(
+                        card = card,
+                        showMachineNames = activeChip == null,
+                        enabled = !uiState.isSaving,
+                        onToggle = { machineId ->
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onToggleLine(machineId, card.productId)
+                        },
+                        onSetQuantity = { machineId, quantity ->
+                            onSetLineQuantity(machineId, card.productId, quantity)
                         }
-                        is PackEntry.Rebuild -> {
-                            val productId = entry.row.productId
-                            val lines = rebuildLines[productId].orEmpty()
-                            val machineIds = lines.map { it.machineId }
-                            RebuildPackCard(
-                                row = entry.row,
-                                lines = lines,
-                                showMachineNames = activeChip == null,
-                                onSetQuantity = { machineId, quantity ->
-                                    onSetRebuildQuantity(machineId, productId, quantity)
-                                },
-                                // Like a normal product: only a ticked line is
-                                // taken along and booked.
-                                isTicked = machineIds.isNotEmpty() &&
-                                    machineIds.all { uiState.rebuildTicks[it]?.contains(productId) == true },
-                                onToggle = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onToggleRebuildTick(productId, machineIds)
-                                }
-                            )
-                        }
-                    }
+                    )
                 }
             }
         }
 
         PackBottomBar(
-            packedMachineCount = uiState.machines.count { it.isPacked },
-            totalMachineCount = chipMachines.size,
-            activeMachineName = activeMachineName,
-            // Nothing on the list means nothing to pack: an enabled "pack
-            // everything" under the "all stocked" empty state is a button
-            // that can only do nothing.
-            showPackAll = rows.isNotEmpty(),
+            readyMachineCount = uiState.readyMachineCount,
+            canStart = uiState.machines.any { it.isPacked },
             isSaving = uiState.isSaving,
-            onPackAll = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                if (activeChip == null) onPackEverything() else onPackAllForMachine(activeChip)
-            },
             onStartTour = {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                if (openLines.isEmpty()) onStartTour() else showOpenLines = true
+            }
+        )
+    }
+
+    if (showOpenLines) {
+        OpenPackLinesDialog(
+            lines = openLines,
+            productNames = { productId -> productLabel(uiState, productId) },
+            machineNames = uiState.machines.associate { it.machine.id to it.machine.displayName },
+            onDismiss = { showOpenLines = false },
+            onStartAnyway = {
+                showOpenLines = false
                 onStartTour()
             }
         )
@@ -392,319 +305,97 @@ fun PackingStep(
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Row state. Resolved once per recomposition in [PackingStep]'s body — which
+// Card state. Resolved once per recomposition in [PackingStep]'s body — which
 // never skips, since it holds the (unstable) ui state — and handed to the
-// leaf composables as plain values. Leaf composables must not call the
-// ViewModel read-helpers themselves: those read a StateFlow's current value
-// without Compose observing it, so a skipped leaf would keep rendering a
-// stale quantity.
+// leaf composables as plain values. Leaf composables must not read the
+// ViewModel themselves: a skipped leaf would keep rendering a stale quantity.
 // ─────────────────────────────────────────────────────────────────────────
 
-/** One machine's need line inside a product card. */
-private data class NeedRowState(
-    val machineId: String,
-    val machineName: String,
-    /** Units this machine's trays are short of — the ask, from `MachineNeed`. */
-    val needQuantity: Int,
-    val capacity: Int,
-    /** What to pack, from `RefillViewModel.displayQuantity`. */
-    val quantity: Int,
-    /** Stepper's upper bound, from `RefillViewModel.maxPackingQuantity`. */
-    val maxQuantity: Int,
-    val isPacked: Boolean,
-    val isOutOfStock: Boolean
+/** One machine's line inside a product card. */
+private data class PackLineState(
+    val line: PackLine,
+    val machineName: String
 )
 
-/** One machine's rebuild units of a product, with the stepper's bounds. */
-private data class RebuildLineState(
-    val machineId: String,
-    val machineName: String,
-    /** What the machine's accepted slots need from the warehouse. */
-    val need: Int,
-    /** What is (or, unticked, would be) packed ([rebuildDisplayQuantity]). */
-    val quantity: Int,
-    /** Stepper's upper bound, [maxRebuildQuantity]. */
-    val maxQuantity: Int
-)
-
-/** One product card. */
-private data class PackRowState(
+/** One product card: header plus one line per machine in scope. */
+private data class PackCardState(
     val productId: String,
-    val productLabel: String,
+    val name: String?,
     val imagePath: String?,
-    /** Sum of [NeedRowState.quantity] across the card's rows. */
-    val totalQuantity: Int,
-    /** Sum of [NeedRowState.needQuantity] — what the machines actually ask for. */
-    val neededQuantity: Int,
-    /**
-     * What the **whole fleet** asks for (`CombinedPackingItem.totalQuantity`),
-     * unaffected by the active chip. [neededQuantity] is chip-filtered, so
-     * only this number can decide whether the warehouse is short — iOS
-     * compares against `item.totalQuantity` too (`PackingStepView.swift:432`).
-     */
-    val fleetNeededQuantity: Int,
-    /** Units the card is short of what the machines ask for, 0 when met. */
-    val shortfall: Int,
-    /** Total units in the selected warehouse, `null` while stock isn't loaded. */
+    /** Units in the selected warehouse, `null` while stock isn't loaded. */
     val stockTotal: Int?,
-    /** Units left after other machines' commitments, `null` while stock isn't loaded. */
-    val remainingStock: Int?,
-    /** Units already committed to packed machines, `null` while stock isn't loaded. */
-    val committedStock: Int?,
-    val anyPacked: Boolean,
-    val allPacked: Boolean,
-    val allNeedsMet: Boolean,
-    val isOutOfStock: Boolean,
-    val needs: List<NeedRowState>,
-    /** The product's raw name, the packing list's sort key (the label may be a fallback). */
-    val sortName: String? = null,
-    /** Units the slot rebuilds of the machines in scope add to this line ("+N rebuild"), 0 for none. */
-    val rebuildUnits: Int = 0
+    val lines: List<PackLineState>
 ) {
-    val isUnderpacked: Boolean get() = !isOutOfStock && anyPacked && !allNeedsMet
-}
-
-/** One line of the packing list: a normal product card, or a product only the rebuilds need. */
-private sealed interface PackEntry {
-    val key: String
-
-    data class Normal(val row: PackRowState) : PackEntry {
-        override val key: String get() = row.productId
-    }
-
-    data class Rebuild(val row: RebuildPackRow) : PackEntry {
-        override val key: String get() = "rebuild-${row.productId}"
-    }
+    val open: List<PackLine> get() = lines.map { it.line }.filter { !it.isUnavailable }
+    val total: Int get() = lines.sumOf { it.line.total }
+    val allTicked: Boolean get() = open.isNotEmpty() && open.all { it.ticked }
+    val isShort: Boolean get() = open.any { it.ticked && it.shortfall > 0 }
 }
 
 /**
- * The normal rows plus one row per product only the rebuilds need, in the
- * packing list's own order (warehouse walk, else quantity) — so the driver
- * still packs top to bottom in one pass. The normal rows keep the order the
- * list already has; the sort keys are the same ones it was sorted by.
+ * The product cards for the machines in scope, in warehouse walk order (else
+ * by quantity): products refilled anyway and those only a rebuild needs alike.
+ * Unavailable lines stay on a card (dimmed) so the driver sees what is missing.
  */
-private fun packEntries(
-    rows: List<PackRowState>,
-    rebuildRows: List<RebuildPackRow>,
-    pickOrder: Map<String, Int>
-): List<PackEntry> {
-    val normalIds = rows.mapTo(HashSet()) { it.productId }
-    val entries = rows.map { PackEntry.Normal(it) } +
-        rebuildRows.filter { it.productId !in normalIds }.map { PackEntry.Rebuild(it) }
-    return SlotChange.sortForPacking(
-        rows = entries,
-        pickOrder = pickOrder,
-        productId = { e ->
-            when (e) {
-                is PackEntry.Normal -> e.row.productId
-                is PackEntry.Rebuild -> e.row.productId
-            }
-        },
-        name = { e ->
-            when (e) {
-                is PackEntry.Normal -> e.row.sortName
-                is PackEntry.Rebuild -> e.row.name
-            }
-        },
-        quantity = { e ->
-            when (e) {
-                is PackEntry.Normal -> e.row.fleetNeededQuantity
-                is PackEntry.Rebuild -> e.row.committed
-            }
+@Composable
+private fun packCards(uiState: RefillUiState, activeChip: String?): List<PackCardState> {
+    val scope = if (activeChip == null) uiState.machines.map { it.machine.id } else listOf(activeChip)
+    val byProduct = LinkedHashMap<String, MutableList<PackLineState>>()
+    for (machineId in scope) {
+        val name = uiState.machines.find { it.machine.id == machineId }?.machine?.displayName.orEmpty()
+        for (productId in uiState.lineProductIds(machineId)) {
+            byProduct.getOrPut(productId) { mutableListOf() } += PackLineState(uiState.packLine(machineId, productId), name)
         }
+    }
+    val unknown = stringResource(R.string.refill_pack_unknown_product)
+    val context = LocalContext.current
+    val cards = byProduct.map { (productId, lines) ->
+        // Machines refilling the product first, then those needing it only for a rebuild.
+        val sorted = lines.sortedBy { if (it.line.refillNeed > 0) 0 else 1 }
+        val info = productInfo(uiState, productId)
+        PackCardState(
+            productId = productId,
+            name = info.first
+                ?: unassignedSlot(uiState, sorted.map { it.line.machineId }, productId)
+                    ?.let { context.getString(R.string.machine_card_unassigned_slot, it) }
+                ?: unknown,
+            imagePath = info.second,
+            stockTotal = if (uiState.stockLoaded) (uiState.warehouseStock[productId] ?: 0) else null,
+            lines = sorted
+        )
+    }
+    // Scoped to one machine, a card the driver can do nothing with is dropped.
+    val visible = if (activeChip == null) cards else cards.filter { it.open.isNotEmpty() }
+    return SlotChange.sortForPacking(
+        rows = visible,
+        pickOrder = uiState.pickOrder,
+        productId = { it.productId },
+        name = { productInfo(uiState, it.productId).first },
+        quantity = { card -> card.lines.sumOf { it.line.need } }
     )
+}
+
+/** Name and image of a product on the packing list (from its slots, or from a change note). */
+private fun productInfo(uiState: RefillUiState, productId: String): Pair<String?, String?> {
+    uiState.packingList.firstOrNull { it.productId == productId }?.let {
+        return it.productName?.takeIf { name -> name.isNotBlank() } to it.imagePath
+    }
+    val item = uiState.machines.asSequence()
+        .flatMap { it.acceptedChangeItems.asSequence() }
+        .firstOrNull { it.toProductId == productId }
+    return item?.toName to item?.toImagePath
 }
 
 @Composable
-private fun packRows(
-    uiState: RefillUiState,
-    visiblePackingList: List<CombinedPackingItem>,
-    activeChip: String?,
-    displayQuantity: (machineId: String, productId: String) -> Int,
-    maxPackingQuantity: (machineId: String, productId: String) -> Int,
-    isPacked: (machineId: String, productId: String) -> Boolean,
-    isOutOfStockForMachine: (machineId: String, productId: String) -> Boolean,
-    rebuildUnits: Map<String, Int>
-): List<PackRowState> {
-    val context = LocalContext.current
-    val unknownProduct = stringResource(R.string.refill_pack_unknown_product)
-    val stockLoaded = uiState.stockLoaded
+private fun productLabel(uiState: RefillUiState, productId: String): String =
+    productInfo(uiState, productId).first ?: stringResource(R.string.refill_pack_unknown_product)
 
-    return visiblePackingList.mapNotNull { item ->
-        val needs = if (activeChip == null) {
-            item.machineNeeds
-        } else {
-            item.machineNeeds.filter { it.machineId == activeChip }
-        }
-        if (needs.isEmpty()) return@mapNotNull null
-
-        val needStates = needs.map { need ->
-            NeedRowState(
-                machineId = need.machineId,
-                machineName = need.machineName,
-                needQuantity = need.quantity,
-                capacity = need.capacity,
-                quantity = displayQuantity(need.machineId, item.productId),
-                maxQuantity = maxPackingQuantity(need.machineId, item.productId),
-                isPacked = isPacked(need.machineId, item.productId),
-                isOutOfStock = isOutOfStockForMachine(need.machineId, item.productId)
-            )
-        }
-
-        // Scoped to one machine, a row the driver can neither pack nor adjust
-        // is dropped rather than shown dead — iOS `visibleItemsForActiveChip`
-        // does the same. In "All" mode the row stays: another machine may
-        // still be able to take it.
-        if (activeChip != null && needStates.all { it.isOutOfStock && !it.isPacked }) {
-            return@mapNotNull null
-        }
-
-        val allPacked = needStates.all { it.isPacked }
-        // `packingStock`, not the raw totals: units the change notes claim
-        // for slot rebuilds are no longer available to the normal refill,
-        // and count as committed.
-        val remaining = if (stockLoaded) {
-            RefillTourLogic.remainingWarehouseStock(
-                machines = uiState.machines,
-                productId = item.productId,
-                packedItems = uiState.packedItems,
-                customQuantities = uiState.customQuantities,
-                warehouseStock = uiState.packingStock
-            )
-        } else {
-            null
-        }
-        val committed = if (stockLoaded) {
-            RefillTourLogic.committedQuantity(
-                machines = uiState.machines,
-                productId = item.productId,
-                packedItems = uiState.packedItems,
-                customQuantities = uiState.customQuantities
-            ) + uiState.rebuildCommittedTotal(item.productId)
-        } else {
-            null
-        }
-
-        val needed = needStates.sumOf { it.needQuantity }
-        val packedUnits = needStates.filter { it.isPacked }.sumOf { it.quantity }
-
-        PackRowState(
-            productId = item.productId,
-            productLabel = item.productName?.takeIf { it.isNotBlank() }
-                ?: slotNumberFor(uiState.machines, needs, item.productId)
-                    ?.let { context.getString(R.string.machine_card_unassigned_slot, it) }
-                ?: unknownProduct,
-            imagePath = item.imagePath,
-            totalQuantity = needStates.sumOf { it.quantity },
-            neededQuantity = needed,
-            fleetNeededQuantity = item.totalQuantity,
-            shortfall = (needed - packedUnits).coerceAtLeast(0),
-            stockTotal = if (stockLoaded) (uiState.warehouseStock[item.productId] ?: 0) else null,
-            remainingStock = remaining,
-            committedStock = committed,
-            anyPacked = needStates.any { it.isPacked },
-            allPacked = allPacked,
-            allNeedsMet = needStates.all { it.isPacked && it.quantity >= it.needQuantity },
-            isOutOfStock = !allPacked && remaining != null && remaining <= 0,
-            needs = needStates,
-            sortName = item.productName,
-            rebuildUnits = rebuildUnits[item.productId] ?: 0
-        )
+/** Slot number to name an unassigned product by. */
+private fun unassignedSlot(uiState: RefillUiState, machineIds: List<String>, productId: String): Int? =
+    machineIds.firstNotNullOfOrNull { id ->
+        uiState.machines.firstOrNull { it.machine.id == id }
+            ?.trays?.firstOrNull { it.tray.productId == productId }?.tray?.itemNumber
     }
-}
-
-/** The machines in scope that rebuild slots on this tour, with what their accepted slots need. */
-private fun rebuildNeeds(uiState: RefillUiState, activeChip: String?): List<Pair<String, Map<String, Int>>> =
-    uiState.machines
-        .filter { machine ->
-            machine.acceptedChangeItems.isNotEmpty() &&
-                (activeChip == null || machine.machine.id == activeChip)
-        }
-        .map { machine ->
-            machine.machine.id to SlotChange.rebuildPackNeeds(
-                machine.acceptedChangeItems,
-                machine.trays.associate { it.tray.id to it.tray.currentStock }
-            )
-        }
-
-/**
- * `productId -> one line per machine in scope` whose accepted slots need the
- * product from the warehouse, in tour order — what the rebuild steppers show.
- */
-private fun rebuildLines(uiState: RefillUiState, activeChip: String?): Map<String, List<RebuildLineState>> {
-    val out = LinkedHashMap<String, MutableList<RebuildLineState>>()
-    for ((machineId, needs) in rebuildNeeds(uiState, activeChip)) {
-        val name = uiState.machines.find { it.machine.id == machineId }?.machine?.displayName.orEmpty()
-        for ((productId, need) in needs) {
-            if (need <= 0) continue
-            out.getOrPut(productId) { mutableListOf() } += RebuildLineState(
-                machineId = machineId,
-                machineName = name,
-                need = need,
-                quantity = uiState.rebuildDisplayQuantity(machineId, productId),
-                maxQuantity = uiState.maxRebuildQuantity(machineId, productId)
-            )
-        }
-    }
-    return out
-}
-
-/**
- * Rebuild units per product for the machines in scope: what the accepted
- * slots need ([SlotChange.rebuildPackNeeds]) next to what the warehouse
- * covers ([RefillUiState.rebuildCommitted]). Products that only move inside
- * their machine are not listed.
- */
-private fun rebuildPackRows(uiState: RefillUiState, activeChip: String?): List<RebuildPackRow> =
-    SlotChange.rebuildPackRows(
-        needsByMachine = rebuildNeeds(uiState, activeChip),
-        // What is (or would be) packed: committed once ticked, else the dialled amount.
-        committed = rebuildNeeds(uiState, activeChip).associate { (machineId, needs) ->
-            machineId to needs.filterValues { it > 0 }.mapValues { (pid, _) ->
-                uiState.rebuildDisplayQuantity(machineId, pid)
-            }
-        },
-        items = uiState.machines.flatMap { it.changeRequest?.items.orEmpty() }
-    )
-
-/**
- * The change notes to show: every machine with an open slot change request,
- * narrowed to the active chip's machine. The goods their accepted slots need
- * are in the packing list ([rebuildPackRows]); the note only points there.
- */
-private fun changeNotes(uiState: RefillUiState, activeChip: String?): List<ChangeNoteState> {
-    val withGoods = rebuildNeeds(uiState, activeChip)
-        .filter { (_, needs) -> needs.values.any { it > 0 } }
-        .mapTo(HashSet()) { it.first }
-    return uiState.machines
-        .filter { machine ->
-            machine.changeRequest?.items?.isNotEmpty() == true &&
-                (activeChip == null || machine.machine.id == activeChip)
-        }
-        .map { machine ->
-            ChangeNoteState(
-                machineId = machine.machine.id,
-                machineName = machine.machine.displayName,
-                items = machine.changeRequest?.items.orEmpty(),
-                hasRebuildGoods = machine.machine.id in withGoods
-            )
-        }
-}
-
-/**
- * Slot number to name an unassigned product by. [CombinedPackingItem] is
- * grouped by product across machines and carries no slot, so the number is
- * read back out of the first tray holding this product — the fallback its
- * own doc comment prescribes.
- */
-private fun slotNumberFor(
-    machines: List<RefillMachine>,
-    needs: List<MachineNeed>,
-    productId: String
-): Int? = needs.firstNotNullOfOrNull { need ->
-    machines.firstOrNull { it.machine.id == need.machineId }
-        ?.trays?.firstOrNull { it.tray.productId == productId }?.tray?.itemNumber
-}
 
 // ─────────────────────────────────────────────────────────────────────────
 // Warehouse picker + stock warning
@@ -924,486 +615,174 @@ private fun PackChip(
     )
 }
 
-/** Status line for the active chip: what it holds and whether its box is done. */
-@Composable
-private fun PackHeaderStrip(
-    activeChip: String?,
-    activeMachineName: String?,
-    itemCount: Int,
-    isFullyPacked: Boolean,
-    anyPacked: Boolean,
-    modifier: Modifier = Modifier
-) {
-    val isPartial = !isFullyPacked && anyPacked
-    // Fixed status tokens, not scheme roles: the brand palette's
-    // primary/secondary/tertiary collapse into each other in dark mode.
-    val accent: Color = when {
-        isFullyPacked -> StockGreen
-        isPartial -> StockOrange
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    val statusLabel = stringResource(
-        when {
-            isFullyPacked -> R.string.refill_pack_status_complete
-            isPartial -> R.string.refill_pack_status_partial
-            else -> R.string.refill_pack_status_pending
-        }
-    )
-
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = accent.copy(alpha = 0.10f)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = when {
-                    isFullyPacked -> Icons.Default.CheckCircle
-                    isPartial -> Icons.Default.Warning
-                    else -> Icons.Default.Inventory2
-                },
-                // Decorative: [statusLabel] is rendered as text below.
-                contentDescription = null,
-                tint = accent,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = activeMachineName?.takeIf { activeChip != null }
-                        ?: stringResource(R.string.refill_pack_header_all),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = statusLabel,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = accent
-                )
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = pluralStringResource(R.plurals.refill_pack_items, itemCount, itemCount),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = accent
-            )
-        }
-    }
-}
-
 // ─────────────────────────────────────────────────────────────────────────
-// Product card
+// Product card + line
 // ─────────────────────────────────────────────────────────────────────────
 
+/**
+ * One product: image, name, warehouse stock and — with several lines — the
+ * total, then one line per machine. No tick of its own: a card is done when
+ * every line is ticked.
+ */
 @Composable
-private fun ProductPackCard(
-    row: PackRowState,
-    rebuildLines: List<RebuildLineState>,
+private fun PackProductCard(
+    card: PackCardState,
     showMachineNames: Boolean,
-    onSetRebuildQuantity: (machineId: String, quantity: Int) -> Unit,
-    showAllMachinesToggle: Boolean,
-    onTogglePackedAll: () -> Unit,
-    onTogglePackedForMachine: (machineId: String) -> Unit,
+    enabled: Boolean,
+    onToggle: (machineId: String) -> Unit,
     onSetQuantity: (machineId: String, quantity: Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val unavailable = card.open.isEmpty()
     val borderColor: Color? = when {
-        row.isOutOfStock -> null
-        row.allNeedsMet -> StockGreen
-        row.isUnderpacked -> StockOrange
+        card.isShort -> StockOrange
+        card.allTicked -> StockGreen
         else -> null
     }
-
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .alpha(if (unavailable) 0.5f else 1f),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        border = borderColor?.let { BorderStroke(1.5.dp, it) }
+        border = borderColor?.let { BorderStroke(if (card.isShort) 2.dp else 1.5.dp, it.copy(alpha = 0.6f)) }
     ) {
         Column(modifier = Modifier.padding(vertical = 8.dp)) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 4.dp, end = 12.dp),
+                    .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (showAllMachinesToggle) {
-                    IconButton(
-                        onClick = onTogglePackedAll,
-                        enabled = !row.isOutOfStock
-                    ) {
-                        Icon(
-                            imageVector = when {
-                                row.isOutOfStock -> Icons.Default.DisabledByDefault
-                                row.allPacked -> Icons.Default.CheckCircle
-                                else -> Icons.Default.RadioButtonUnchecked
-                            },
-                            contentDescription = stringResource(
-                                R.string.refill_pack_toggle_all_machines,
-                                row.productLabel
-                            ),
-                            tint = when {
-                                row.isOutOfStock -> StockRed
-                                row.allPacked -> StockGreen
-                                else -> MaterialTheme.colorScheme.onSurfaceVariant
-                            }
+                ProductImage(imagePath = card.imagePath, contentDescription = null, size = 44.dp)
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = card.name.orEmpty(),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (unavailable) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+                    )
+                    card.stockTotal?.let { stock ->
+                        Text(
+                            text = if (stock <= 0) stringResource(R.string.refill_pack_stock_none)
+                            else stringResource(R.string.refill_pack_stock_in, stock),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (stock <= 0) StockRed else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                } else {
+                }
+                // The total only adds something with several lines.
+                if (card.lines.size > 1) {
                     Spacer(modifier = Modifier.width(8.dp))
-                }
-
-                ProductImage(
-                    imagePath = row.imagePath,
-                    contentDescription = null,
-                    size = 40.dp
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = row.productLabel,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    WarehouseStockBadge(row = row)
-                    if (row.rebuildUnits > 0) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        RebuildBadge(text = stringResource(R.string.refill_pack_rebuild_badge, row.rebuildUnits))
-                    }
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-
-                Column(horizontalAlignment = Alignment.End) {
-                    QuantityPill(
-                        text = stringResource(R.string.refill_pack_total_quantity, row.totalQuantity),
-                        // Fixed status hues throughout, never scheme roles:
-                        // this brand's primary/secondary/tertiary collapse
-                        // into near-identical tones in dark mode, and
-                        // out-of-stock is StockRed everywhere else in this
-                        // file (the two toggle icons and the stock badge).
-                        color = when {
-                            row.isOutOfStock -> StockRed
-                            row.isUnderpacked -> StockOrange
-                            else -> StockGreen
-                        }
-                    )
-                    if (row.isUnderpacked && row.shortfall > 0) {
-                        Text(
-                            text = pluralStringResource(
-                                R.plurals.refill_pack_short,
-                                row.shortfall,
-                                row.shortfall
-                            ),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = StockOrange
-                        )
-                    }
+                    QuantityPill(text = stringResource(R.string.refill_pack_total_quantity, card.total), color = VMflowBlue)
                 }
             }
-
-            row.needs.forEach { need ->
-                HorizontalDivider(modifier = Modifier.padding(start = 16.dp, top = 8.dp))
-                MachineNeedRow(
-                    need = need,
-                    onToggle = { onTogglePackedForMachine(need.machineId) },
-                    onSetQuantity = { quantity -> onSetQuantity(need.machineId, quantity) }
-                )
-            }
-            // Units of the same product for slot rebuilds, adjustable per
-            // machine like the refill itself.
-            rebuildLines.forEach { line ->
-                HorizontalDivider(modifier = Modifier.padding(start = 16.dp, top = 8.dp))
-                RebuildQuantityRow(
-                    line = line,
-                    showMachineName = showMachineNames,
-                    onSetQuantity = { quantity -> onSetRebuildQuantity(line.machineId, quantity) }
+            card.lines.forEach { state ->
+                HorizontalDivider(modifier = Modifier.padding(start = 12.dp, top = 8.dp))
+                PackLineRow(
+                    line = state.line,
+                    machineName = state.machineName.takeIf { showMachineNames },
+                    enabled = enabled,
+                    onToggle = { onToggle(state.line.machineId) },
+                    onSetQuantity = { onSetQuantity(state.line.machineId, it) }
                 )
             }
         }
     }
 }
 
-/** Small violet capsule: "+N rebuild" on a normal line, "Rebuild" on a rebuild-only line. */
-@Composable
-private fun RebuildBadge(text: String) {
-    Surface(
-        shape = RoundedCornerShape(percent = 50),
-        color = RebuildViolet.copy(alpha = 0.15f)
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = RebuildViolet,
-            maxLines = 1,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-        )
-    }
-}
-
 /**
- * A product only the slot rebuilds need: violet-tinted, the committed units
- * as its quantity, the shortfall when the warehouse covers less than the
- * slots ask for. Like a normal product, only a ticked line is taken along
- * and deducted at tour start.
+ * One machine's line of a product: a big tick (everything of the line lies
+ * in the box), what it is for — "3 refill + ⇄ 5 rebuild · slot 57" — and
+ * one stepper for the whole amount. Packing less takes it off the refill
+ * first; the rebuilt slots keep their goods as long as possible.
  */
 @Composable
-private fun RebuildPackCard(
-    row: RebuildPackRow,
-    lines: List<RebuildLineState>,
-    showMachineNames: Boolean,
-    onSetQuantity: (machineId: String, quantity: Int) -> Unit,
-    isTicked: Boolean,
+private fun PackLineRow(
+    line: PackLine,
+    machineName: String?,
+    enabled: Boolean,
     onToggle: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val unknownProduct = stringResource(R.string.refill_pack_unknown_product)
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        border = BorderStroke(1.5.dp, RebuildViolet.copy(alpha = if (isTicked) 0.9f else 0.45f)),
-        colors = CardDefaults.cardColors(containerColor = RebuildViolet.copy(alpha = 0.07f))
-    ) {
-        Column(modifier = Modifier.padding(bottom = if (lines.isEmpty()) 0.dp else 8.dp)) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 4.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onToggle) {
-                    Icon(
-                        imageVector = if (isTicked) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                        contentDescription = stringResource(
-                            R.string.refill_pack_toggle_all_machines,
-                            row.name ?: unknownProduct
-                        ),
-                        tint = if (isTicked) RebuildViolet else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                ProductImage(imagePath = row.imagePath, contentDescription = null, size = 40.dp)
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = row.name ?: unknownProduct,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    RebuildBadge(text = stringResource(R.string.refill_pack_rebuild_label))
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Column(horizontalAlignment = Alignment.End) {
-                    QuantityPill(
-                        text = stringResource(R.string.refill_pack_total_quantity, row.committed),
-                        color = RebuildViolet
-                    )
-                    if (row.committed < row.need) {
-                        Text(
-                            text = stringResource(R.string.refill_rebuild_needed, row.need),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = StockOrange
-                        )
-                    }
-                }
-            }
-            // What to pack per machine — the driver can take less, e.g. only
-            // half a spiral of a new product.
-            lines.forEach { line ->
-                HorizontalDivider(modifier = Modifier.padding(start = 16.dp))
-                RebuildQuantityRow(
-                    line = line,
-                    showMachineName = showMachineNames,
-                    onSetQuantity = { quantity -> onSetQuantity(line.machineId, quantity) }
-                )
-            }
-        }
-    }
-}
-
-/**
- * One machine's rebuild units of a product with a violet stepper: the driver
- * can pack less than the slots need (e.g. only half a spiral of a new
- * product to see how it sells, or to spread scarce stock over several
- * machines). Mirrors the PWA's `RefillRebuildQuantity.vue`.
- */
-@Composable
-private fun RebuildQuantityRow(
-    line: RebuildLineState,
-    showMachineName: Boolean,
     onSetQuantity: (Int) -> Unit
 ) {
-    val haptic = LocalHapticFeedback.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 4.dp, top = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            if (showMachineName) {
-                Text(
-                    text = line.machineName,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-            Text(
-                text = stringResource(R.string.refill_pack_rebuild_needs, line.need),
-                style = MaterialTheme.typography.labelSmall,
-                color = RebuildViolet
-            )
-        }
-        IconButton(
-            onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                onSetQuantity(line.quantity - 1)
-            },
-            enabled = line.quantity > 0
-        ) {
-            Icon(
-                imageVector = Icons.Default.Remove,
-                contentDescription = stringResource(R.string.refill_pack_rebuild_decrement, line.machineName),
-                tint = if (line.quantity > 0) RebuildViolet else MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Box(
-            modifier = Modifier
-                .defaultMinSize(minWidth = 36.dp, minHeight = 32.dp)
-                .background(color = RebuildViolet.copy(alpha = 0.15f), shape = RoundedCornerShape(8.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = line.quantity.toString(),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-                color = RebuildViolet,
-                modifier = Modifier.padding(horizontal = 6.dp)
-            )
-        }
-        IconButton(
-            onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                onSetQuantity(line.quantity + 1)
-            },
-            enabled = line.quantity < line.maxQuantity
-        ) {
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = stringResource(R.string.refill_pack_rebuild_increment, line.machineName),
-                tint = if (line.quantity < line.maxQuantity) RebuildViolet else MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
-private fun WarehouseStockBadge(row: PackRowState) {
-    val total = row.stockTotal ?: return
-    val remaining = row.remainingStock ?: return
-    val committed = row.committedStock ?: 0
-
-    // No `remaining <= 0` branch of its own: `remaining` is `total - committed`
-    // and the totals map only aggregates batches with `quantity > 0`, so
-    // `remaining <= 0` with nothing committed implies `total <= 0` — the first
-    // branch already has it.
-    //
-    // The shortfall threshold is the **fleet-wide** ask, not the active chip's
-    // slice of it: otherwise a product the warehouse cannot cover across all
-    // machines still reads green while a single machine's chip is selected.
-    val (text, color) = when {
-        total <= 0 -> stringResource(R.string.refill_pack_stock_none) to StockRed
-        remaining <= 0 && committed > 0 ->
-            stringResource(R.string.refill_pack_stock_committed, committed, total) to StockOrange
-        remaining < row.fleetNeededQuantity ->
-            stringResource(R.string.refill_pack_stock_left, total, remaining) to StockOrange
-        else -> stringResource(R.string.refill_pack_stock_in, total) to StockGreen
-    }
-
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelSmall,
-        color = color
-    )
-}
-
-@Composable
-private fun MachineNeedRow(
-    need: NeedRowState,
-    onToggle: () -> Unit,
-    onSetQuantity: (Int) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
+            .alpha(if (line.isUnavailable) 0.6f else 1f)
             .padding(start = 4.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = onToggle, enabled = !need.isOutOfStock) {
-            Icon(
-                imageVector = when {
-                    need.isOutOfStock -> Icons.Default.DisabledByDefault
-                    need.isPacked -> Icons.Default.CheckBox
-                    else -> Icons.Default.CheckBoxOutlineBlank
-                },
-                contentDescription = stringResource(
-                    R.string.refill_pack_toggle_machine,
-                    need.machineName
-                ),
-                tint = when {
-                    need.isOutOfStock -> StockRed
-                    need.isPacked -> StockGreen
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                }
-            )
-        }
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = need.machineName,
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = stringResource(
-                        R.string.refill_pack_need,
-                        need.needQuantity,
-                        need.capacity
-                    ),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .clickable(enabled = enabled && !line.isUnavailable, onClick = onToggle)
+                .defaultMinSize(minHeight = 48.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = when {
+                        line.isUnavailable -> Icons.Default.DisabledByDefault
+                        line.ticked -> Icons.Default.CheckBox
+                        else -> Icons.Default.CheckBoxOutlineBlank
+                    },
+                    contentDescription = stringResource(R.string.refill_pack_in_box_label),
+                    tint = when {
+                        line.isUnavailable -> StockRed.copy(alpha = 0.5f)
+                        line.ticked -> StockGreen
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.size(28.dp)
                 )
-                val badge = when {
-                    need.isOutOfStock -> stringResource(R.string.refill_pack_badge_no_stock) to StockRed
-                    need.isPacked && need.quantity < need.needQuantity ->
-                        stringResource(R.string.refill_pack_badge_partial) to StockOrange
-                    else -> null
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                if (machineName != null) {
+                    Text(text = machineName, style = MaterialTheme.typography.bodyMedium)
                 }
-                if (badge != null) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = badge.first,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = badge.second
-                    )
-                }
+                Text(text = lineReason(line), style = MaterialTheme.typography.labelMedium)
             }
         }
-
         QuantityStepper(
-            quantity = need.quantity,
-            maxQuantity = need.maxQuantity,
-            enabled = !need.isOutOfStock,
-            machineName = need.machineName,
+            quantity = line.total,
+            maxQuantity = line.maxQuantity,
+            enabled = enabled && !line.isUnavailable,
+            machineName = machineName.orEmpty(),
             onSetQuantity = onSetQuantity
         )
+    }
+}
+
+/** "3 refill + ⇄ 5 rebuild · slot 57 · 2 still missing". */
+@Composable
+private fun lineReason(line: PackLine): AnnotatedString {
+    val secondary = MaterialTheme.colorScheme.onSurfaceVariant
+    val refill = stringResource(R.string.refill_pack_line_refill, line.refill)
+    val noStock = stringResource(R.string.refill_pack_line_no_stock)
+    val rebuild = stringResource(R.string.refill_pack_line_rebuild, line.rebuild)
+    val slots = if (line.slots.size == 1) {
+        stringResource(R.string.refill_pack_slot_one, line.slots.first().toString())
+    } else {
+        stringResource(R.string.refill_pack_slot_many, line.slots.joinToString(", "))
+    }
+    val missing = pluralStringResource(R.plurals.refill_pack_still_missing, line.shortfall, line.shortfall)
+    return buildAnnotatedString {
+        if (line.refillNeed > 0) {
+            if (line.hasRefill) withStyle(SpanStyle(color = secondary)) { append(refill) }
+            else withStyle(SpanStyle(color = StockRed)) { append(noStock) }
+        }
+        if (line.rebuildNeed > 0) {
+            if (line.refillNeed > 0) withStyle(SpanStyle(color = secondary)) { append(" + ") }
+            withStyle(SpanStyle(color = RebuildViolet, fontWeight = FontWeight.SemiBold)) {
+                append("⇄ ")
+                append(rebuild)
+                append(" · ")
+                append(slots)
+            }
+        }
+        if (line.shortfall > 0 && !line.isUnavailable) {
+            withStyle(SpanStyle(color = secondary)) { append(" · ") }
+            withStyle(SpanStyle(color = StockOrange, fontWeight = FontWeight.SemiBold)) { append(missing) }
+        }
     }
 }
 
@@ -1538,63 +917,34 @@ private fun PackEmptyState(isMachineChip: Boolean, modifier: Modifier = Modifier
 }
 
 /**
- * Pack-all for the active scope, plus Start Tour. Stacked rather than
- * side-by-side: "Alles für <Automatenname> packen" does not fit beside a
- * second button at 360 dp.
+ * Pack-all for the active scope, then what is in the box and Start Tour.
+ * Stacked rather than side-by-side: "Alles für <Automatenname> packen" does
+ * not fit beside a second button at 360 dp.
  */
 @Composable
 private fun PackBottomBar(
-    packedMachineCount: Int,
-    totalMachineCount: Int,
-    activeMachineName: String?,
-    showPackAll: Boolean,
+    readyMachineCount: Int,
+    canStart: Boolean,
     isSaving: Boolean,
-    onPackAll: () -> Unit,
     onStartTour: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         HorizontalDivider()
         Column(modifier = Modifier.padding(16.dp)) {
-            if (showPackAll) {
-                OutlinedButton(
-                    onClick = onPackAll,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .defaultMinSize(minHeight = 48.dp),
-                    enabled = !isSaving
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Inventory2,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = activeMachineName
-                            ?.let { stringResource(R.string.refill_pack_pack_all_for, it) }
-                            ?: stringResource(R.string.refill_pack_pack_all)
+                        text = pluralStringResource(R.plurals.refill_pack_machines_ready, readyMachineCount, readyMachineCount),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
                     )
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = pluralStringResource(
-                        R.plurals.refill_pack_machines_packed,
-                        totalMachineCount,
-                        packedMachineCount,
-                        totalMachineCount
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f)
-                )
                 Spacer(modifier = Modifier.width(12.dp))
                 Button(
                     onClick = onStartTour,
                     modifier = Modifier.defaultMinSize(minHeight = 48.dp),
-                    enabled = packedMachineCount > 0 && !isSaving
+                    enabled = canStart && !isSaving
                 ) {
                     if (isSaving) {
                         CircularProgressIndicator(
@@ -1617,4 +967,85 @@ private fun PackBottomBar(
             }
         }
     }
+}
+
+/**
+ * Tour start while lines are not ticked: what stays in the warehouse (not
+ * booked). The driver goes back to packing or starts without it.
+ */
+@Composable
+private fun OpenPackLinesDialog(
+    lines: List<PackLine>,
+    productNames: @Composable (productId: String) -> String,
+    machineNames: Map<String, String>,
+    onDismiss: () -> Unit,
+    onStartAnyway: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(pluralStringResource(R.plurals.refill_pack_open_lines_title, lines.size, lines.size))
+        },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    text = stringResource(R.string.refill_pack_open_lines_hint),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                lines.forEach { line ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = productNames(line.productId),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = machineNames[line.machineId].orEmpty(),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (line.rebuild > 0) {
+                                Text(
+                                    text = "⇄ " + if (line.slots.size == 1) {
+                                        stringResource(R.string.refill_pack_slot_one, line.slots.first().toString())
+                                    } else {
+                                        stringResource(R.string.refill_pack_slot_many, line.slots.joinToString(", "))
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = RebuildViolet
+                                )
+                            }
+                        }
+                        Text(
+                            text = line.total.toString(),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                if (lines.any { it.rebuild > 0 }) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.refill_pack_open_lines_rebuild_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = RebuildViolet
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) { Text(stringResource(R.string.refill_pack_keep_packing)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onStartAnyway) { Text(stringResource(R.string.refill_pack_start_without)) }
+        }
+    )
 }

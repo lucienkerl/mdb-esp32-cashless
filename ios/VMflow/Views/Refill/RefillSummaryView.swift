@@ -178,10 +178,19 @@ struct RefillSummaryView: View {
             //    from view appearance). We sleep here instead of using a
             //    separate asyncAfter, so the trigger fires only after
             //    resolution is done — no race.
+            //    With rebuild leftovers still to book, the sheet would cover
+            //    "Back to the warehouse": it opens once they are booked.
             if resolution.barkassen.count == 1 {
                 let elapsedNs = UInt64(1.8 * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: elapsedNs)
-                autoSheetBarkasse = resolution.barkassen.first
+                if !viewModel.hasUnreturnedTourLeftovers {
+                    autoSheetBarkasse = resolution.barkassen.first
+                }
+            }
+        }
+        .onChange(of: viewModel.tourLeftoversReturned) { _, returned in
+            if returned, let tourCash, tourCash.barkassen.count == 1 {
+                autoSheetBarkasse = tourCash.barkassen.first
             }
         }
         .onAppear {
@@ -245,6 +254,8 @@ struct RefillSummaryView: View {
 /// then books it all at once (`return_slot_change_leftovers`).
 private struct TourLeftoversCard: View {
     @ObservedObject var viewModel: RefillWizardViewModel
+    /// Products whose detail (counts, best-before) is open.
+    @State private var expanded: Set<UUID> = []
 
     private static let dayFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -257,8 +268,13 @@ private struct TourLeftoversCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Leftover goods from rebuilds", systemImage: "arrow.uturn.backward.circle")
-                .font(.subheadline.weight(.semibold))
+            Label(
+                viewModel.selectedWarehouseId != nil
+                    ? String(localized: "Back to the warehouse")
+                    : String(localized: "Leftover goods from rebuilds"),
+                systemImage: "arrow.uturn.backward.circle"
+            )
+                .font(.headline)
                 .foregroundStyle(Color.rebuildViolet)
 
             if viewModel.tourLeftoversReturned {
@@ -291,7 +307,12 @@ private struct TourLeftoversCard: View {
                         if viewModel.isSaving {
                             ProgressView()
                         } else {
-                            Label("Book back", systemImage: "tray.and.arrow.down.fill")
+                            Label(
+                                viewModel.tourLeftoverTotals.count == 1
+                                    ? String(localized: "Book back 1 product")
+                                    : String(localized: "Book back \(viewModel.tourLeftoverTotals.count) products"),
+                                systemImage: "tray.and.arrow.down.fill"
+                            )
                                 .font(.headline)
                         }
                     }
@@ -312,59 +333,129 @@ private struct TourLeftoversCard: View {
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.rebuildVioletFill.opacity(0.4), lineWidth: 1))
     }
 
+    /// One line per product: what it is, where it comes from, how many, and
+    /// warehouse or write-off. Tapping the number opens the detail (unused /
+    /// taken out of machines, best-before date) for when it is not right.
     private func row(_ total: TourLeftoverTotal) -> some View {
         let van = viewModel.leftoverVan(total)
         let machine = viewModel.leftoverMachine(total)
         let destination = viewModel.leftoverDestination(productId: total.productId)
         let hasWarehouse = viewModel.selectedWarehouseId != nil
+        let isExpanded = expanded.contains(total.productId)
 
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                ProductImage(imagePath: total.imagePath, size: 32)
-                Text(total.name ?? "")
-                    .font(.subheadline.weight(.semibold))
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
-            }
+            HStack(spacing: 12) {
+                ProductImage(imagePath: total.imagePath, size: 44)
 
-            stepperRow(title: Text("Unused (van)"), value: van) {
-                viewModel.setLeftoverVan(productId: total.productId, value: $0)
-            }
-            stepperRow(title: Text("Taken out of machines"), value: machine) {
-                viewModel.setLeftoverMachine(productId: total.productId, value: $0)
-            }
-
-            // Without a warehouse only writing off makes sense.
-            if hasWarehouse {
-                Picker("Destination", selection: Binding(
-                    get: { viewModel.leftoverDestination(productId: total.productId) },
-                    set: { viewModel.setLeftoverDestination(productId: total.productId, destination: $0) }
-                )) {
-                    Text("To warehouse").tag(LeftoverDestination.warehouse)
-                    Text("Write off").tag(LeftoverDestination.waste)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-            }
-
-            if destination == .warehouse {
-                if machine > 0 {
-                    expiryRow(productId: total.productId)
-                }
-                if van > 0 {
-                    Text("Unused goods go back to the batch they were packed from.")
-                        .font(.caption2)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(total.name ?? "")
+                        .font(.body.weight(.semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(verbatim: sourceLine(productId: total.productId, van: van, machine: machine, destination: destination))
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if machine > 0 {
-                    Text("Goods from the machine become a new batch with this date.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 4)
+
+                Button {
+                    HapticFeedback.light.fire()
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        if isExpanded {
+                            expanded.remove(total.productId)
+                        } else {
+                            expanded.insert(total.productId)
+                        }
+                    }
+                } label: {
+                    Text(verbatim: "\(van + machine)")
+                        .font(.title3.weight(.bold))
+                        .monospacedDigit()
+                        .foregroundStyle(Color.rebuildViolet)
+                        .frame(minWidth: 48, minHeight: 44)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(Color.rebuildVioletFill.opacity(isExpanded ? 0.25 : 0.13))
+                        )
                 }
+                .buttonStyle(.plain)
+
+                // Without a warehouse only writing off makes sense.
+                if hasWarehouse {
+                    destinationToggle(productId: total.productId, destination: destination)
+                }
+            }
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 8) {
+                    stepperRow(title: Text("Unused (van)"), value: van) {
+                        viewModel.setLeftoverVan(productId: total.productId, value: $0)
+                    }
+                    stepperRow(title: Text("Taken out of machines"), value: machine) {
+                        viewModel.setLeftoverMachine(productId: total.productId, value: $0)
+                    }
+                    if destination == .warehouse && machine > 0 {
+                        expiryRow(productId: total.productId)
+                    }
+                }
+                .padding(.leading, 56)
             }
         }
+    }
+
+    /// "from the machines · BB 12.03.27" / "unused" / "unused + from the machines".
+    private func sourceLine(productId: UUID, van: Int, machine: Int, destination: LeftoverDestination) -> String {
+        var parts: [String] = []
+        if van > 0 && machine > 0 {
+            parts.append(String(localized: "unused + from the machines"))
+        } else if machine > 0 {
+            parts.append(String(localized: "from the machines"))
+        } else {
+            parts.append(String(localized: "unused"))
+        }
+        if destination == .warehouse, machine > 0,
+           let stored = viewModel.leftoverExpiry[productId],
+           let date = Self.dayFormatter.date(from: stored) {
+            parts.append(String(localized: "BB \(date.formatted(date: .numeric, time: .omitted))"))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Two stacked options, "Warehouse" over "Write off" — small enough to
+    /// sit next to the number.
+    private func destinationToggle(productId: UUID, destination: LeftoverDestination) -> some View {
+        VStack(spacing: 2) {
+            destinationOption(Text("Warehouse"), isOn: destination == .warehouse, tint: .primary) {
+                viewModel.setLeftoverDestination(productId: productId, destination: .warehouse)
+            }
+            destinationOption(Text("Write off"), isOn: destination == .waste, tint: .red) {
+                viewModel.setLeftoverDestination(productId: productId, destination: .waste)
+            }
+        }
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 9).fill(Color(.systemGray5)))
+        .fixedSize()
+    }
+
+    private func destinationOption(_ title: Text, isOn: Bool, tint: Color, action: @escaping () -> Void) -> some View {
+        Button {
+            HapticFeedback.light.fire()
+            action()
+        } label: {
+            title
+                .font(.caption.weight(isOn ? .semibold : .regular))
+                .foregroundStyle(isOn ? tint : Color.secondary)
+                .frame(maxWidth: .infinity, minHeight: 22)
+                .padding(.horizontal, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 7)
+                        .fill(isOn ? Color(.systemBackground) : Color.clear)
+                        .shadow(color: .black.opacity(isOn ? 0.12 : 0), radius: 1, y: 1)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     /// Count with large −/+ buttons (min 0).
