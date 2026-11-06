@@ -41,6 +41,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.platform.LocalAutofillManager
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
@@ -67,6 +71,16 @@ fun LoginScreen(
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
     var showServerSheet by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
+    // Tells the autofill service (Google Password Manager, 1Password, …) the
+    // login went through, so it offers to save / update the credentials.
+    // Matched to the dashboard login via assetlinks.json on app.kerl-handel.de.
+    val autofillManager = LocalAutofillManager.current
+    val signIn = {
+        viewModel.signIn(email, password) {
+            autofillManager?.commit()
+            onLoginSuccess()
+        }
+    }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(uiState.error) {
@@ -128,7 +142,9 @@ fun LoginScreen(
                     keyboardActions = KeyboardActions(
                         onNext = { focusManager.moveFocus(FocusDirection.Down) }
                     ),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { contentType = ContentType.Username + ContentType.EmailAddress },
                     enabled = !uiState.isLoading
                 )
 
@@ -161,18 +177,20 @@ fun LoginScreen(
                         onDone = {
                             focusManager.clearFocus()
                             if (email.isNotBlank() && password.isNotBlank()) {
-                                viewModel.signIn(email, password, onLoginSuccess)
+                                signIn()
                             }
                         }
                     ),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { contentType = ContentType.Password },
                     enabled = !uiState.isLoading
                 )
 
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Button(
-                    onClick = { viewModel.signIn(email, password, onLoginSuccess) },
+                    onClick = { signIn() },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp),

@@ -9,7 +9,7 @@ export default defineConfig({
   plugins: [vue()],
   test: {
     environment: 'happy-dom',
-    include: ['app/**/*.test.ts', 'app/**/*.spec.ts'],
+    include: ['app/**/*.test.ts', 'app/**/*.spec.ts', 'server/**/*.test.ts'],
     env: { TZ: 'UTC' },
   },
   resolve: {

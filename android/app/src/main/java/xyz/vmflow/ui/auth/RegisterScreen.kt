@@ -45,6 +45,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.platform.LocalAutofillManager
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
@@ -69,6 +73,7 @@ fun RegisterScreen(
     var confirmPassword by rememberSaveable { mutableStateOf("") }
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
+    val autofillManager = LocalAutofillManager.current
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(uiState.error) {
@@ -155,7 +160,9 @@ fun RegisterScreen(
                         keyboardActions = KeyboardActions(
                             onNext = { focusManager.moveFocus(FocusDirection.Down) }
                         ),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics { contentType = ContentType.NewUsername + ContentType.EmailAddress },
                         enabled = !uiState.isLoading
                     )
 
@@ -187,7 +194,9 @@ fun RegisterScreen(
                         keyboardActions = KeyboardActions(
                             onNext = { focusManager.moveFocus(FocusDirection.Down) }
                         ),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics { contentType = ContentType.NewPassword },
                         enabled = !uiState.isLoading
                     )
 
@@ -214,14 +223,16 @@ fun RegisterScreen(
                         supportingText = if (confirmPassword.isNotEmpty() && password != confirmPassword) {
                             { Text(stringResource(R.string.register_passwords_mismatch)) }
                         } else null,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics { contentType = ContentType.NewPassword },
                         enabled = !uiState.isLoading
                     )
 
                     Spacer(modifier = Modifier.height(24.dp))
 
                     Button(
-                        onClick = { viewModel.signUp(email, password) },
+                        onClick = { viewModel.signUp(email, password) { autofillManager?.commit() } },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(52.dp),

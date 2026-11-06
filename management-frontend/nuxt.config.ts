@@ -58,7 +58,25 @@ export default defineNuxtConfig({
       secure: false,
     },
   },
+  // Password-manager association for the mobile apps (see
+  // server/utils/appAssociation.ts). Registered explicitly rather than as
+  // server/routes/.well-known/* so the dot directory can't be skipped by a scan.
+  serverHandlers: [
+    { route: '/.well-known/apple-app-site-association', method: 'get', handler: '~~/server/well-known/apple-app-site-association.ts' },
+    { route: '/.well-known/assetlinks.json', method: 'get', handler: '~~/server/well-known/assetlinks.ts' },
+  ],
   runtimeConfig: {
+    // Server-only; overridable at runtime via NUXT_APP_ASSOCIATION_* env vars
+    // (Docker/docker-compose.yml). Defaults are the official VMflow apps, so
+    // app.kerl-handel.de works out of the box. A self-hosted instance only
+    // gains something here with its own app builds listing its domain.
+    appAssociation: {
+      // Comma-separated TEAMID.bundle.id list for apple-app-site-association.
+      iosAppIds: '4JT3V7XVXM.de.kerl-handel.app,4JT3V7XVXM.de.kerl-handel.app.debug',
+      androidPackage: 'de.kerlhandel.app',
+      // Comma-separated SHA-256 signing cert fingerprints. Empty = assetlinks.json 404s.
+      androidSha256: '',
+    },
     public: {
       vapidPublicKey: process.env.VAPID_PUBLIC_KEY ?? '',
       githubFirmwareRepo: process.env.GITHUB_FIRMWARE_REPO ?? '',

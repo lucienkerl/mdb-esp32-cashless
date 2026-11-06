@@ -37,12 +37,14 @@ class AuthViewModel : ViewModel() {
         }
     }
 
-    fun signUp(email: String, password: String) {
+    /** [onSuccess] runs while the form is still on screen (autofill commit). */
+    fun signUp(email: String, password: String, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null, registrationSuccess = false)
             val result = AuthRepository.signUp(email, password)
             result.fold(
                 onSuccess = {
+                    onSuccess()
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         registrationSuccess = true
