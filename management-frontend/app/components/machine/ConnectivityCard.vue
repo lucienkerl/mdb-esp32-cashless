@@ -3,6 +3,8 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { buildStatusHistory, type SegmentState, type StatusLogRow } from '@/lib/connectivity'
 import { useConnectivity } from '@/composables/useConnectivity'
 import DeviceStatusChip from '@/components/DeviceStatusChip.vue'
+import SignalIcon from '@/components/SignalIcon.vue'
+import { deviceNetwork } from '@/lib/network'
 
 /**
  * "Connection" card on the device tab: device, network and machine (MDB)
@@ -25,9 +27,18 @@ const supabase = useSupabaseClient()
 const { now, of, ago, clock, duration, stateLabel, readerLabel, textClass } = useConnectivity()
 
 const c = computed(() => of(props.embedded))
-const cellular = computed(() => {
-  const cell = props.embedded.mdb_diagnostics?.cellular
-  return cell && cell.uplink === 'cellular' ? cell : null
+const net = computed(() => deviceNetwork(props.embedded.mdb_diagnostics))
+const signalText = computed(() => {
+  const n = net.value
+  if (!n || n.rssi == null || !n.quality) return null
+  return { quality: t(`connectivity.network.quality.${n.quality}`), dbm: `${n.rssi} dBm` }
+})
+const signalClass = computed(() => {
+  switch (net.value?.tone) {
+    case 'weak': return 'text-amber-700 dark:text-amber-400'
+    case 'bad': return 'text-red-700 dark:text-red-400'
+    default: return ''
+  }
 })
 
 const stateColor = computed(() => {
@@ -182,22 +193,37 @@ const previouslyOnline = computed(() => {
       <!-- Network -->
       <div>
         <p class="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{{ t('connectivity.card.network') }}</p>
-        <template v-if="cellular">
-          <p class="mt-1 mb-2 text-xl font-semibold">{{ t('connectivity.card.uplinkCellular') }}</p>
+        <template v-if="net">
+          <div class="mt-1 mb-2 flex items-center gap-2">
+            <SignalIcon :kind="net.kind" :level="net.level" :tone="net.tone" :muted="c.state === 'offline'" :size="20" />
+            <p class="text-xl font-semibold">{{ t(`connectivity.network.${net.kind}`) }}</p>
+          </div>
           <dl class="divide-y text-sm">
             <div class="flex justify-between gap-3 py-1.5">
-              <dt class="text-muted-foreground">{{ t('connectivity.card.operator') }}</dt>
-              <dd class="text-right font-medium">{{ cellular.op || '—' }}</dd>
+              <dt class="text-muted-foreground">{{ net.kind === 'wifi' ? t('connectivity.network.ssid') : t('connectivity.card.operator') }}</dt>
+              <dd class="truncate text-right font-medium">{{ net.name || '—' }}</dd>
             </div>
             <div class="flex justify-between gap-3 py-1.5">
               <dt class="text-muted-foreground">{{ t('connectivity.card.signal') }}</dt>
-              <dd class="text-right font-medium">{{ typeof cellular.rssi === 'number' ? `${cellular.rssi} dBm` : '—' }}</dd>
+              <dd class="text-right font-medium" :class="signalClass">
+                <template v-if="signalText">{{ signalText.quality }} <span class="font-normal text-muted-foreground">· {{ signalText.dbm }}</span></template>
+                <template v-else>—</template>
+              </dd>
             </div>
-            <div class="flex justify-between gap-3 py-1.5">
+            <div v-if="net.kind === 'cellular'" class="flex justify-between gap-3 py-1.5">
               <dt class="text-muted-foreground">{{ t('connectivity.card.mode') }}</dt>
-              <dd class="text-right font-medium">{{ cellular.mode || '—' }}</dd>
+              <dd class="text-right font-medium">{{ net.mode || '—' }}</dd>
+            </div>
+            <div v-if="net.ip" class="flex justify-between gap-3 py-1.5">
+              <dt class="text-muted-foreground">{{ t('connectivity.network.ip') }}</dt>
+              <dd class="text-right font-mono text-[13px] font-medium">{{ net.ip }}</dd>
+            </div>
+            <div v-if="net.measuredAt" class="flex justify-between gap-3 py-1.5">
+              <dt class="text-muted-foreground">{{ t('connectivity.network.measured') }}</dt>
+              <dd class="text-right font-medium">{{ ago(net.measuredAt) }}</dd>
             </div>
           </dl>
+          <p v-if="net.tone === 'weak' || net.tone === 'bad'" class="mt-2 text-sm text-amber-800 dark:text-amber-300">{{ t('connectivity.network.weakHint') }}</p>
         </template>
         <p v-else class="mt-1 text-xl font-semibold text-muted-foreground">{{ t('connectivity.card.uplinkUnknown') }}</p>
       </div>

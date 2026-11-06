@@ -28,6 +28,7 @@ struct DeviceHealthSheet: View {
         NavigationStack {
             List {
                 connectionSection
+                networkSection
                 historySection
                 if isAdmin { mdbDiagnosticsSection }
                 restartHistorySection
@@ -106,6 +107,55 @@ struct DeviceHealthSheet: View {
                 Text("\(restartReasonLabel(reason)) · \(at.formatted(.relative(presentation: .named)))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    // MARK: - Network
+
+    @ViewBuilder
+    private var networkSection: some View {
+        if let n = embedded?.mdbDiagnostics?.deviceNetwork {
+            let offline = detailViewModel.machine.connectivity(now: now).state == .offline
+            let weak = !offline && NetworkText.isWeak(n)
+            let kind = NetworkText.kind(n.kind)
+            Section {
+                HStack(spacing: 12) {
+                    RoundedRectangle(cornerRadius: 9)
+                        .fill(offline ? Color(.systemGray3) : NetworkText.color(n.tone))
+                        .frame(width: 36, height: 36)
+                        .overlay {
+                            SignalIcon(kind: n.kind, level: n.level, tone: n.tone, size: 22, tint: .white)
+                        }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(n.name ?? kind)
+                            .font(.headline)
+                        Text(n.quality.map { "\(kind) · \(NetworkText.quality($0))" } ?? kind)
+                            .font(.subheadline)
+                            .foregroundStyle(weak ? NetworkText.color(n.tone) : .secondary)
+                    }
+                }
+                .padding(.vertical, 2)
+                if let rssi = n.rssi {
+                    LabeledContent(String(localized: "Signal"), value: "\(rssi) dBm")
+                }
+                if let mode = n.mode {
+                    LabeledContent(String(localized: "Mode"), value: mode)
+                }
+                if let ip = n.ip {
+                    LabeledContent(String(localized: "IP address")) {
+                        Text(ip).font(.body.monospaced())
+                    }
+                }
+                if let at = n.measuredAt {
+                    LabeledContent(String(localized: "Measured"), value: ConnectivityText.ago(at, now: now))
+                }
+            } header: {
+                Text(String(localized: "Network"))
+            } footer: {
+                if weak {
+                    Text(String(localized: "A weak signal can cause connection drops. Move the router or a repeater closer to the machine."))
+                }
             }
         }
     }

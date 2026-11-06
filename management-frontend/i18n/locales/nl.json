@@ -2862,6 +2862,23 @@
       "attention": "Vraagt aandacht",
       "online": "Online",
       "noDevice": "Zonder apparaat"
+    },
+    "network": {
+      "wifi": "wifi",
+      "cellular": "Mobiel",
+      "last": "laatst {name}",
+      "ip": "IP-adres",
+      "measured": "Gemeten",
+      "ssid": "Netwerk (SSID)",
+      "signalValue": "{quality} · {dbm} dBm",
+      "weakHint": "Een zwak signaal kan verbindingsonderbrekingen veroorzaken. Zet de router of een repeater dichter bij de automaat.",
+      "quality": {
+        "excellent": "Uitstekend",
+        "good": "Goed",
+        "fair": "Matig",
+        "weak": "Zwak",
+        "none": "Nauwelijks signaal"
+      }
     }
   }
 }

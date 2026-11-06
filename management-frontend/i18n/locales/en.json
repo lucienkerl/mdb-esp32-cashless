@@ -2862,6 +2862,23 @@
       "attention": "Needs attention",
       "online": "Online",
       "noDevice": "No device"
+    },
+    "network": {
+      "wifi": "WiFi",
+      "cellular": "Cellular",
+      "last": "last {name}",
+      "ip": "IP address",
+      "measured": "Measured",
+      "ssid": "Network (SSID)",
+      "signalValue": "{quality} · {dbm} dBm",
+      "weakHint": "A weak signal can cause connection drops. Move the router or a repeater closer to the machine.",
+      "quality": {
+        "excellent": "Excellent",
+        "good": "Good",
+        "fair": "Fair",
+        "weak": "Weak",
+        "none": "Barely any signal"
+      }
     }
   }
 }

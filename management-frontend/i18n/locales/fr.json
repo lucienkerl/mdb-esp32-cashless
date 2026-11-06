@@ -2862,6 +2862,23 @@
       "attention": "À surveiller",
       "online": "En ligne",
       "noDevice": "Sans appareil"
+    },
+    "network": {
+      "wifi": "Wi-Fi",
+      "cellular": "Mobile",
+      "last": "dernier : {name}",
+      "ip": "Adresse IP",
+      "measured": "Mesuré",
+      "ssid": "Réseau (SSID)",
+      "signalValue": "{quality} · {dbm} dBm",
+      "weakHint": "Un signal faible peut provoquer des coupures. Rapprochez le routeur ou un répéteur du distributeur.",
+      "quality": {
+        "excellent": "Excellent",
+        "good": "Bon",
+        "fair": "Moyen",
+        "weak": "Faible",
+        "none": "Presque aucun signal"
+      }
     }
   }
 }

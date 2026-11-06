@@ -1375,7 +1375,7 @@ async function handleAddSale() {
                   :title="connectivity.lastContactAt ? formatDateTime(connectivity.lastContactAt.toISOString(), locale) : undefined"
                 >{{ conn.timeLabel(connectivity) }}</span>
                 <DeviceStatusChip :connectivity="connectivity" />
-                <CellularHealthBadge :diagnostics="machine.embeddeds.mdb_diagnostics" />
+                <NetworkBadge :diagnostics="machine.embeddeds.mdb_diagnostics" :offline="connectivity.state === 'offline'" />
                 <button
                   class="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
                   @click="openInsights"

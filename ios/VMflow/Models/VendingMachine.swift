@@ -60,10 +60,19 @@ struct MdbDiagnostics: Codable, Equatable {
     let chkErr: Int?
     let lastCmd: String?
     let updatedAt: Date?
+    /// Current uplink (WiFi or cellular) with signal — see `DeviceNetwork`.
+    var network: NetworkBlock? = nil
+    /// Older cellular-only block, read as a fallback by `DeviceNetwork`.
+    var cellular: NetworkBlock? = nil
 
     enum CodingKeys: String, CodingKey {
-        case state, addr, vmcLevel, polls, chkErr, lastCmd
+        case state, addr, vmcLevel, polls, chkErr, lastCmd, network, cellular
         case updatedAt = "updated_at"
+    }
+
+    /// Which network the device is on and how good its signal is.
+    var deviceNetwork: DeviceNetwork? {
+        DeviceNetwork.from(network: network, cellular: cellular)
     }
 }
 

@@ -387,7 +387,7 @@ function closeSoftapModal() {
               <div class="flex items-center gap-2">
                 <span class="font-mono text-base font-semibold">{{ device.subdomain }}</span>
                 <DeviceStatusChip :connectivity="conn.of(device)" />
-                <CellularHealthBadge :diagnostics="device.mdb_diagnostics" />
+                <NetworkBadge :diagnostics="device.mdb_diagnostics" :offline="conn.of(device).state === 'offline'" />
               </div>
               <div class="flex items-center gap-1">
                 <button
@@ -520,7 +520,7 @@ function closeSoftapModal() {
                 <td class="px-4 py-3">
                   <div class="flex items-center gap-2">
                     <DeviceStatusChip :connectivity="conn.of(device)" />
-                    <CellularHealthBadge :diagnostics="device.mdb_diagnostics" />
+                    <NetworkBadge :diagnostics="device.mdb_diagnostics" :offline="conn.of(device).state === 'offline'" />
                   </div>
                 </td>
                 <td class="px-4 py-3 text-muted-foreground">
