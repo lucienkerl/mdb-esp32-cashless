@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import xyz.vmflow.R
 import xyz.vmflow.data.connectivity
+import xyz.vmflow.data.deviceNetwork
 import xyz.vmflow.models.MachineWithStats
 import xyz.vmflow.models.StockSeverity
 import xyz.vmflow.models.TrayDeficit
@@ -97,7 +98,8 @@ fun MachineCard(
             ConnectivityTimeLine(
                 connectivity = connectivity,
                 now = now,
-                modifier = Modifier.padding(top = 4.dp)
+                modifier = Modifier.padding(top = 4.dp),
+                network = machineStats.machine.embeddeds?.mdbDiagnostics.deviceNetwork
             )
 
             Spacer(modifier = Modifier.height(12.dp))

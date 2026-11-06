@@ -38,6 +38,7 @@ import kotlinx.datetime.toJavaInstant
 import xyz.vmflow.R
 import xyz.vmflow.data.ConnectivityState
 import xyz.vmflow.data.DeviceConnectivity
+import xyz.vmflow.data.DeviceNetwork
 import xyz.vmflow.data.DurationParts
 import xyz.vmflow.data.ReaderState
 import xyz.vmflow.data.SegmentState
@@ -215,15 +216,27 @@ fun ConnectivityTimeLine(
     now: Instant,
     modifier: Modifier = Modifier,
     showsReader: Boolean = true,
+    network: DeviceNetwork? = null,
 ) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(
-            text = connectivityTimeLabel(connectivity, now),
-            style = MaterialTheme.typography.bodySmall,
-            color = connectivityTimeColor(connectivity.state),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = connectivityTimeLabel(connectivity, now),
+                style = MaterialTheme.typography.bodySmall,
+                color = connectivityTimeColor(connectivity.state),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+            if (network != null) {
+                Text(
+                    text = "  •  ",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+                NetworkInline(network = network, offline = connectivity.state == ConnectivityState.OFFLINE)
+            }
+        }
         if (showsReader && connectivity.reader == ReaderState.INACTIVE) {
             Text(
                 text = readerLabel(ReaderState.INACTIVE),

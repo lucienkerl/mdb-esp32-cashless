@@ -2862,6 +2862,23 @@
       "attention": "Braucht Aufmerksamkeit",
       "online": "Online",
       "noDevice": "Ohne Gerät"
+    },
+    "network": {
+      "wifi": "WLAN",
+      "cellular": "Mobilfunk",
+      "last": "zuletzt {name}",
+      "ip": "IP-Adresse",
+      "measured": "Gemessen",
+      "ssid": "Netz (SSID)",
+      "signalValue": "{quality} · {dbm} dBm",
+      "weakHint": "Schwacher Empfang kann zu Verbindungsabbrüchen führen. Router oder Repeater näher an den Automaten stellen.",
+      "quality": {
+        "excellent": "Sehr gut",
+        "good": "Gut",
+        "fair": "Mäßig",
+        "weak": "Schwach",
+        "none": "Kaum Empfang"
+      }
     }
   }
 }

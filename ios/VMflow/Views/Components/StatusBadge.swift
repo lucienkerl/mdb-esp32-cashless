@@ -135,10 +135,16 @@ struct ConnectivityStatusView: View {
             let c = machine.connectivity(now: context.date)
             VStack(alignment: .leading, spacing: 4) {
                 StatusBadge(connectivity: c)
-                Text(ConnectivityText.time(c, now: context.date))
-                    .font(.caption)
-                    .foregroundStyle(ConnectivityText.timeColor(c.state))
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(ConnectivityText.time(c, now: context.date))
+                        .font(.caption)
+                        .foregroundStyle(ConnectivityText.timeColor(c.state))
+                        .lineLimit(1)
+                    if let network = machine.embeddeds?.mdbDiagnostics?.deviceNetwork {
+                        Text("·").font(.caption).foregroundStyle(.tertiary)
+                        NetworkInline(network: network, offline: c.state == .offline)
+                    }
+                }
                 if showsReader, c.reader == .inactive {
                     Text(ConnectivityText.reader(.inactive))
                         .font(.caption.weight(.semibold))

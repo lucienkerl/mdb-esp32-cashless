@@ -911,6 +911,14 @@ network_state_t network_get_state(void) {
     return s_state;
 }
 
+bool network_get_wifi_rssi(int8_t *out) {
+    if (!out || s_state != NETWORK_STATE_WIFI_UP) return false;
+    wifi_ap_record_t ap = {0};
+    if (esp_wifi_sta_get_ap_info(&ap) != ESP_OK || ap.rssi == 0) return false;
+    *out = ap.rssi;
+    return true;
+}
+
 void network_get_status(network_status_t *out) {
     if (!out) return;
     memset(out, 0, sizeof(*out));

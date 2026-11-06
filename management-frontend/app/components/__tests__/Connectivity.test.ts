@@ -132,6 +132,31 @@ describe('ConnectivityCard', () => {
     expect(text).toContain('offline 04:00–04:45 (45 Min.)')
   })
 
+  it('shows the WiFi network with signal quality, IP and measurement time', async () => {
+    const w = mount(ConnectivityCard, {
+      props: {
+        embedded: {
+          id: 'e3',
+          status: 'online',
+          status_at: minAgo(1),
+          online_since: minAgo(60),
+          mdb_diagnostics: {
+            state: 'IDLE',
+            network: { uplink: 'wifi', ssid: 'Büro-WLAN', rssi: -81, ip: '192.168.1.47', measured_at: minAgo(3) },
+          },
+        },
+      },
+    })
+    await flushPromises()
+    const text = w.text()
+    expect(text).toContain('WLAN')
+    expect(text).toContain('Netz (SSID)Büro-WLAN')
+    expect(text).toContain('Schwach · -81 dBm')
+    expect(text).toContain('192.168.1.47')
+    expect(text).toContain('Schwacher Empfang')
+    expect(text).not.toContain('WLAN oder unbekannt')
+  })
+
   it('says what was before an outage and that the machine is unknown while offline', async () => {
     const w = mount(ConnectivityCard, {
       props: {

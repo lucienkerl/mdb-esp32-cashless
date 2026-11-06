@@ -3,6 +3,7 @@ package xyz.vmflow.models
 import kotlin.math.roundToInt
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 import xyz.vmflow.data.ExpirationStatus
 import xyz.vmflow.data.MachineStockSummary
 import xyz.vmflow.data.MachineStockTier
@@ -54,7 +55,11 @@ data class MdbDiagnostics(
     val polls: Int? = null,
     val chkErr: Int? = null,
     val lastCmd: String? = null,
-    @SerialName("updated_at") val updatedAt: String? = null
+    @SerialName("updated_at") val updatedAt: String? = null,
+    /** Current uplink (WiFi or cellular) with signal, raw — read via `deviceNetwork` (data/DeviceNetwork.kt). */
+    val network: JsonElement? = null,
+    /** Older cellular-only uplink block, the fallback of `deviceNetwork`. */
+    val cellular: JsonElement? = null
 )
 
 /** One ESP32 reboot event. Maps to the `device_restarts` table. */
