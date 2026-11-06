@@ -23,6 +23,8 @@
 		C0FFEE11ABCD22EF33445567 /* MachineStockHealth.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE11ABCD22EF33445566 /* MachineStockHealth.swift */; };
 		45163A517121359541A88C1D /* SlotChange.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCE7796A01E46CBC5B0B535E /* SlotChange.swift */; };
 		9A54122E6D290584B7E741DD /* MachineTourNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = B85B284831920CF7FAB46AF8 /* MachineTourNote.swift */; };
+		8445505E5CF9F519313F223F /* DeviceConnectivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85843FEFEB8E7DEED7D313D /* DeviceConnectivity.swift */; };
+		8BDB1BEED356A3465594D524 /* DeviceNetwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1E237A140065E681A8090BC /* DeviceNetwork.swift */; };
 		123DDC46EFE39435A5A69CB5 /* RefillWizardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52A29D496BDB69F848C60674 /* RefillWizardView.swift */; };
 		1254787CC883CE8605189B4B /* PackingStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90BC01B0752A47A20DF699E7 /* PackingStepView.swift */; };
 		14E8E7A13B8FB4BBA2CE3AA1 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C4757F332F815A5F5300AC8 /* SettingsView.swift */; };
@@ -47,6 +49,7 @@
 		38D6B1CBC8EAA38E361D13CB /* Product.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA94DE3092E2B07986626697 /* Product.swift */; };
 		401CB3D07548694B7E517E3B /* NotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 640C0F6F1E6E4CBDF96B7F39 /* NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		4317985673B05FA56A45069B /* StatusBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC27FF5E0A1C34BCE4ACCDBE /* StatusBadge.swift */; };
+		FD1A7F381CFB1A0F931AE272 /* NetworkViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CFF43C5B367C01EF81B64D /* NetworkViews.swift */; };
 		44BE3D1E439FE91E3A5D1932 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FAA61B154F7ABC2401C2CCA /* QRScannerView.swift */; };
 		45167E803ECFB29F00DA502F /* DashboardViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16E021E42CD9C7C92936F706 /* DashboardViewModel.swift */; };
 		48101BA7F81D7ACA238B9101 /* MachineListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8B6CB1492BFAA927C077A18 /* MachineListView.swift */; };
@@ -199,6 +202,8 @@
 		C0FFEE11ABCD22EF33445566 /* MachineStockHealth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineStockHealth.swift; sourceTree = "<group>"; };
 		BCE7796A01E46CBC5B0B535E /* SlotChange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlotChange.swift; sourceTree = "<group>"; };
 		B85B284831920CF7FAB46AF8 /* MachineTourNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineTourNote.swift; sourceTree = "<group>"; };
+		C85843FEFEB8E7DEED7D313D /* DeviceConnectivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceConnectivity.swift; sourceTree = "<group>"; };
+		B1E237A140065E681A8090BC /* DeviceNetwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceNetwork.swift; sourceTree = "<group>"; };
 		2E4ECAF4493CB619B2F19A90 /* AdaptiveRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdaptiveRootView.swift; sourceTree = "<group>"; };
 		2FAA61B154F7ABC2401C2CCA /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		357877F547C30B7565611780 /* AddServerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerView.swift; sourceTree = "<group>"; };
@@ -268,6 +273,7 @@
 		A8B6CB1492BFAA927C077A18 /* MachineListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineListView.swift; sourceTree = "<group>"; };
 		A96A6A856F8039B71C6CE1B0 /* ProductPurchaseSummary.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProductPurchaseSummary.swift; sourceTree = "<group>"; };
 		AC27FF5E0A1C34BCE4ACCDBE /* StatusBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBadge.swift; sourceTree = "<group>"; };
+		F5CFF43C5B367C01EF81B64D /* NetworkViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkViews.swift; sourceTree = "<group>"; };
 		AC323B6816B89C5044F50027 /* AuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthService.swift; sourceTree = "<group>"; };
 		B2C3D4E5F60718293A4B5C6D /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		B84F596B8E26B3A5377BCAA0 /* RefillStepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RefillStepView.swift; sourceTree = "<group>"; };
@@ -343,6 +349,8 @@
 				C0FFEE11ABCD22EF33445566 /* MachineStockHealth.swift */,
 				BCE7796A01E46CBC5B0B535E /* SlotChange.swift */,
 				B85B284831920CF7FAB46AF8 /* MachineTourNote.swift */,
+				C85843FEFEB8E7DEED7D313D /* DeviceConnectivity.swift */,
+				B1E237A140065E681A8090BC /* DeviceNetwork.swift */,
 				4E7EC46F36DD12575C056A1A /* VendingMachine.swift */,
 				A6908142D65605FE1D58C1AE /* Warehouse.swift */,
 				5DABAE196CC8FD03F2016AC3 /* PurchaseOrder.swift */,
@@ -369,6 +377,7 @@
 				53A6211078603D2C7AD0EAD7 /* KPICard.swift */,
 				3A1ABF4B45C7B0D2415238F6 /* ProductImage.swift */,
 				AC27FF5E0A1C34BCE4ACCDBE /* StatusBadge.swift */,
+				F5CFF43C5B367C01EF81B64D /* NetworkViews.swift */,
 				204427FECDDE3A1BB3CB316C /* StockBar.swift */,
 				A1B2C3D4E5F600000000EF02 /* ExpiryDateField.swift */,
 				B11A08577B71951E307864CF /* LabeledStepperField.swift */,
@@ -951,6 +960,7 @@
 				C2B9375E0CFA437E9F7FC05B /* DeleteAccountSheet.swift in Sources */,
 				E161A2145944F1B03E599290 /* SidebarNavigationView.swift in Sources */,
 				4317985673B05FA56A45069B /* StatusBadge.swift in Sources */,
+				FD1A7F381CFB1A0F931AE272 /* NetworkViews.swift in Sources */,
 				FE4C794519B8D88EA6886C0A /* StockBar.swift in Sources */,
 				A1B2C3D4E5F600000000EF01 /* ExpiryDateField.swift in Sources */,
 				F0501A7FD0A96B9377D2DCCF /* SupabaseService.swift in Sources */,
@@ -960,6 +970,8 @@
 				C0FFEE11ABCD22EF33445567 /* MachineStockHealth.swift in Sources */,
 				45163A517121359541A88C1D /* SlotChange.swift in Sources */,
 				9A54122E6D290584B7E741DD /* MachineTourNote.swift in Sources */,
+				8445505E5CF9F519313F223F /* DeviceConnectivity.swift in Sources */,
+				8BDB1BEED356A3465594D524 /* DeviceNetwork.swift in Sources */,
 				5C989AE6260DDA7137C3A923 /* TrayEditSheet.swift in Sources */,
 				75FC6DAC6BC35B6F78317FBC /* TrayListView.swift in Sources */,
 				A1A27831F396EBCD53E5ED9A /* TrayRow.swift in Sources */,

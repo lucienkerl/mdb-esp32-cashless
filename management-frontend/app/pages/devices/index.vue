@@ -1,11 +1,13 @@
 <script setup lang="ts">
 definePageMeta({ middleware: 'auth' })
 
-import { Badge } from '@/components/ui/badge'
 import QRCode from 'qrcode'
-import { timeAgo, formatDate, formatDateTime } from '@/lib/utils'
+import { formatDate, formatDateTime } from '@/lib/utils'
+import DeviceStatusChip from '@/components/DeviceStatusChip.vue'
+import { connectivityRank } from '@/lib/connectivity'
 
 const { t } = useI18n()
+const conn = useConnectivity()
 const supabase = useSupabaseClient()
 const { role } = useOrganization()
 const router = useRouter()
@@ -30,7 +32,7 @@ const sortedDevices = computed(() => {
   const dir = devSortDir.value === 'asc' ? 1 : -1
   return [...filtered].sort((a, b) => {
     if (devSortKey.value === 'subdomain') return dir * (a.subdomain - b.subdomain)
-    if (devSortKey.value === 'status') return dir * (a.status ?? '').localeCompare(b.status ?? '')
+    if (devSortKey.value === 'status') return dir * (connectivityRank(conn.of(a)) - connectivityRank(conn.of(b)))
     if (devSortKey.value === 'machine') return dir * (a.machine_name ?? '').localeCompare(b.machine_name ?? '')
     // lastSeen
     return dir * (a.status_at ?? '').localeCompare(b.status_at ?? '')
@@ -384,22 +386,8 @@ function closeSoftapModal() {
             <div class="flex items-center justify-between mb-3">
               <div class="flex items-center gap-2">
                 <span class="font-mono text-base font-semibold">{{ device.subdomain }}</span>
-                <Badge
-                  :variant="device.status === 'online' ? 'default' : device.status?.startsWith('ota_') ? 'default' : 'secondary'"
-                >
-                  <span
-                    class="mr-1 inline-block h-2 w-2 rounded-full"
-                    :class="{
-                      'bg-green-400': device.status === 'online',
-                      'bg-yellow-400': device.status === 'ota_updating',
-                      'bg-green-400 animate-pulse': device.status === 'ota_success',
-                      'bg-red-400': device.status === 'ota_failed',
-                      'bg-muted-foreground/50': !['online', 'ota_updating', 'ota_success', 'ota_failed'].includes(device.status),
-                    }"
-                  />
-                  {{ device.status === 'ota_updating' ? t('machineDetail.updating') : device.status === 'ota_success' ? t('machineDetail.updated') : device.status === 'ota_failed' ? t('machineDetail.updateFailed') : device.status }}
-                </Badge>
-                <CellularHealthBadge :diagnostics="device.mdb_diagnostics" />
+                <DeviceStatusChip :connectivity="conn.of(device)" />
+                <NetworkBadge :diagnostics="device.mdb_diagnostics" :offline="conn.of(device).state === 'offline'" />
               </div>
               <div class="flex items-center gap-1">
                 <button
@@ -434,7 +422,7 @@ function closeSoftapModal() {
               </div>
               <div>
                 <p class="text-xs text-muted-foreground">{{ t('devices.lastSeenCol') }}</p>
-                <p class="text-xs">{{ timeAgo(device.status_at, t) }}</p>
+                <p class="text-xs" :title="device.status_at ? formatDateTime(device.status_at) : undefined">{{ conn.of(device).lastContactAt ? conn.ago(conn.of(device).lastContactAt) : '—' }}</p>
               </div>
               <div>
                 <p class="text-xs text-muted-foreground">{{ t('devices.machineCol') }}</p>
@@ -531,22 +519,8 @@ function closeSoftapModal() {
                 </td>
                 <td class="px-4 py-3">
                   <div class="flex items-center gap-2">
-                    <Badge
-                      :variant="device.status === 'online' ? 'default' : device.status?.startsWith('ota_') ? 'default' : 'secondary'"
-                    >
-                      <span
-                        class="mr-1 inline-block h-2 w-2 rounded-full"
-                        :class="{
-                          'bg-green-400': device.status === 'online',
-                          'bg-yellow-400': device.status === 'ota_updating',
-                          'bg-green-400 animate-pulse': device.status === 'ota_success',
-                          'bg-red-400': device.status === 'ota_failed',
-                          'bg-muted-foreground/50': !['online', 'ota_updating', 'ota_success', 'ota_failed'].includes(device.status),
-                        }"
-                      />
-                      {{ device.status === 'ota_updating' ? t('machineDetail.updating') : device.status === 'ota_success' ? t('machineDetail.updated') : device.status === 'ota_failed' ? t('machineDetail.updateFailed') : device.status }}
-                    </Badge>
-                    <CellularHealthBadge :diagnostics="device.mdb_diagnostics" />
+                    <DeviceStatusChip :connectivity="conn.of(device)" />
+                    <NetworkBadge :diagnostics="device.mdb_diagnostics" :offline="conn.of(device).state === 'offline'" />
                   </div>
                 </td>
                 <td class="px-4 py-3 text-muted-foreground">
@@ -568,8 +542,8 @@ function closeSoftapModal() {
                   </NuxtLink>
                   <span v-else class="text-muted-foreground">{{ t('devices.unassigned') }}</span>
                 </td>
-                <td class="px-4 py-3 text-muted-foreground">
-                  {{ timeAgo(device.status_at, t) }}
+                <td class="px-4 py-3 text-muted-foreground" :title="device.status_at ? formatDateTime(device.status_at) : undefined">
+                  {{ conn.of(device).lastContactAt ? conn.ago(conn.of(device).lastContactAt) : '—' }}
                 </td>
                 <td class="px-4 py-3 text-muted-foreground">
                   {{ formatDate(device.created_at) }}

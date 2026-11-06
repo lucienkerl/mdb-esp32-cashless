@@ -1301,7 +1301,7 @@
     "statusCol": "Statut",
     "firmwareCol": "Firmware",
     "assignedMachine": "Machine assignée",
-    "lastSeenCol": "Vu pour la dernière fois",
+    "lastSeenCol": "Dernier contact",
     "registeredCol": "Enregistré",
     "machineCol": "Machine",
     "unassigned": "Non assigné",
@@ -2794,5 +2794,107 @@
     "cameraError": "Erreur de caméra : {error}",
     "enterManually": "Saisir manuellement",
     "placeholder": "Saisir le code-barres..."
+  },
+  "connectivity": {
+    "state": {
+      "online": "En ligne",
+      "stale": "Sans réponse",
+      "offline": "Hors ligne",
+      "updating": "Mise à jour",
+      "never": "Jamais connecté",
+      "none": "Aucun appareil"
+    },
+    "time": {
+      "contact": "Contact {ago}",
+      "lastContact": "Dernier contact {ago}",
+      "offlineSince": "Hors ligne depuis {clock} · {ago}",
+      "updateStarted": "Mise à jour lancée {ago}",
+      "never": "Ne s'est jamais manifesté",
+      "noDevice": "Aucun appareil associé"
+    },
+    "reader": {
+      "ready": "Lecteur prêt",
+      "disabled": "Lecteur désactivé",
+      "inactive": "Le distributeur ne répond pas",
+      "readyHint": "Le distributeur interroge le lecteur, le paiement sans espèces fonctionne.",
+      "disabledHint": "Le distributeur a désactivé le paiement sans espèces pour le moment, par ex. parce qu'il est hors service.",
+      "inactiveHint": "L'appareil est en ligne, mais le distributeur n'interroge pas le lecteur. Le paiement sans espèces est impossible.",
+      "unknown": "Inconnu",
+      "unknownHint": "Connu dès que l'appareil est en ligne."
+    },
+    "duration": {
+      "days": "{days} j {hours} h",
+      "hours": "{hours} h {minutes} min",
+      "minutes": "{minutes} min"
+    },
+    "card": {
+      "title": "Connexion",
+      "live": "mise à jour en direct",
+      "device": "Appareil",
+      "network": "Réseau",
+      "machine": "Distributeur (MDB)",
+      "onlineSince": "En ligne depuis",
+      "offlineSince": "Hors ligne depuis",
+      "lastContact": "Dernier contact",
+      "previouslyOnline": "En ligne auparavant",
+      "firmware": "Firmware",
+      "operator": "Opérateur",
+      "signal": "Signal",
+      "mode": "Mode",
+      "uplinkCellular": "Mobile",
+      "uplinkUnknown": "WiFi ou inconnu"
+    },
+    "history": {
+      "title": "Dernières 24 heures",
+      "percent": "{pct} % en ligne",
+      "noData": "Pas encore de données",
+      "noOutages": "aucune coupure",
+      "outages": "{count} coupure | {count} coupures",
+      "online": "en ligne",
+      "offline": "hors ligne",
+      "updating": "mise à jour",
+      "unknown": "pas de données",
+      "outageRange": "hors ligne {from}–{to} ({duration})",
+      "ago": "il y a 24 h",
+      "now": "maintenant"
+    },
+    "notice": {
+      "offlineBody": "Le serveur a constaté la coupure à {clock}. L'appareil renverra les ventes de cette période dès qu'il sera de nouveau en ligne.",
+      "offlineCheck": "À vérifier : alimentation du distributeur, réseau sur place, LED d'état de l'appareil (jaune clignotant = recherche du réseau).",
+      "staleBody": "L'appareil ne s'est pas déconnecté, mais n'envoie plus de heartbeat depuis plus de 12 minutes (normalement toutes les 5 min). Le plus souvent un problème de réseau sur place, plus rarement un problème côté serveur.",
+      "staleCheck": "À vérifier : les autres distributeurs envoient-ils encore des données ? Sinon, c'est le serveur ; sinon, comme pour « Hors ligne ».",
+      "updatingBody": "Le nouveau firmware est en cours d'installation. L'appareil redémarre ensuite et sera brièvement hors ligne. Au-delà de 10 minutes, l'état passe à « Sans réponse »."
+    },
+    "fleet": {
+      "attentionTitle": "{count} distributeur demande votre attention | {count} distributeurs demandent votre attention",
+      "onlineOf": "{online} appareils sur {devices} en ligne",
+      "offline": "{count} hors ligne",
+      "stale": "{count} sans réponse",
+      "readerInactive": "{count} distributeur ne répond pas | {count} distributeurs ne répondent pas",
+      "noDevice": "{count} distributeur sans appareil | {count} distributeurs sans appareil"
+    },
+    "filter": {
+      "all": "Tous",
+      "attention": "À surveiller",
+      "online": "En ligne",
+      "noDevice": "Sans appareil"
+    },
+    "network": {
+      "wifi": "Wi-Fi",
+      "cellular": "Mobile",
+      "last": "dernier : {name}",
+      "ip": "Adresse IP",
+      "measured": "Mesuré",
+      "ssid": "Réseau (SSID)",
+      "signalValue": "{quality} · {dbm} dBm",
+      "weakHint": "Un signal faible peut provoquer des coupures. Rapprochez le routeur ou un répéteur du distributeur.",
+      "quality": {
+        "excellent": "Excellent",
+        "good": "Bon",
+        "fair": "Moyen",
+        "weak": "Faible",
+        "none": "Presque aucun signal"
+      }
+    }
   }
 }

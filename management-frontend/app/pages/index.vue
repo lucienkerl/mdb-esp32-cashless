@@ -19,6 +19,7 @@ import { expirationStatus } from '@/composables/useWarehouse'
 import { getProductImageUrl } from '@/composables/useProducts'
 import { buildWarehouseStockInfo, computeStockHealthPerMachine, countMachineStockBuckets } from '@/lib/stock-health'
 import { timeAgo } from '@/lib/utils'
+import { summarizeFleet } from "@/lib/connectivity"
 
 const { t } = useI18n()
 const supabase = useSupabaseClient()
@@ -38,7 +39,21 @@ const monthSales = ref(0)
 const monthSalesCount = ref(0)
 const lastMonthSales = ref(0)
 const lastMonthSalesCount = ref(0)
-const machinesOnline = ref(0)
+// Every machine's device (null = machine without a device) — the whole fleet,
+// not just the six machines the list shows.
+type FleetEmbedded = { id: string; status: string | null; status_at: string | null; online_since: string | null; mdb_diagnostics: unknown } | null
+const fleetDevices = ref<FleetEmbedded[]>([])
+const conn = useConnectivity()
+const fleet = computed(() => summarizeFleet(fleetDevices.value.map(e => conn.of(e))))
+const fleetDetails = computed(() => {
+  const f = fleet.value
+  const readerInactive = fleetDevices.value.filter(e => conn.of(e).reader === 'inactive').length
+  const parts = [t('connectivity.fleet.onlineOf', { online: f.online, devices: f.devices })]
+  if (f.offline) parts.push(t('connectivity.fleet.offline', { count: f.offline }))
+  if (f.stale) parts.push(t('connectivity.fleet.stale', { count: f.stale }))
+  if (readerInactive) parts.push(t('connectivity.fleet.readerInactive', { count: readerInactive }, readerInactive))
+  return parts.join(' · ')
+})
 const totalMachines = ref(0)
 const stockCritical = ref(0)
 const stockLow = ref(0)
@@ -197,21 +212,19 @@ onMounted(async () => {
       'postgres_changes',
       { event: 'UPDATE', schema: 'public', table: 'embeddeds' },
       (payload) => {
-        const oldStatus = payload.old?.status
-        const newStatus = payload.new?.status
-        if (oldStatus === newStatus) return
-        const isConnected = (s: string | undefined) => s != null && s !== 'offline'
-        const wasConnected = isConnected(oldStatus)
-        const nowConnected = isConnected(newStatus)
-        if (!wasConnected && nowConnected) machinesOnline.value++
-        if (wasConnected && !nowConnected) machinesOnline.value = Math.max(0, machinesOnline.value - 1)
-
-        // Update machine list status
-        const embeddedId = payload.new?.id
-        if (embeddedId) {
-          const m = dashboardMachines.value.find(dm => (dm as any)._embeddedId === embeddedId)
-          if (m) m.status = newStatus
+        // Heartbeats only move status_at, so every update counts, not just status changes.
+        const updated = payload.new as Record<string, any> | undefined
+        if (!updated?.id) return
+        const apply = (e: NonNullable<FleetEmbedded>) => {
+          e.status = updated.status ?? e.status
+          e.status_at = updated.status_at ?? e.status_at
+          if (updated.online_since !== undefined) e.online_since = updated.online_since
+          if (updated.mdb_diagnostics !== undefined) e.mdb_diagnostics = updated.mdb_diagnostics
         }
+        const fe = fleetDevices.value.find(e => e?.id === updated.id)
+        if (fe) apply(fe)
+        const m = dashboardMachines.value.find(dm => dm.embedded?.id === updated.id)
+        if (m?.embedded) apply(m.embedded)
       }
     )
     .on(
@@ -287,7 +300,7 @@ async function loadDashboard() {
     supabase.from('sales').select('item_price').gte('created_at', thisMonthStart),
     supabase.from('sales').select('item_price').gte('created_at', lastMonthStart).lt('created_at', thisMonthStart),
     fetchLast30DaysSales(last30DaysStart),
-    supabase.from('vendingMachine').select('id, name, embedded, embeddeds(id, status)'),
+    supabase.from('vendingMachine').select('id, name, embedded, embeddeds(id, status, status_at, online_since, mdb_diagnostics)'),
     supabase.from('sales').select('id, created_at, item_price, item_number, channel, machine_id, product_id, products(name, image_path)').order('created_at', { ascending: false }).limit(10),
     (supabase as any).from('activity_log').select('*').order('created_at', { ascending: false }).limit(8),
   ])
@@ -383,10 +396,10 @@ async function loadDashboard() {
   // ── Machines ────────────────────────────────────────────────────────────────
   const machines = (machinesRes.data ?? []) as {
     id: string; name: string; embedded: string | null
-    embeddeds: { id: string; status: string } | null
+    embeddeds: { id: string; status: string | null; status_at: string | null; online_since: string | null; mdb_diagnostics: unknown } | null
   }[]
   totalMachines.value = machines.length
-  machinesOnline.value = machines.filter(m => m.embeddeds?.status && m.embeddeds.status !== 'offline').length
+  fleetDevices.value = machines.map(m => (m.embeddeds ? { ...m.embeddeds } : null))
 
   // ── Per-machine today's revenue + last sale ─────────────────────────────────
   const machineIds = machines.map(m => m.id)
@@ -449,18 +462,21 @@ async function loadDashboard() {
       const stock = stockMap.get(m.id)
       const health = stock?.health ?? 'ok'
       const pct = stock?.percent ?? 100
-      const dm: DashboardMachine & { _embeddedId?: string } = {
+      const dm: DashboardMachine = {
         id: m.id,
         name: m.name,
-        status: m.embeddeds?.status ?? null,
+        embedded: m.embeddeds ? { ...m.embeddeds } : null,
         today_revenue: todayPerMachine.get(m.id)?.revenue ?? 0,
         stock_health: health,
         stock_percent: pct,
         last_sale_at: lastSalePerMachine.get(m.id) ?? null,
-        _embeddedId: m.embeddeds?.id,
       }
       return dm
     }).sort((a, b) => {
+      // Connectivity problems first, then stock urgency.
+      const ca = conn.of(a.embedded).needsAttention ? 0 : 1
+      const cb = conn.of(b.embedded).needsAttention ? 0 : 1
+      if (ca !== cb) return ca - cb
       const ha = healthOrder[a.stock_health] ?? 3
       const hb = healthOrder[b.stock_health] ?? 3
       if (ha !== hb) return ha - hb
@@ -571,6 +587,22 @@ async function loadDashboard() {
           <div class="flex items-center gap-2 text-sm font-medium text-red-500">
             <IconAlertTriangle class="size-4 shrink-0" />
             {{ t('dashboard.refillBanner', machinesNeedingRefill) }}
+          </div>
+          <span class="shrink-0 text-xs font-medium text-red-500/70">{{ t('dashboard.viewMachines') }} →</span>
+        </NuxtLink>
+
+        <!-- Connectivity banner -->
+        <NuxtLink
+          v-if="fleet.attention > 0"
+          to="/machines"
+          class="mx-4 flex items-center justify-between gap-3 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 transition-colors hover:bg-red-500/15 lg:mx-6"
+        >
+          <div class="min-w-0">
+            <div class="flex items-center gap-2 text-sm font-medium text-red-500">
+              <IconAlertTriangle class="size-4 shrink-0" />
+              {{ t('connectivity.fleet.attentionTitle', { count: fleet.attention }, fleet.attention) }}
+            </div>
+            <p class="mt-0.5 pl-6 text-xs text-muted-foreground">{{ fleetDetails }}</p>
           </div>
           <span class="shrink-0 text-xs font-medium text-red-500/70">{{ t('dashboard.viewMachines') }} →</span>
         </NuxtLink>

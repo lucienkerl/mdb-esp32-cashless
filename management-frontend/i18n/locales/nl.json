@@ -1301,7 +1301,7 @@
     "statusCol": "Status",
     "firmwareCol": "Firmware",
     "assignedMachine": "Toegewezen machine",
-    "lastSeenCol": "Laatst gezien",
+    "lastSeenCol": "Laatste contact",
     "registeredCol": "Geregistreerd",
     "machineCol": "Machine",
     "unassigned": "Niet toegewezen",
@@ -2794,5 +2794,107 @@
     "cameraError": "Camerafout: {error}",
     "enterManually": "Handmatig invoeren",
     "placeholder": "Barcode invoeren..."
+  },
+  "connectivity": {
+    "state": {
+      "online": "Online",
+      "stale": "Geen reactie",
+      "offline": "Offline",
+      "updating": "Update bezig",
+      "never": "Nooit verbonden",
+      "none": "Geen apparaat"
+    },
+    "time": {
+      "contact": "Contact {ago}",
+      "lastContact": "Laatste contact {ago}",
+      "offlineSince": "Offline sinds {clock} · {ago}",
+      "updateStarted": "Update gestart {ago}",
+      "never": "Heeft zich nog nooit gemeld",
+      "noDevice": "Geen apparaat gekoppeld"
+    },
+    "reader": {
+      "ready": "Lezer gereed",
+      "disabled": "Lezer uitgeschakeld",
+      "inactive": "Automaat reageert niet",
+      "readyHint": "De automaat bevraagt de lezer, pinnen is mogelijk.",
+      "disabledHint": "De automaat heeft pinnen tijdelijk uitgeschakeld, bijv. omdat hij buiten gebruik is.",
+      "inactiveHint": "Het apparaat is online, maar de automaat bevraagt de lezer niet. Pinnen is niet mogelijk.",
+      "unknown": "Onbekend",
+      "unknownHint": "Pas bekend zodra het apparaat online is."
+    },
+    "duration": {
+      "days": "{days} d {hours} u",
+      "hours": "{hours} u {minutes} min",
+      "minutes": "{minutes} min"
+    },
+    "card": {
+      "title": "Verbinding",
+      "live": "wordt live bijgewerkt",
+      "device": "Apparaat",
+      "network": "Netwerk",
+      "machine": "Automaat (MDB)",
+      "onlineSince": "Online sinds",
+      "offlineSince": "Offline sinds",
+      "lastContact": "Laatste contact",
+      "previouslyOnline": "Daarvoor online",
+      "firmware": "Firmware",
+      "operator": "Provider",
+      "signal": "Signaal",
+      "mode": "Modus",
+      "uplinkCellular": "Mobiel",
+      "uplinkUnknown": "WiFi of onbekend"
+    },
+    "history": {
+      "title": "Laatste 24 uur",
+      "percent": "{pct}% online",
+      "noData": "Nog geen gegevens",
+      "noOutages": "geen storingen",
+      "outages": "{count} storing | {count} storingen",
+      "online": "online",
+      "offline": "offline",
+      "updating": "update",
+      "unknown": "geen gegevens",
+      "outageRange": "offline {from}–{to} ({duration})",
+      "ago": "24 u geleden",
+      "now": "nu"
+    },
+    "notice": {
+      "offlineBody": "De server merkte de verbroken verbinding op om {clock}. Het apparaat stuurt verkopen uit deze periode na zodra het weer online is.",
+      "offlineCheck": "Controleer: stroom bij de automaat, netwerk op de locatie, status-LED op het apparaat (geel knipperend = zoekt netwerk).",
+      "staleBody": "Het apparaat heeft zich niet afgemeld, maar stuurt al meer dan 12 minuten geen heartbeat (normaal elke 5 min). Meestal een netwerkprobleem op de locatie, minder vaak een probleem op de server.",
+      "staleCheck": "Controleer: komen er nog gegevens van andere automaten binnen? Zo niet, dan ligt het aan de server; anders zoals bij „Offline“.",
+      "updatingBody": "De nieuwe firmware wordt geïnstalleerd. Het apparaat herstart daarna en is kort offline. Duurt het langer dan 10 minuten, dan wordt dit „Geen reactie“."
+    },
+    "fleet": {
+      "attentionTitle": "{count} automaat vraagt aandacht | {count} automaten vragen aandacht",
+      "onlineOf": "{online} van {devices} apparaten online",
+      "offline": "{count} offline",
+      "stale": "{count} zonder reactie",
+      "readerInactive": "{count} automaat reageert niet | {count} automaten reageren niet",
+      "noDevice": "{count} automaat zonder apparaat | {count} automaten zonder apparaat"
+    },
+    "filter": {
+      "all": "Alle",
+      "attention": "Vraagt aandacht",
+      "online": "Online",
+      "noDevice": "Zonder apparaat"
+    },
+    "network": {
+      "wifi": "wifi",
+      "cellular": "Mobiel",
+      "last": "laatst {name}",
+      "ip": "IP-adres",
+      "measured": "Gemeten",
+      "ssid": "Netwerk (SSID)",
+      "signalValue": "{quality} · {dbm} dBm",
+      "weakHint": "Een zwak signaal kan verbindingsonderbrekingen veroorzaken. Zet de router of een repeater dichter bij de automaat.",
+      "quality": {
+        "excellent": "Uitstekend",
+        "good": "Goed",
+        "fair": "Matig",
+        "weak": "Zwak",
+        "none": "Nauwelijks signaal"
+      }
+    }
   }
 }

@@ -69,7 +69,7 @@ object MachineRepository {
     suspend fun fetchMachines(): Result<List<VendingMachineWithEmbedded>> {
         return try {
             val machines = postgrest.from("vendingMachine")
-                .select(Columns.raw("id, name, location_lat, location_lon, country_code, linked_selections, embeddeds(id, status, status_at, subdomain, mac_address, firmware_version)"))
+                .select(Columns.raw("id, name, location_lat, location_lon, country_code, linked_selections, embeddeds(id, status, status_at, subdomain, mac_address, firmware_version, mdb_diagnostics, online_since)"))
                 .decodeList<VendingMachineWithEmbedded>()
             Result.success(machines)
         } catch (e: Exception) {
@@ -198,7 +198,12 @@ object MachineRepository {
             }
 
             // PWA order: critical > low > top off > ok, then sold-out + low products desc.
-            val sorted = machinesWithStats.sortedWith(MachineWithStats.STOCK_URGENCY)
+            // Devices that need attention (offline, no response, machine not
+            // talking to the reader) first, then stock urgency — same as iOS.
+            val sorted = machinesWithStats.sortedWith(
+                compareBy<MachineWithStats> { if (it.machine.connectivity(now).needsAttention) 0 else 1 }
+                    .then(MachineWithStats.STOCK_URGENCY)
+            )
 
             Result.success(sorted)
         } catch (e: Exception) {
@@ -391,6 +396,28 @@ object MachineRepository {
                 }
                 .decodeList<MdbLogEntry>()
             Result.success(logs)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Status changes (`embedded_status_log`, one row per change of
+     * `embeddeds.status`) since [since], oldest first — the input of the
+     * 24-hour bar ([StatusHistory.build]).
+     */
+    suspend fun fetchStatusLog(embeddedId: String, since: String): Result<List<StatusLogRow>> {
+        return try {
+            val rows = postgrest.from("embedded_status_log")
+                .select(Columns.raw("status, prev_status, created_at")) {
+                    filter {
+                        eq("embedded_id", embeddedId)
+                        gte("created_at", since)
+                    }
+                    order("created_at", Order.ASCENDING)
+                }
+                .decodeList<StatusLogRow>()
+            Result.success(rows)
         } catch (e: Exception) {
             Result.failure(e)
         }

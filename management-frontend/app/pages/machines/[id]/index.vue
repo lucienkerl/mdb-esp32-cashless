@@ -21,6 +21,9 @@ import SlotPlanPanel from '~/components/slotplan/SlotPlanPanel.vue'
 import ProductGroupHeader from '~/components/machine/ProductGroupHeader.vue'
 import MdbTraceConsole from '~/components/machine/MdbTraceConsole.vue'
 import TrayStockGrid from '~/components/machine/TrayStockGrid.vue'
+import ConnectivityCard from '~/components/machine/ConnectivityCard.vue'
+import ConnectivityNotice from '~/components/machine/ConnectivityNotice.vue'
+import DeviceStatusChip from '@/components/DeviceStatusChip.vue'
 import { buildTrayGroupIndex, productListRows } from '@/lib/trayGroups'
 import {
   DropdownMenu,
@@ -30,6 +33,7 @@ import {
 } from '~/components/ui/dropdown-menu'
 
 const { t, locale } = useI18n()
+const conn = useConnectivity()
 const route = useRoute()
 const defaultTab = computed(() => {
   const tab = route.query.tab as string
@@ -228,6 +232,7 @@ function toggleHistoryEntry(id: string) {
 }
 
 const machine = ref<any>(null)
+const connectivity = computed(() => conn.of(machine.value?.embeddeds))
 const sales = ref<any[]>([])
 const loading = ref(true)
 const errorMsg = ref('')
@@ -322,6 +327,9 @@ onMounted(async () => {
             if (machine.value?.embeddeds) {
               machine.value.embeddeds.status = payload.new.status
               machine.value.embeddeds.status_at = payload.new.status_at
+              if (payload.new.online_since !== undefined) {
+                machine.value.embeddeds.online_since = payload.new.online_since
+              }
               if (payload.new.firmware_version) {
                 machine.value.embeddeds.firmware_version = payload.new.firmware_version
               }
@@ -1362,17 +1370,12 @@ async function handleAddSale() {
             <div class="flex items-center gap-2 shrink-0">
               <template v-if="machine.embeddeds">
                 <span
-                  class="rounded-full px-3 py-1 text-xs font-medium"
-                  :class="{
-                    'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400': machine.embeddeds.status === 'online' || machine.embeddeds.status === 'ota_success',
-                    'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400': machine.embeddeds.status === 'ota_updating',
-                    'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400': machine.embeddeds.status === 'ota_failed',
-                    'bg-muted text-muted-foreground': !['online', 'ota_updating', 'ota_success', 'ota_failed'].includes(machine.embeddeds.status),
-                  }"
-                >
-                  {{ machine.embeddeds.status === 'ota_updating' ? t('machineDetail.updating') : machine.embeddeds.status === 'ota_success' ? t('machineDetail.updated') : machine.embeddeds.status === 'ota_failed' ? t('machineDetail.updateFailed') : machine.embeddeds.status === 'online' ? t('machineDetail.online') : machine.embeddeds.status === 'offline' ? t('machineDetail.offline') : machine.embeddeds.status }}
-                </span>
-                <CellularHealthBadge :diagnostics="machine.embeddeds.mdb_diagnostics" />
+                  class="hidden text-xs sm:inline"
+                  :class="conn.textClass(connectivity.state)"
+                  :title="connectivity.lastContactAt ? formatDateTime(connectivity.lastContactAt.toISOString(), locale) : undefined"
+                >{{ conn.timeLabel(connectivity) }}</span>
+                <DeviceStatusChip :connectivity="connectivity" />
+                <NetworkBadge :diagnostics="machine.embeddeds.mdb_diagnostics" :offline="connectivity.state === 'offline'" />
                 <button
                   class="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
                   @click="openInsights"
@@ -1459,6 +1462,8 @@ async function handleAddSale() {
               {{ t('machineDetail.posterOutdatedBody') }}
             </span>
           </NuxtLink>
+
+          <ConnectivityNotice v-if="machine?.embeddeds" :connectivity="connectivity" class="mb-4" />
 
           <!-- Tabs: Sales | Trays & Stock | MDB -->
           <Tabs :default-value="defaultTab">
@@ -2477,24 +2482,7 @@ async function handleAddSale() {
 
             <!-- Device Health tab -->
             <TabsContent v-if="machine?.embeddeds" value="health" class="mt-4 space-y-6">
-              <!-- Current uptime -->
-              <div class="rounded-xl border bg-card p-4 sm:p-6">
-                <h2 class="mb-3 text-sm font-medium">{{ t('machineDetail.uptime') }}</h2>
-                <div class="flex items-center gap-3">
-                  <span
-                    class="inline-block h-3 w-3 rounded-full"
-                    :class="machine.embeddeds.status === 'online' ? 'bg-green-500' : 'bg-red-500'"
-                  />
-                  <span v-if="machine.embeddeds.status === 'online' && (machine.embeddeds.online_since || machine.embeddeds.status_at)" class="text-2xl font-semibold tabular-nums">
-                    {{ formatUptime(Math.floor((Date.now() - new Date(machine.embeddeds.online_since ?? machine.embeddeds.status_at).getTime()) / 1000)) }}
-                  </span>
-                  <span v-else class="text-2xl font-semibold text-muted-foreground">{{ t('machineDetail.offline') }}</span>
-                </div>
-                <p v-if="machine.embeddeds.last_restart_at" class="mt-2 text-xs text-muted-foreground">
-                  {{ t('machineDetail.restartReason') }}: {{ reasonLabel(machine.embeddeds.last_restart_reason ?? 'unknown') }}
-                  &middot; {{ timeAgo(machine.embeddeds.last_restart_at) }}
-                </p>
-              </div>
+              <ConnectivityCard :embedded="machine.embeddeds" />
 
               <!-- Restart history table -->
               <div class="rounded-xl border bg-card p-4 sm:p-6">
@@ -2721,17 +2709,7 @@ async function handleAddSale() {
             <!-- Status -->
             <div class="flex justify-between items-center">
               <span class="text-muted-foreground">{{ t('common.status') }}</span>
-              <span
-                class="rounded-full px-2.5 py-0.5 text-xs font-medium"
-                :class="{
-                  'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400': machine.embeddeds.status === 'online' || machine.embeddeds.status === 'ota_success',
-                  'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400': machine.embeddeds.status === 'ota_updating',
-                  'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400': machine.embeddeds.status === 'ota_failed',
-                  'bg-muted text-muted-foreground': !['online', 'ota_updating', 'ota_success', 'ota_failed'].includes(machine.embeddeds.status),
-                }"
-              >
-                {{ machine.embeddeds.status === 'ota_updating' ? t('machineDetail.updating') : machine.embeddeds.status === 'ota_success' ? t('machineDetail.updated') : machine.embeddeds.status === 'ota_failed' ? t('machineDetail.updateFailed') : machine.embeddeds.status === 'online' ? t('machineDetail.online') : machine.embeddeds.status === 'offline' ? t('machineDetail.offline') : machine.embeddeds.status }}
-              </span>
+              <DeviceStatusChip :connectivity="connectivity" />
             </div>
 
             <!-- MAC Address -->
@@ -2776,8 +2754,8 @@ async function handleAddSale() {
 
             <!-- Last seen -->
             <div class="flex justify-between items-center">
-              <span class="text-muted-foreground">{{ t('machineDetail.lastSeen') }}</span>
-              <span class="text-xs">{{ formatDateTime(machine.embeddeds.status_at, locale) }}</span>
+              <span class="text-muted-foreground">{{ connectivity.state === 'offline' ? t('connectivity.card.offlineSince') : t('connectivity.card.lastContact') }}</span>
+              <span class="text-xs text-right">{{ connectivity.lastContactAt ? `${conn.ago(connectivity.lastContactAt)} (${formatDateTime(machine.embeddeds.status_at, locale)})` : '—' }}</span>
             </div>
 
             <!-- MDB Address -->

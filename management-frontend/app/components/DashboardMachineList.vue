@@ -7,13 +7,15 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { formatCurrency, timeAgo } from '@/lib/utils'
+import { dotClass, textClass } from '@/composables/useConnectivity'
 
 const { t, locale } = useI18n()
+const conn = useConnectivity()
 
 export interface DashboardMachine {
   id: string
   name: string
-  status: string | null
+  embedded: { id: string; status: string | null; status_at: string | null; online_since: string | null; mdb_diagnostics: unknown } | null
   today_revenue: number
   stock_health: 'ok' | 'low' | 'fill' | 'critical'
   stock_percent: number
@@ -23,11 +25,6 @@ export interface DashboardMachine {
 defineProps<{
   machines: DashboardMachine[]
 }>()
-
-function statusColor(status: string | null): string {
-  if (!status || status === 'offline') return 'bg-red-500'
-  return 'bg-green-500'
-}
 
 function stockBarColor(health: 'ok' | 'low' | 'fill' | 'critical'): string {
   if (health === 'critical') return 'bg-red-500'
@@ -63,17 +60,24 @@ function stockBadgeClass(health: 'ok' | 'low' | 'fill' | 'critical'): string {
           :to="`/machines/${machine.id}`"
           class="flex items-center gap-2 sm:gap-3 px-3 sm:px-6 py-3 hover:bg-muted/50 transition-colors"
         >
-          <!-- Status dot -->
-          <span class="relative flex size-2.5 shrink-0">
-            <span
-              v-if="machine.status && machine.status !== 'offline'"
-              class="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75"
-            />
-            <span class="relative inline-flex size-2.5 rounded-full" :class="statusColor(machine.status)" />
-          </span>
+          <!-- Status dot (the word is in the title and, for problems, next to the name) -->
+          <span
+            class="inline-flex size-2.5 shrink-0 rounded-full"
+            :class="dotClass(conn.of(machine.embedded).state)"
+            :title="conn.stateLabel(conn.of(machine.embedded))"
+          />
 
-          <!-- Name -->
-          <span class="min-w-0 flex-1 truncate text-sm font-medium">{{ machine.name }}</span>
+          <!-- Name + connectivity line for anything that is not plainly online -->
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-sm font-medium">{{ machine.name }}</span>
+            <span
+              v-if="conn.of(machine.embedded).state !== 'online' || conn.of(machine.embedded).reader === 'inactive'"
+              class="block truncate text-xs"
+              :class="conn.of(machine.embedded).reader === 'inactive' ? 'text-amber-700 dark:text-amber-400' : textClass(conn.of(machine.embedded).state)"
+            >
+              {{ conn.of(machine.embedded).reader === 'inactive' ? t('connectivity.reader.inactive') : conn.timeLabel(conn.of(machine.embedded)) }}
+            </span>
+          </span>
 
           <!-- Today's revenue -->
           <span class="shrink-0 text-sm tabular-nums text-muted-foreground">
