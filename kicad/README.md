@@ -17,6 +17,11 @@ You can view and order the PCBs directly from PCBWay using the links below:
 
 4-layer board with external antenna, relays and sensor I/O — see [`mdb_slave_esp32s3-wroom-1u/`](mdb_slave_esp32s3-wroom-1u/) for sources, gerbers and the interactive BOM.
 
+### LTE add-on module (SIM7080G) for the WROOM-1U board
+![LTE add-on — top](lte-addon-sim7080g/lte-addon-sim7080g.png)
+
+Plugs into the WROOM-1U board's J2 socket and adds LTE-M / NB-IoT — see [`lte-addon-sim7080g/`](lte-addon-sim7080g/).
+
 ### MDB ESP32 Cashless Device
 ![MDB Cashless](mdb-slave-esp32s3/mdb-slave-esp32s3.png)
 

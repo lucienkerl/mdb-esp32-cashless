@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "vmflow_lte")(type "KiCad")(uri "${KIPRJMOD}/lib/vmflow_lte.pretty")(options "")(descr "SIM7080G footprint"))
+)

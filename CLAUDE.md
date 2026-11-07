@@ -264,7 +264,17 @@ modem), `modem_pdp_reset` / `modem_rf_reset`
 / `modem_soft_restart` (intermediate recovery layers), plus NVS helpers
 `modem_nvs_load`/`modem_nvs_save` (promoted to the public API in P2).
 All callers now go through `network.c` — no part of `app_main` touches
-`esp_modem_*` directly.
+`esp_modem_*` directly. Pins default to the SIM7080G board (RX 18, TX 17,
+PWRKEY 14); `modem_set_pins()` overrides them before `network_init()`.
+
+**LTE add-on on the WROOM-1U (`kicad/lte-addon-sim7080g`)**: the WROOM-1U has
+no modem of its own, so `app_main` calls `network_disable_modem_probe()` there
+(the default modem pins GPIO17/18 are custom inputs 2/3 on that board) —
+unless the plug-in SIM7080G module sits on its J2 socket. The module pulls
+GPIO42 up with 10k; `detect_lte_addon()` reads it with the internal pull-down
+and, when HIGH, selects RX 39 / TX 40 / PWRKEY 41 (same inverted PWRKEY drive)
+and lets the normal cellular boot run. The module's KiCad files are generated
+from `scripts/design.py` (KiCad 9, `scripts/build.sh` + `fab.sh`; see its README).
 
 ### mdb-master-esp32s3 Architecture
 

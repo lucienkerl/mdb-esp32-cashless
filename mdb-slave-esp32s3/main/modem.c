@@ -35,9 +35,16 @@
  * (no longer in use — production is Leonardo's PCB). Those pins also
  * aliased PIN_MDB_RX/PIN_MDB_TX, which doesn't apply here either since
  * this board has its own MDB UART pins separate from the modem's. */
-#define MODEM_PIN_RX    GPIO_NUM_18   /* SIM7080G TX → ESP RX */
-#define MODEM_PIN_TX    GPIO_NUM_17   /* ESP TX → SIM7080G RX */
-#define MODEM_PIN_PWR   GPIO_NUM_14   /* PWRKEY via inverting transistor Q2 */
+/* Defaults are Leonardo's SIM7080G board. The WROOM-1U board has no modem
+ * of its own; the plug-in LTE module on its J2 (kicad/lte-addon-sim7080g)
+ * uses GPIO39/40/41 instead and is selected with modem_set_pins() before
+ * network_init(). Same PWRKEY polarity on both. */
+static gpio_num_t s_pin_rx  = GPIO_NUM_18;   /* SIM7080G TX → ESP RX */
+static gpio_num_t s_pin_tx  = GPIO_NUM_17;   /* ESP TX → SIM7080G RX */
+static gpio_num_t s_pin_pwr = GPIO_NUM_14;   /* PWRKEY via inverting transistor */
+#define MODEM_PIN_RX    s_pin_rx
+#define MODEM_PIN_TX    s_pin_tx
+#define MODEM_PIN_PWR   s_pin_pwr
 #define MODEM_UART_PORT UART_NUM_2
 #define MODEM_BAUD      115200
 
@@ -201,6 +208,13 @@ static void modem_probe_cpu1_task(void *arg) {
     p->result = modem_probe_body();
     xSemaphoreGive(p->done);
     vTaskDelete(NULL);
+}
+
+void modem_set_pins(int rx, int tx, int pwrkey) {
+    s_pin_rx  = (gpio_num_t)rx;
+    s_pin_tx  = (gpio_num_t)tx;
+    s_pin_pwr = (gpio_num_t)pwrkey;
+    ESP_LOGI(TAG, "modem pins: RX=%d TX=%d PWRKEY=%d", rx, tx, pwrkey);
 }
 
 bool modem_probe(void) {
