@@ -220,10 +220,17 @@ val RefillUiState.packBox: Pair<Int, Int>
         return packed to total
     }
 
-/** Lines with units that are not ticked — they stay in the warehouse when the tour starts. */
+/**
+ * Lines with units that are not ticked — they stay in the warehouse when the
+ * tour starts. Only machines the refiller packed for count: a machine with
+ * nothing ticked was left out on purpose, so its lines are not "forgotten".
+ * With nothing ticked anywhere, every machine counts.
+ */
 val RefillUiState.openPackLines: List<PackLine>
-    get() = machines.flatMap { machine ->
-        packLines(machine.machine.id).filter { !it.ticked && it.total > 0 }
+    get() {
+        val all = machines.map { packLines(it.machine.id) }
+        val packed = all.filter { lines -> lines.any { it.ticked } }
+        return packed.ifEmpty { all }.flatMap { lines -> lines.filter { !it.ticked && it.total > 0 } }
     }
 
 /** Machines with at least one line in the box. */

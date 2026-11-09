@@ -3739,8 +3739,12 @@ extension RefillWizardViewModel {
 
     /// Lines with units that are not ticked — they stay in the warehouse.
     var openPackLines: [OpenPackLine] {
+        // Only machines the refiller packed for count: a machine with nothing
+        // ticked was left out on purpose, so its lines are not "forgotten".
+        // With nothing ticked anywhere, every machine counts.
+        let packed = machines.filter { packLines(machineId: $0.id).contains(where: \.ticked) }
         var out: [OpenPackLine] = []
-        for machine in machines {
+        for machine in packed.isEmpty ? machines : packed {
             for line in packLines(machineId: machine.id) where !line.ticked && line.total > 0 {
                 let name = productName(line.productId, machineId: machine.id)
                 out.append(OpenPackLine(

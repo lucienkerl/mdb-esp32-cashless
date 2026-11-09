@@ -235,6 +235,22 @@ describe('refill tour with a change note', () => {
     expect(w.rebuildCommitted('m1', 'mate')).toBe(0)
   })
 
+  it('the "not in the box" list only covers machines packed for', async () => {
+    fetchOpenRequests.mockResolvedValue(new Map())
+    env.machines = [{ id: 'm1', name: 'M1' }, { id: 'm2', name: 'M2' }]
+    env.extraTrays = [
+      { id: 't21', machine_id: 'm2', item_number: 21, product_id: 'cola', capacity: 10, current_stock: 1, min_stock: 0, fill_when_below: 5, products: { name: 'Cola', image_path: null, sellprice: 2 } },
+    ]
+    const w = await startedTour()
+    const m2 = w.machines.value[1]
+    // Nothing ticked yet: every machine's lines count
+    expect(w.openPackLines.value.map(l => l.machine_id).sort()).toEqual(['m1', 'm2'])
+    // Packing for m1 only leaves m2 out on purpose
+    w.toggleLine('m1', 'cola')
+    expect(w.packLine(m2!, 'cola').ticked).toBe(false)
+    expect(w.openPackLines.value).toEqual([])
+  })
+
   it('an unticked rebuild-only product is not booked out of the warehouse', async () => {
     fetchOpenRequests.mockResolvedValue(new Map([['m1', { id: 'r1', machine_id: 'm1', created_at: '', updated_at: '', note: null, items: [
       { ...ITEM, to_product_id: 'mate', to_name: 'Mate' },
