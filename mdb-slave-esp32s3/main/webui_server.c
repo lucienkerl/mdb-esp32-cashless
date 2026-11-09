@@ -21,11 +21,17 @@
 #include "provision.h"
 #include "restart.h"
 #include "cred_backup.h"
+#include "webui_auth.h"
+#include "esp_random.h"
+#include "mbedtls/md.h"
 
 #define TAG "webui"
 
 
 static httpd_handle_t rest_server = NULL;
+static wa_state_t s_lan_auth;   /* touched only from the httpd task */
+
+static bool request_is_from_softap(httpd_req_t *req);
 
 extern const uint8_t index_html_start[] asm("_binary_index_html_start");
 extern const uint8_t index_html_end[]   asm("_binary_index_html_end");
@@ -199,12 +205,30 @@ static esp_err_t system_info_get_handler(httpd_req_t *req) {
         cJSON_AddNullToObject(uplink, "cellular");
     }
 
+    /* How this client reached us. "lan" covers everything that is not the
+     * SoftAP (operator LAN over STA, cellular): there every state-changing
+     * call has to be signed with the SoftAP password (webui_auth.h), and
+     * lan_auth says whether that is possible at all (no password = open
+     * AP = LAN access refused, SoftAP or the BOOT button only). */
+    bool via_softap = request_is_from_softap(req);
+    char ap_pwd[SOFTAP_PWD_MAX];
+    softap_get_password(ap_pwd, sizeof(ap_pwd));
+    cJSON *access = cJSON_AddObjectToObject(root, "access");
+    cJSON_AddStringToObject(access, "via", via_softap ? "softap" : "lan");
+    cJSON_AddBoolToObject(access, "lan_auth", ap_pwd[0] != '\0');
+    cJSON_AddBoolToObject(access, "locked", wa_is_locked(&s_lan_auth,
+                          (uint32_t)(esp_timer_get_time() / 1000)));
+    memset(ap_pwd, 0, sizeof(ap_pwd));
+
     cJSON *claim = cJSON_AddObjectToObject(root, "claim");
     cJSON_AddBoolToObject(claim, "claimed",       claimed);
     cJSON_AddBoolToObject(claim, "prov_code_set", prov_code_set);
     /* Identifiers + endpoints exposed only when actually claimed —
-     * pre-claim they're empty/uninteresting and would clutter the UI. */
-    if (claimed) {
+     * pre-claim they're empty/uninteresting and would clutter the UI.
+     * Never over the LAN: this GET is unauthenticated (it is polled every
+     * 2 s), and company/device ids plus the broker address are not
+     * something every client on the operator's network needs to see. */
+    if (claimed && via_softap) {
         cJSON_AddStringToObject(claim, "company_id", company_id);
         cJSON_AddStringToObject(claim, "device_id",  device_id);
         cJSON_AddStringToObject(claim, "srv_url",    srv_url);
@@ -274,12 +298,20 @@ static esp_err_t send_err_json(httpd_req_t *req, const char *msg) {
     return ESP_OK;
 }
 
+static bool lan_gate(httpd_req_t *req, const char *method, const char *body, size_t body_len);
+static esp_err_t recv_body_opt(httpd_req_t *req, char *buf, size_t bufsize, size_t *out_len);
+
 /* POST /api/v1/system/skip-probe — user-facing dismissal of the
  * "Detecting modem…" loading view in the captive portal. Marks the
  * device as committed-to-WiFi-mode regardless of what modem_probe
  * eventually finds. Replies 409 if the cellular branch was already
  * taken (probe finished and detected a modem before this call). */
 static esp_err_t skip_probe_handler(httpd_req_t *req) {
+    char body[64];
+    size_t len;
+    if (recv_body_opt(req, body, sizeof(body), &len) != ESP_OK) return ESP_OK;
+    if (!lan_gate(req, "POST", body, len)) return ESP_OK;
+
     esp_err_t err = network_skip_modem_probe();
     if (err == ESP_ERR_INVALID_STATE) {
         httpd_resp_set_status(req, "409 Conflict");
@@ -348,23 +380,159 @@ static bool device_is_claimed(void) {
     return claimed;
 }
 
+/* ---------- LAN authentication (see webui_auth.h) ---------- */
+
+static void hmac_sha256_parts(const uint8_t *key, size_t key_len,
+                              const uint8_t *const *parts, const size_t *lens,
+                              size_t n, uint8_t out[WA_SIG_BYTES]) {
+    mbedtls_md_context_t ctx;
+    mbedtls_md_init(&ctx);
+    if (mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1) != 0 ||
+        mbedtls_md_hmac_starts(&ctx, key, key_len) != 0) {
+        /* Cannot compute: an all-zero MAC never matches a real signature
+         * except by a 2^-256 accident, so this fails closed. */
+        memset(out, 0, WA_SIG_BYTES);
+        mbedtls_md_free(&ctx);
+        return;
+    }
+    for (size_t i = 0; i < n; i++) {
+        if (lens[i]) mbedtls_md_hmac_update(&ctx, parts[i], lens[i]);
+    }
+    mbedtls_md_hmac_finish(&ctx, out);
+    mbedtls_md_free(&ctx);
+}
+
+static uint32_t now_ms(void) {
+    return (uint32_t)(esp_timer_get_time() / 1000);
+}
+
+/* Like recv_json_body, but an empty body is fine (body = "", len 0). Used
+ * by the endpoints that take no payload but still have to be signed over
+ * whatever bytes were actually sent. */
+static esp_err_t recv_body_opt(httpd_req_t *req, char *buf, size_t bufsize, size_t *out_len) {
+    *out_len = 0;
+    buf[0] = '\0';
+    if (req->content_len == 0) return ESP_OK;
+    if (recv_json_body(req, buf, bufsize) != ESP_OK) return ESP_FAIL;   /* already answered */
+    *out_len = req->content_len;
+    return ESP_OK;
+}
+
+/* Gate for every state-changing endpoint (and the WiFi scan, which knocks
+ * the STA link off its channel for a moment). Returns true when the
+ * handler may proceed. When it returns false a response has already been
+ * sent.
+ *
+ *   - SoftAP client: allowed, as before. Joining the AP is the proof —
+ *     WPA2 with the backend-assigned password once claimed.
+ *   - Anything else (operator LAN via STA, cellular): the request must be
+ *     signed with the SoftAP password, see webui_auth.h. A device with no
+ *     SoftAP password (unclaimed, or claimed before passwords existed and
+ *     never synced) refuses LAN calls outright.
+ *
+ * The signature covers the path without its query string and the exact
+ * body bytes received. */
+static bool lan_gate(httpd_req_t *req, const char *method, const char *body, size_t body_len) {
+    if (request_is_from_softap(req)) return true;
+
+    char query[160] = "";
+    char nonce[WA_NONCE_HEX_LEN + 2] = "";
+    char sig[WA_SIG_HEX_LEN + 2] = "";
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        httpd_query_key_value(query, "n", nonce, sizeof(nonce));
+        httpd_query_key_value(query, "s", sig,   sizeof(sig));
+    }
+
+    char path[64];
+    size_t plen = strcspn(req->uri, "?");
+    if (plen >= sizeof(path)) plen = sizeof(path) - 1;
+    memcpy(path, req->uri, plen);
+    path[plen] = '\0';
+
+    char pwd[SOFTAP_PWD_MAX];
+    softap_get_password(pwd, sizeof(pwd));
+    wa_result_t r = wa_verify(&s_lan_auth, now_ms(), pwd, nonce, sig,
+                              method, path, body, body_len, hmac_sha256_parts);
+    memset(pwd, 0, sizeof(pwd));
+    if (r == WA_OK) {
+        ESP_LOGI(TAG, "LAN auth OK: %s %s", method, path);
+        return true;
+    }
+
+    const char *status, *auth, *msg;
+    switch (r) {
+        case WA_NO_PASSWORD:
+            status = "403 Forbidden"; auth = "unavailable";
+            msg = "this device has no WiFi password yet, so it cannot be changed over the local network; "
+                  "connect to its own WiFi or hold the BOOT button for 5 s";
+            break;
+        case WA_LOCKED:
+            status = "429 Too Many Requests"; auth = "locked";
+            msg = "too many wrong passwords, local-network access is blocked for 5 minutes";
+            break;
+        case WA_MISSING:
+            status = "401 Unauthorized"; auth = "required";
+            msg = "the device WiFi password is required for changes over the local network";
+            break;
+        default:
+            status = "401 Unauthorized"; auth = "invalid";
+            msg = "wrong device WiFi password";
+            break;
+    }
+    ESP_LOGW(TAG, "LAN auth refused (%d): %s %s", (int)r, method, path);
+    char buf[288];
+    snprintf(buf, sizeof(buf), "{\"error\":\"%s\",\"auth\":\"%s\"}", msg, auth);
+    httpd_resp_set_status(req, status);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, buf);
+    return false;
+}
+
+/* GET /api/v1/auth/nonce — one-time challenge for a signed LAN request.
+ * Harmless on its own: a nonce is worthless without the password. */
+static esp_err_t auth_nonce_handler(httpd_req_t *req) {
+    uint8_t rnd[WA_NONCE_BYTES];
+    esp_fill_random(rnd, sizeof(rnd));
+    char hex[WA_NONCE_HEX_LEN + 1];
+    wa_issue_nonce(&s_lan_auth, now_ms(), rnd, hex);
+    char buf[64];
+    snprintf(buf, sizeof(buf), "{\"nonce\":\"%s\"}", hex);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_sendstr(req, buf);
+    return ESP_OK;
+}
+
+/* POST /api/v1/auth/check — signed no-op. Lets the portal tell the user
+ * right away whether the password they typed is right, instead of only
+ * when they press a button that does something. */
+static esp_err_t auth_check_handler(httpd_req_t *req) {
+    char body[64];
+    size_t len;
+    if (recv_body_opt(req, body, sizeof(body), &len) != ESP_OK) return ESP_OK;
+    if (!lan_gate(req, "POST", body, len)) return ESP_OK;
+    return send_ok(req);
+}
+
 /* POST /api/v1/system/reset — wipe all provisioning + WiFi state and
  * reboot. The device comes back unclaimed with an open SoftAP, exactly
  * as if the BOOT button had been held for 5 s. Used from the captive
  * portal's "Setup complete" view to decommission a device without
  * physical access.
  *
- * Refused unless the client is on the SoftAP itself, and refused on a
- * claimed device whose SoftAP has no password: anyone walking past the
- * machine can join an open AP, and a captive-portal sheet pops up on its
- * own — two taps and a working machine was wiped. The BOOT button stays
- * the way to reset such a device. */
+ * Over the LAN only as a request signed with the SoftAP password
+ * (lan_gate). Refused on a claimed device whose SoftAP has no password:
+ * anyone walking past the machine can join an open AP, and a
+ * captive-portal sheet pops up on its own — two taps and a working
+ * machine was wiped. (Over the LAN such a device is refused by lan_gate
+ * already: no password, nothing to sign with.) The BOOT button stays the
+ * way to reset such a device, and works without any network or server. */
 static esp_err_t system_reset_handler(httpd_req_t *req) {
-    if (!request_is_from_softap(req)) {
-        ESP_LOGW(TAG, "PORTAL RESET refused: request did not come in over the SoftAP");
-        httpd_resp_set_status(req, "403 Forbidden");
-        return send_err_json(req, "reset is only possible while connected to the device's own WiFi");
-    }
+    char body[64];
+    size_t len;
+    if (recv_body_opt(req, body, sizeof(body), &len) != ESP_OK) return ESP_OK;
+    if (!lan_gate(req, "POST", body, len)) return ESP_OK;
+
     char pwd[SOFTAP_PWD_MAX];
     softap_get_password(pwd, sizeof(pwd));
     if (pwd[0] == '\0' && device_is_claimed()) {
@@ -383,6 +551,7 @@ static esp_err_t system_reset_handler(httpd_req_t *req) {
 static esp_err_t cellular_configure_handler(httpd_req_t *req) {
     char buf[512];
     if (recv_json_body(req, buf, sizeof(buf)) != ESP_OK) return ESP_OK;
+    if (!lan_gate(req, "POST", buf, req->content_len)) return ESP_OK;
 
     cJSON *root = cJSON_Parse(buf);
     if (!root) return send_err_json(req, "invalid JSON");
@@ -411,6 +580,7 @@ static esp_err_t cellular_configure_handler(httpd_req_t *req) {
 static esp_err_t wifi_configure_handler(httpd_req_t *req) {
     char buf[512];
     if (recv_json_body(req, buf, sizeof(buf)) != ESP_OK) return ESP_OK;
+    if (!lan_gate(req, "POST", buf, req->content_len)) return ESP_OK;
 
     cJSON *root = cJSON_Parse(buf);
     if (!root) return send_err_json(req, "invalid JSON");
@@ -451,6 +621,7 @@ static void uplink_pref_restart_task(void *arg) {
 static esp_err_t uplink_prefer_handler(httpd_req_t *req) {
     char buf[512];
     if (recv_json_body(req, buf, sizeof(buf)) != ESP_OK) return ESP_OK;
+    if (!lan_gate(req, "POST", buf, req->content_len)) return ESP_OK;
 
     cJSON *root = cJSON_Parse(buf);
     if (!root) return send_err_json(req, "invalid JSON");
@@ -489,6 +660,7 @@ static esp_err_t uplink_prefer_handler(httpd_req_t *req) {
 static esp_err_t claim_handler(httpd_req_t *req) {
     char buf[512];
     if (recv_json_body(req, buf, sizeof(buf)) != ESP_OK) return ESP_OK;
+    if (!lan_gate(req, "POST", buf, req->content_len)) return ESP_OK;
 
     cJSON *root = cJSON_Parse(buf);
     if (!root) return send_err_json(req, "invalid JSON");
@@ -537,6 +709,10 @@ static esp_err_t claim_handler(httpd_req_t *req) {
 }
 
 static esp_err_t wifi_scan_get_handler(httpd_req_t *req) {
+    /* Gated like a write: an active scan takes the radio off the STA
+     * channel for a moment, so an unauthenticated LAN client could keep
+     * the uplink stuttering by looping on it. */
+    if (!lan_gate(req, "GET", "", 0)) return ESP_OK;
 
     wifi_scan_config_t scan_cfg = {
         .ssid        = NULL,
@@ -687,9 +863,14 @@ void start_rest_server(void) {
     if (rest_server != NULL) return;
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    /* Allow more handler slots than the default 8 — we register eight
+    /* Allow more handler slots than the default 8 — we register eleven
      * exact API URIs plus a clutch of captive-portal probe paths. */
-    config.max_uri_handlers = 18;
+    config.max_uri_handlers = 22;
+    /* Default is 4096. The LAN gate (query/nonce/signature buffers + an
+     * mbedtls HMAC) runs on top of handlers that already hold a 512-byte
+     * body buffer and a cJSON tree. */
+    config.stack_size = 6144;
+    wa_init(&s_lan_auth);
     httpd_start(&rest_server, &config);
 
     static const httpd_uri_t uris[] = {
@@ -702,6 +883,8 @@ void start_rest_server(void) {
         { .uri = "/api/v1/uplink/prefer",      .method = HTTP_POST, .handler = uplink_prefer_handler      },
         { .uri = "/api/v1/claim",              .method = HTTP_POST, .handler = claim_handler              },
         { .uri = "/api/v1/system/reset",       .method = HTTP_POST, .handler = system_reset_handler       },
+        { .uri = "/api/v1/auth/nonce",         .method = HTTP_GET,  .handler = auth_nonce_handler         },
+        { .uri = "/api/v1/auth/check",         .method = HTTP_POST, .handler = auth_check_handler         },
 
         /* OS captive-portal probe paths.
          *
