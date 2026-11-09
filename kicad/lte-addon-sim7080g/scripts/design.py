@@ -179,7 +179,7 @@ LCSC_BY_VALUE = {
     ("100uF 6.3V", "C_1210_3225Metric"): "C49066",    # Samsung CL32A107MQVNNNE
     ("220uF 6.3V", "CP_EIA-3528-21_Kemet-B"): "C600584",
     ("MMBT3904", "SOT-23"): "C20526",
-    ("green", "LED_0603_1608Metric"): "C72043",
+    ("green", "LED_0603_1608Metric"): "C12624",       # Hubei KENTO KT-0603G (basic part)
     ("SIM7080G", "XCVR_SIM7080G"): "C2943992",
     ("Nano-SIM", "JAE_SIM_Card_SF72S006"): "C2977286",
     ("LTE U.FL", "U.FL_Hirose_U.FL-R-SMT-1_Vertical"): "C88373",
