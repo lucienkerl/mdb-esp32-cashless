@@ -41,6 +41,7 @@
 #include "debug_log.h"
 #include "cred_backup.h"
 #include "network.h"
+#include "modem.h"
 #include "rfid_reader.h"
 #include "scale_factor.h"
 #include "mdb_trace.h"
@@ -119,6 +120,14 @@
  * below) lets a single firmware image tell the two boards apart at boot,
  * instead of relying on whoever flashes it picking the right binary. */
 #define PIN_BOARD_ID            GPIO_NUM_3
+
+/* LTE add-on module (SIM7080G) on the WROOM-1U's J2 socket — see
+ * kicad/lte-addon-sim7080g. J2 pin 1..4 = GPIO42..39. The module pulls
+ * DETECT up to 3V3 (10k); without it the internal pull-down reads LOW. */
+#define PIN_LTE_ADDON_DETECT    GPIO_NUM_42
+#define PIN_LTE_ADDON_PWRKEY    GPIO_NUM_41   /* high = PWRKEY pressed */
+#define PIN_LTE_ADDON_TX        GPIO_NUM_40   /* ESP TX -> modem RXD */
+#define PIN_LTE_ADDON_RX        GPIO_NUM_39   /* modem TXD -> ESP RX */
 
 #define ADC_UNIT_THERMISTOR     ADC_UNIT_1
 #define ADC_CHANNEL_THERMISTOR  ADC_CHANNEL_6   // Define the ADC unit, channel, and attenuation (NTC Thermistor)
@@ -3690,6 +3699,24 @@ static bool detect_board_variant(void) {
     return is_wroom_1u;
 }
 
+// WROOM-1U only: true when the LTE add-on module sits on J2 (its 10k pulls
+// GPIO42 above the internal pull-down). See PIN_LTE_ADDON_DETECT above.
+static bool detect_lte_addon(void) {
+    gpio_config_t cfg = {
+        .pin_bit_mask = (1ULL << PIN_LTE_ADDON_DETECT),
+        .mode         = GPIO_MODE_INPUT,
+        .pull_up_en   = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_ENABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&cfg);
+    vTaskDelay(pdMS_TO_TICKS(1)); // let the internal pull-down settle
+
+    bool present = (gpio_get_level(PIN_LTE_ADDON_DETECT) == 1);
+    ESP_LOGI(TAG, "LTE add-on on J2: %s", present ? "present" : "not fitted");
+    return present;
+}
+
 //------------------------- Relay outputs (J2/J3) -------------------------//
 //--------------------------------------------------------------------------//
 // WROOM-1U only — see PIN_RELAY_1/2 above for why these GPIOs are safe to
@@ -4844,10 +4871,16 @@ void app_main(void) {
 	 * branch, sets up esp_netif + esp_wifi_init + handler registration,
 	 * and calls esp_wifi_start(). Once IP_EVENT_STA_GOT_IP fires, the
 	 * UPLINK_UP callback above starts MQTT/SNTP/watchdog. */
-	/* WROOM-1U is WiFi-only, and the modem probe would drive GPIO17/18
-	 * (custom inputs 2/3 there) as the modem UART for several seconds. */
+	/* WROOM-1U has no modem of its own. The optional LTE module on J2
+	 * (kicad/lte-addon-sim7080g) pulls GPIO42 high and talks on
+	 * GPIO39/40/41; without it the probe stays off, because the default
+	 * modem pins GPIO17/18 are custom inputs 2/3 on this board. */
 	if (g_board_is_wroom_1u) {
-		network_disable_modem_probe();
+		if (detect_lte_addon()) {
+			modem_set_pins(PIN_LTE_ADDON_RX, PIN_LTE_ADDON_TX, PIN_LTE_ADDON_PWRKEY);
+		} else {
+			network_disable_modem_probe();
+		}
 	}
 	network_init();
 

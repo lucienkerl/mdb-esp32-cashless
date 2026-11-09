@@ -59,6 +59,13 @@ typedef struct {
 bool modem_probe(void);
 
 /*
+ * Selects the modem UART RX/TX and PWRKEY GPIOs. Call before modem_probe()
+ * (i.e. before network_init()). Without a call the driver uses the pins of
+ * the SIM7080G board (RX 18, TX 17, PWRKEY 14).
+ */
+void modem_set_pins(int rx, int tx, int pwrkey);
+
+/*
  * Returns whether the most recent modem_probe() succeeded — i.e. whether
  * a SIM7080G is actually attached and synced. Used by network.c to
  * disambiguate `NETWORK_STATE_SOFTAP_ONLY` (which can be reached either
