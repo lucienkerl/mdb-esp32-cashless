@@ -29,7 +29,7 @@ def expand(refs):
 
 with open(bom_in) as f, open(os.path.join(out, "BOM_JLCPCB.csv"), "w", newline="") as g:
     w = csv.writer(g)
-    w.writerow(["Comment", "Designator", "Footprint", "MPN / note", "Quantity"])
+    w.writerow(["Comment", "Designator", "Footprint", "LCSC Part #", "MPN / note", "Quantity"])
     for row in csv.DictReader(f):
         if not row["Footprint"]:
             continue
@@ -37,7 +37,7 @@ with open(bom_in) as f, open(os.path.join(out, "BOM_JLCPCB.csv"), "w", newline="
         if all(r.startswith(SKIP) for r in refs):
             continue
         w.writerow([row["Value"], ",".join(refs), row["Footprint"].split(":")[-1],
-                    row.get("MPN", ""), len(refs)])
+                    row.get("LCSC", ""), row.get("MPN", ""), len(refs)])
 
 with open(pos_in) as f, open(os.path.join(out, "CPL_JLCPCB.csv"), "w", newline="") as g:
     w = csv.writer(g)

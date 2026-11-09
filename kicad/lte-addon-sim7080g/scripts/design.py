@@ -29,7 +29,8 @@ GND_PINS_U2 = ["8", "13", "19", "21", "27", "30", "31", "33", "36", "37", "45",
                "63", "66", "67", "69", "70", "71", "72", "73", "74", "75", "76", "77"]
 
 # (ref, lib_id, value, footprint, {pin: net}, extra)
-# extra: dnp (bool), side ('F'/'B'), mpn, note
+# extra: dnp (bool), side ('F'/'B'), mpn, note, lcsc (LCSC / JLCPCB part number;
+#        filled in below from LCSC_BY_VALUE unless a part sets its own)
 PARTS = [
     # --- mainboard connector (bottom side) ----------------------------------
     ("J1", "Connector_Generic:Conn_01x06", "To mainboard J2",
@@ -43,10 +44,10 @@ PARTS = [
      {"1": "+3V3", "2": "VBAT"},
      {"note": "Modem supply link. Remove and bridge with an ammeter to measure the modem current."}),
     ("C1", "Device:C_Polarized", "220uF 6.3V", "Capacitor_Tantalum_SMD:CP_EIA-3528-21_Kemet-B",
-     {"1": "VBAT", "2": "GND"}, {"mpn": "low-ESR tantalum, e.g. Kemet T520B227M006"}),
+     {"1": "VBAT", "2": "GND"}, {"mpn": "Kemet T520B227M006ATE070 (low ESR)"}),
     ("C2", "Device:C", "100uF 6.3V", "Capacitor_SMD:C_1210_3225Metric",
      {"1": "VBAT", "2": "GND"}, {}),
-    ("C3", "Device:C", "22uF 10V", "Capacitor_SMD:C_0805_2012Metric",
+    ("C3", "Device:C", "22uF 25V", "Capacitor_SMD:C_0805_2012Metric",
      {"1": "VBAT", "2": "GND"}, {}),
     ("C4", "Device:C", "100nF", "Capacitor_SMD:C_0603_1608Metric",
      {"1": "VBAT", "2": "GND"}, {}),
@@ -108,7 +109,7 @@ PARTS = [
     ("J2", "Connector:JAE_SIM_Card_SF72S006", "Nano-SIM",
      "Connector_JAE:JAE_SIM_Card_SF72S006",
      {"C1": "SIM_VDD", "C2": "SIM_RST_C", "C3": "SIM_CLK_C", "C5": "GND",
-      "C7": "SIM_DATA_C", "SH": "GND"}, {"mpn": "JAE SF72S006VBDR2000"}),
+      "C7": "SIM_DATA_C", "SH": "GND"}, {"mpn": "JAE SF72S006VBDR2500"}),
     ("R12", "Device:R", "22", "Resistor_SMD:R_0603_1608Metric",
      {"1": "SIM_RST", "2": "SIM_RST_C"}, {}),
     ("R13", "Device:R", "22", "Resistor_SMD:R_0603_1608Metric",
@@ -160,3 +161,31 @@ SCH_GROUPS = [
     ("LTE antenna", ["R15", "C8", "C9", "J3"]),
     ("Test points and mechanics", ["TP1", "TP2", "TP3", "H1", "H2"]),
 ]
+
+# LCSC part numbers for JLCPCB assembly, keyed by (value, footprint name).
+# Checked on lcsc.com / jlcpcb.com on 2026-11-09; stock is not guaranteed.
+LCSC_BY_VALUE = {
+    ("0", "R_1206_3216Metric"): "C17888",
+    ("0", "R_0603_1608Metric"): "C21189",
+    ("22", "R_0603_1608Metric"): "C23345",
+    ("330", "R_0603_1608Metric"): "C23138",
+    ("4.7k", "R_0603_1608Metric"): "C23162",
+    ("10k", "R_0603_1608Metric"): "C25804",
+    ("47k", "R_0603_1608Metric"): "C25819",
+    ("10pF", "C_0603_1608Metric"): "C1634",
+    ("33pF", "C_0603_1608Metric"): "C1663",
+    ("100nF", "C_0603_1608Metric"): "C14663",
+    ("22uF 25V", "C_0805_2012Metric"): "C45783",      # Samsung CL21A226MAQNNNE
+    ("100uF 6.3V", "C_1210_3225Metric"): "C49066",    # Samsung CL32A107MQVNNNE
+    ("220uF 6.3V", "CP_EIA-3528-21_Kemet-B"): "C600584",
+    ("MMBT3904", "SOT-23"): "C20526",
+    ("green", "LED_0603_1608Metric"): "C72043",
+    ("SIM7080G", "XCVR_SIM7080G"): "C2943992",
+    ("Nano-SIM", "JAE_SIM_Card_SF72S006"): "C2977286",
+    ("LTE U.FL", "U.FL_Hirose_U.FL-R-SMT-1_Vertical"): "C88373",
+}
+
+for _ref, _lib, _val, _fp, _nets, _extra in PARTS:
+    _key = (_val, _fp.split(":")[-1])
+    if _key in LCSC_BY_VALUE and not _extra.get("dnp"):
+        _extra.setdefault("lcsc", LCSC_BY_VALUE[_key])

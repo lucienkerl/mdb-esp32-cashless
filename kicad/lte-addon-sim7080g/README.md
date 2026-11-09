@@ -64,6 +64,21 @@ The pin numbers are printed next to the header on the bottom silkscreen.
   filled and capped”), otherwise solder wicks into them.
 - J1, the test points and the mounting holes are not in the CPL (hand soldered / no part).
 
+## Ordering at JLCPCB (PCB + assembly)
+
+1. **PCB:** upload `fab/lte-addon-sim7080g_gerber_JLCPCB.zip`. Settings: 4 layers, 1.6 mm,
+   impedance control with the JLC04161H-7628 stack-up (the RF line is sized for it), via
+   covering **"Epoxy filled & capped"** (via-in-pad under the modem), surface finish ENIG
+   recommended for the LCC modem pads.
+2. **Assembly:** PCBA on the **top side** only, upload `fab/BOM_JLCPCB.csv` and
+   `fab/CPL_JLCPCB.csv`. Every part carries its LCSC number. The SIM7080G (C2943992), the SIM
+   holder (C2977286), the U.FL (C88373) and the 1210/tantalum caps are extended parts: check
+   stock, or pre-order them into your JLC parts library before ordering.
+3. In the placement preview check the rotation of U1 (pin-1 marker), C1 (tantalum polarity),
+   D1 and the four SOT-23s; JLC's library origins sometimes differ from KiCad's.
+4. C8/C9 (antenna match) stay unfitted. Solder J1 (1×6 male header, bottom side, pins down)
+   by hand.
+
 ## Firmware
 
 `mdb-slave-esp32s3` detects the module at boot: on the WROOM-1U board it reads GPIO42 with the

@@ -20,8 +20,8 @@ kicad-cli pcb export drill --format excellon --excellon-separate-th --generate-m
 rm -rf "$OUT/gerber"
 kicad-cli pcb export pos --format csv --units mm --side both --exclude-dnp \
   -o build/pos.csv $P.kicad_pcb >/dev/null
-kicad-cli sch export bom --fields 'Reference,Value,Footprint,MPN,${QUANTITY},${DNP}' \
-  --group-by 'Value,Footprint,${DNP}' --exclude-dnp \
+kicad-cli sch export bom --fields 'Reference,Value,Footprint,MPN,LCSC,${QUANTITY},${DNP}' \
+  --group-by 'Value,Footprint,LCSC,${DNP}' --exclude-dnp \
   -o build/bom.csv $P.kicad_sch >/dev/null
 python3 scripts/jlc.py build/bom.csv build/pos.csv "$OUT"
 kicad-cli pcb render --side top --quality high --width 1600 --height 1000 --zoom 1.1 \

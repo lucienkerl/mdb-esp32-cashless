@@ -141,6 +141,9 @@ def main():
         if extra.get("mpn"):
             props.append('(property "MPN" "%s" (at %.2f %.2f 0) (hide yes)\n      (effects (font (size 1.27 1.27)))\n    )'
                          % (extra["mpn"], sx, sy))
+        if extra.get("lcsc"):
+            props.append('(property "LCSC" "%s" (at %.2f %.2f 0) (hide yes)\n      (effects (font (size 1.27 1.27)))\n    )'
+                         % (extra["lcsc"], sx, sy))
         if extra.get("note"):
             props.append('(property "Note" "%s" (at %.2f %.2f 0) (hide yes)\n      (effects (font (size 1.27 1.27)))\n    )'
                          % (extra["note"], sx, sy))
