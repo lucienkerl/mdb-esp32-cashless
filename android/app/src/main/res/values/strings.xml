@@ -903,11 +903,11 @@
     <string name="product_delete">Delete product</string>
     <string name="product_delete_confirm">Delete “%1$s”? This cannot be undone.</string>
     <string name="warehouse_intake_create_product">Create new product</string>
-    <string name="refill_pack_line_refill">%1$d refill</string>
     <string name="refill_pack_line_no_stock">Refill: no stock</string>
     <string name="refill_pack_line_rebuild">%1$d rebuild</string>
     <string name="refill_pack_slot_one">slot %1$s</string>
     <string name="refill_pack_slot_many">slots %1$s</string>
+    <string name="refill_pack_slot_need">slot %1$d: %2$d/%3$d</string>
     <string name="refill_pack_in_box">In the box: %1$d of %2$d units</string>
     <string name="refill_pack_in_box_label">In the box</string>
     <string name="refill_pack_open_lines_hint">These goods stay in the warehouse and are not booked.</string>

@@ -899,11 +899,11 @@
     <string name="product_delete">Product verwijderen</string>
     <string name="product_delete_confirm">“%1$s” verwijderen? Dit kan niet ongedaan worden gemaakt.</string>
     <string name="warehouse_intake_create_product">Nieuw product aanmaken</string>
-    <string name="refill_pack_line_refill">%1$d bijvullen</string>
     <string name="refill_pack_line_no_stock">Bijvullen: geen voorraad</string>
     <string name="refill_pack_line_rebuild">%1$d ombouw</string>
     <string name="refill_pack_slot_one">vak %1$s</string>
     <string name="refill_pack_slot_many">vakken %1$s</string>
+    <string name="refill_pack_slot_need">vak %1$d: %2$d/%3$d</string>
     <string name="refill_pack_in_box">In de doos: %1$d van %2$d stuks</string>
     <string name="refill_pack_in_box_label">In de doos</string>
     <string name="refill_pack_open_lines_hint">Deze goederen blijven in het magazijn en worden niet geboekt.</string>

@@ -948,11 +948,11 @@
     <string name="product_delete">Supprimer le produit</string>
     <string name="product_delete_confirm">Supprimer « %1$s » ? Cette action est irréversible.</string>
     <string name="warehouse_intake_create_product">Créer un nouveau produit</string>
-    <string name="refill_pack_line_refill">%1$d à remplir</string>
     <string name="refill_pack_line_no_stock">Remplissage : pas de stock</string>
     <string name="refill_pack_line_rebuild">%1$d transformation</string>
     <string name="refill_pack_slot_one">case %1$s</string>
     <string name="refill_pack_slot_many">cases %1$s</string>
+    <string name="refill_pack_slot_need">case %1$d : %2$d/%3$d</string>
     <string name="refill_pack_in_box">Dans le carton : %1$d sur %2$d unités</string>
     <string name="refill_pack_in_box_label">Dans le carton</string>
     <string name="refill_pack_open_lines_hint">Ces marchandises restent en entrepôt et ne sont pas comptabilisées.</string>

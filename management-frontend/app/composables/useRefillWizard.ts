@@ -768,9 +768,18 @@ export function useRefillWizard() {
   /** Machines with at least one line in the box. */
   const machinesReady = computed(() => machines.value.filter(m => packLines(m).some(l => l.ticked)).length)
 
-  /** Lines with units that are not ticked: they stay in the warehouse when the tour starts. */
-  const openPackLines = computed<PackLine[]>(() =>
-    machines.value.flatMap(m => packLines(m).filter(l => !l.ticked && !l.unavailable && l.total > 0)))
+  /**
+   * Lines with units that are not ticked: they stay in the warehouse when the
+   * tour starts. Only machines the refiller packed for count — a machine with
+   * nothing ticked was left out on purpose, so its lines are not "forgotten".
+   * With nothing ticked anywhere, every machine counts.
+   */
+  const openPackLines = computed<PackLine[]>(() => {
+    const all = machines.value.map(m => packLines(m))
+    const packed = all.filter(lines => lines.some(l => l.ticked))
+    return (packed.length > 0 ? packed : all)
+      .flatMap(lines => lines.filter(l => !l.ticked && !l.unavailable && l.total > 0))
+  })
 
   /** Set a custom packing quantity for a product on a specific machine */
   function setCustomQuantity(machineId: string, productId: string, qty: number) {
