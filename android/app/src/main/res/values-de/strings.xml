@@ -899,11 +899,11 @@
     <string name="product_delete">Produkt löschen</string>
     <string name="product_delete_confirm">„%1$s“ löschen? Das kann nicht rückgängig gemacht werden.</string>
     <string name="warehouse_intake_create_product">Neues Produkt anlegen</string>
-    <string name="refill_pack_line_refill">%1$d auffüllen</string>
     <string name="refill_pack_line_no_stock">Auffüllen: kein Bestand</string>
     <string name="refill_pack_line_rebuild">%1$d Umbau</string>
     <string name="refill_pack_slot_one">Fach %1$s</string>
     <string name="refill_pack_slot_many">Fächer %1$s</string>
+    <string name="refill_pack_slot_need">Fach %1$d: %2$d/%3$d</string>
     <string name="refill_pack_in_box">In der Box: %1$d von %2$d Stück</string>
     <string name="refill_pack_in_box_label">In der Box</string>
     <string name="refill_pack_open_lines_hint">Diese Ware bleibt im Lager und wird nicht gebucht.</string>

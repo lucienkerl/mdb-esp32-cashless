@@ -3516,6 +3516,13 @@ struct OpenPackLine: Identifiable, Equatable {
 /// Everything one machine gets of one product on the packing list: the
 /// refill of its slots and the units for its slot rebuilds, under one tick
 /// and one amount ("3 refill + 5 rebuild slot 57").
+/// One slot's share of a pack line's refill: what it lacks of its capacity.
+struct PackSlotNeed: Equatable {
+    let itemNumber: Int
+    let need: Int
+    let capacity: Int
+}
+
 struct PackLine: Equatable {
     let machineId: UUID
     let productId: UUID
@@ -3524,6 +3531,12 @@ struct PackLine: Equatable {
     let refill: Int
     /// What the slots holding the product lack.
     let refillNeed: Int
+    /// Summed capacity of the product's slots, so the refiller can weigh
+    /// "needs 2 / 15" before packing: `refillNeed / refillCapacity`.
+    let refillCapacity: Int
+    /// The product's slots, each with its need — shown one by one when the
+    /// product sits in several slots.
+    let refillSlots: [PackSlotNeed]
     /// The refill can be packed (it has stock or is already ticked).
     let hasRefill: Bool
     /// Units for slot rebuilds.
@@ -3552,6 +3565,16 @@ extension RefillWizardViewModel {
         return machine.trays
             .filter { $0.tray.productId == productId && $0.deficit > 0 }
             .reduce(0) { $0 + $1.deficit }
+    }
+
+    /// Every slot holding the product (rebuilt slots are not in `trays`),
+    /// by slot number, with what it lacks of its capacity.
+    func refillSlotNeeds(machineId: UUID, productId: UUID) -> [PackSlotNeed] {
+        guard let machine = machines.first(where: { $0.id == machineId }) else { return [] }
+        return machine.trays
+            .filter { $0.tray.productId == productId }
+            .map { PackSlotNeed(itemNumber: $0.tray.itemNumber, need: $0.deficit, capacity: $0.tray.capacity) }
+            .sorted { $0.itemNumber < $1.itemNumber }
     }
 
     /// The refill part of a line can be packed.
@@ -3623,11 +3646,14 @@ extension RefillWizardViewModel {
         let hasRefill = hasRefillLine(machineId: machineId, productId: productId)
         let refill = hasRefill ? lineRefillQuantity(machineId: machineId, productId: productId) : 0
         let rebuild = rebuildNeed > 0 ? rebuildQuantity(machineId: machineId, productId: productId) : 0
+        let refillSlots = refillSlotNeeds(machineId: machineId, productId: productId)
         return PackLine(
             machineId: machineId,
             productId: productId,
             refill: refill,
             refillNeed: refillNeed,
+            refillCapacity: refillSlots.reduce(0) { $0 + $1.capacity },
+            refillSlots: refillSlots,
             hasRefill: hasRefill,
             rebuild: rebuild,
             rebuildNeed: rebuildNeed,

@@ -740,6 +740,15 @@ private fun PackLineRow(
                     Text(text = machineName, style = MaterialTheme.typography.bodyMedium)
                 }
                 Text(text = lineReason(line), style = MaterialTheme.typography.labelMedium)
+                if (line.refillSlots.size > 1) {
+                    Text(
+                        text = line.refillSlots
+                            .map { stringResource(R.string.refill_pack_slot_need, it.itemNumber, it.need, it.capacity) }
+                            .joinToString(" · "),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
         QuantityStepper(
@@ -752,11 +761,16 @@ private fun PackLineRow(
     }
 }
 
-/** "3 refill + ⇄ 5 rebuild · slot 57 · 2 still missing". */
+/**
+ * "needs 9 / 12 + ⇄ 5 rebuild · slot 57 · 2 still missing". What the slots
+ * lack against what fits in them, so the refiller can weigh whether a nearly
+ * full spiral is worth filling; the amount packed is the stepper beside it.
+ */
 @Composable
 private fun lineReason(line: PackLine): AnnotatedString {
     val secondary = MaterialTheme.colorScheme.onSurfaceVariant
-    val refill = stringResource(R.string.refill_pack_line_refill, line.refill)
+    val primary = MaterialTheme.colorScheme.onSurface
+    val need = stringResource(R.string.refill_pack_need, line.refillNeed, line.refillCapacity)
     val noStock = stringResource(R.string.refill_pack_line_no_stock)
     val rebuild = stringResource(R.string.refill_pack_line_rebuild, line.rebuild)
     val slots = if (line.slots.size == 1) {
@@ -767,8 +781,12 @@ private fun lineReason(line: PackLine): AnnotatedString {
     val missing = pluralStringResource(R.plurals.refill_pack_still_missing, line.shortfall, line.shortfall)
     return buildAnnotatedString {
         if (line.refillNeed > 0) {
-            if (line.hasRefill) withStyle(SpanStyle(color = secondary)) { append(refill) }
-            else withStyle(SpanStyle(color = StockRed)) { append(noStock) }
+            if (line.hasRefill) {
+                withStyle(SpanStyle(color = primary, fontWeight = FontWeight.SemiBold)) { append(need) }
+            } else {
+                withStyle(SpanStyle(color = StockRed)) { append(noStock) }
+                withStyle(SpanStyle(color = secondary)) { append(" · "); append(need) }
+            }
         }
         if (line.rebuildNeed > 0) {
             if (line.refillNeed > 0) withStyle(SpanStyle(color = secondary)) { append(" + ") }

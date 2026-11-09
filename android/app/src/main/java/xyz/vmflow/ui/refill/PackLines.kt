@@ -11,6 +11,10 @@ import xyz.vmflow.data.RefillTourLogic
  * @property refill units for the refill (0 when the product is not refilled
  *   here or the warehouse has nothing left for it).
  * @property refillNeed what the slots holding the product lack.
+ * @property refillCapacity summed capacity of the product's slots, so the
+ *   refiller can weigh "needs 2 / 15" before packing.
+ * @property refillSlots the product's slots, each with its need — shown one
+ *   by one when the product sits in several slots.
  * @property hasRefill the refill can be packed (it has stock or is already ticked).
  * @property rebuild units for slot rebuilds.
  * @property rebuildNeed what the rebuilt slots need from the warehouse.
@@ -22,6 +26,8 @@ data class PackLine(
     val productId: String,
     val refill: Int,
     val refillNeed: Int,
+    val refillCapacity: Int = 0,
+    val refillSlots: List<PackSlotNeed> = emptyList(),
     val hasRefill: Boolean,
     val rebuild: Int,
     val rebuildNeed: Int,
@@ -35,6 +41,18 @@ data class PackLine(
 
     /** Nothing to pack: the warehouse has nothing left for this line. */
     val isUnavailable: Boolean get() = !hasRefill && rebuildNeed == 0
+}
+
+/** One slot's share of a pack line's refill: what it lacks of its capacity. */
+data class PackSlotNeed(val itemNumber: Int, val need: Int, val capacity: Int)
+
+/** The product's slots (rebuilt ones left out), by slot number, with their need. */
+fun RefillUiState.refillSlotNeeds(machineId: String, productId: String): List<PackSlotNeed> {
+    val machine = machines.find { it.machine.id == machineId } ?: return emptyList()
+    val group = RefillTourLogic.refillGroups(machine).firstOrNull { it.productId == productId } ?: return emptyList()
+    return group.trays
+        .map { PackSlotNeed(it.itemNumber, maxOf(0, it.capacity - it.currentStock), it.capacity) }
+        .sortedBy { it.itemNumber }
 }
 
 /** What the machine's slots holding the product lack (the refill need). */
@@ -149,11 +167,14 @@ fun RefillUiState.packLine(machineId: String, productId: String): PackLine {
     val rebuildNeed = rebuildNeed(machineId, productId)
     val hasRefill = hasRefillLine(machineId, productId)
     val machine = machines.find { it.machine.id == machineId }
+    val refillSlots = refillSlotNeeds(machineId, productId)
     return PackLine(
         machineId = machineId,
         productId = productId,
         refill = if (hasRefill) lineRefillQuantity(machineId, productId) else 0,
         refillNeed = refillNeed(machineId, productId),
+        refillCapacity = refillSlots.sumOf { it.capacity },
+        refillSlots = refillSlots,
         hasRefill = hasRefill,
         rebuild = if (rebuildNeed > 0) rebuildDisplayQuantity(machineId, productId) else 0,
         rebuildNeed = rebuildNeed,

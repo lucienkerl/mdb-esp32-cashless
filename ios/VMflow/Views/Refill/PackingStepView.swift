@@ -536,6 +536,12 @@ private struct PackLineRow: View {
                         reason
                             .font(.caption)
                             .fixedSize(horizontal: false, vertical: true)
+                        if line.refillSlots.count > 1 {
+                            Text(verbatim: slotNeedsText)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                     Spacer(minLength: 4)
                 }
@@ -569,13 +575,19 @@ private struct PackLineRow: View {
         .opacity(line.isUnavailable ? 0.6 : 1.0)
     }
 
-    /// "3 refill + ⇄ 5 rebuild · slot 57 · 2 still missing".
+    /// "needs 9 / 12 + ⇄ 5 rebuild · slot 57 · 2 still missing". What the
+    /// slots lack against what fits in them, so the refiller can weigh
+    /// whether a nearly full spiral is worth filling; the amount packed is
+    /// the stepper beside it.
     private var reason: Text {
         var parts: [Text] = []
         if line.refillNeed > 0 {
+            let need = Text("needs \(line.refillNeed) / \(line.refillCapacity)")
             parts.append(line.hasRefill
-                ? Text("\(line.refill) refill").foregroundStyle(.secondary)
-                : Text("Refill: no stock").foregroundStyle(.red))
+                ? need.foregroundStyle(.primary).fontWeight(.semibold)
+                : Text("Refill: no stock").foregroundStyle(.red)
+                    + Text(verbatim: " · ").foregroundStyle(.secondary)
+                    + need.foregroundStyle(.secondary))
         }
         if line.rebuildNeed > 0 {
             parts.append(
@@ -595,6 +607,14 @@ private struct PackLineRow: View {
                     .foregroundStyle(.orange).fontWeight(.semibold)
         }
         return text
+    }
+
+    /// "Slot 12: 4/4 · slot 14: 4/4" — the need per slot when the product
+    /// sits in several of them.
+    private var slotNeedsText: String {
+        line.refillSlots
+            .map { String(localized: "slot \(String($0.itemNumber))") + ": \($0.need)/\($0.capacity)" }
+            .joined(separator: " · ")
     }
 
     private var slotText: String {
