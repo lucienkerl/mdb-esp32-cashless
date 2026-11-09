@@ -53,9 +53,13 @@ The pin numbers are printed next to the header on the bottom silkscreen.
 - Solder a **1×6 male pin header on the bottom**, pins pointing down. On the mainboard J2
   takes a standard 8.5 mm female socket, which puts the module about 11 mm above the mainboard;
   the tallest part on top (SIM holder / modem) stays well under the 19 mm lid clearance.
-- The outline keeps clear of J1 (RFID cable), the I2C connector J3, the MDB connector and the
-  screw terminals of the mainboard.
-- H1/H2 (M2) take optional 11 mm nylon spacers resting on the mainboard.
+- The outline keeps clear of the mainboard's tall parts (checked against their courtyards and
+  silkscreen body outlines): about 0.6 mm to J1 (RFID cable), 0.4 mm to the I2C connector J3,
+  1.0 mm to the custom-input terminal P2 (the top-right notch is for it), 0.85 mm to the screw terminals P3/P5/P6 along
+  the bottom edge, 1.5 mm to the MDB connector. The buzzer sits under the module
+  (3 mm tall, so 8 mm of air), which makes it a little quieter.
+- H1/H2 (M2) take optional 11 mm nylon spacers resting on the mainboard; both land on bare
+  board (H2 next to R18, clear of it with a 4 mm spacer).
 - The modem pads carry via-in-pad ground vias: order **plugged / tented vias** (JLC “epoxy
   filled and capped”), otherwise solder wicks into them.
 - J1, the test points and the mounting holes are not in the CPL (hand soldered / no part).

@@ -43,10 +43,11 @@ def mm(x, y):
 # Mainboard J2 pin n sits at x = 112.470 + 2.54*(n-1), y = 126.754.
 HDR_X0, HDR_Y = 112.470376, 126.754043
 OUTLINE = [
-    (110.9, 125.2), (127.0, 125.2),   # neck, between mainboard J1 (RFID) and J3 (I2C)
-    (127.0, 132.4), (144.0, 132.4),   # step clear of J3
+    (111.0, 125.2), (126.85, 125.2),   # neck, between mainboard J1 (RFID) and J3 (I2C)
+    (126.85, 132.4), (140.9, 132.4),   # step clear of J3
+    (140.9, 136.2), (144.0, 136.2),   # notch clear of the custom-input terminal P2
     (144.0, 152.5), (94.0, 152.5),    # bottom edge, clear of the screw terminals
-    (94.0, 129.2), (110.9, 129.2),    # step clear of J1
+    (94.0, 129.2), (111.0, 129.2),    # step clear of J1
 ]
 
 # --------------------------------------------------------------- placement --
@@ -68,9 +69,9 @@ PLACE = {
     "R11": (107.0, 132.4, 90), "D1": (108.6, 132.4, 90),
     "R8": (110.15, 130.9, 90),
     # right: supply link, PWRKEY, bulk, test points
-    "R1": (134.2, 134.3, 0), "H2": (141.4, 135.0, 0),
+    "R1": (134.2, 134.3, 0), "H2": (141.6, 139.6, 0),
     "Q3": (133.3, 138.5, 0), "R6": (136.0, 138.5, 90), "R7": (137.8, 138.5, 90),
-    "TP2": (140.6, 139.6, 0), "TP1": (142.7, 139.6, 0),
+    "TP2": (137.6, 134.6, 0), "TP1": (139.7, 134.6, 0),
     "C4": (132.0, 143.3, 0), "C5": (132.0, 144.9, 0), "C6": (132.0, 146.5, 0),
     "C3": (135.3, 145.0, 90), "C1": (138.3, 145.0, 90), "C2": (141.9, 145.0, 90),
     # RF: pad 32 -> pi match -> U.FL (line drawn in route_rf)
@@ -349,8 +350,8 @@ def add_silk(board):
     B = pcbnew.B_SilkS
     text(board, "LTE", 135.5, 147.3, 0.8, layer=T)
     text(board, "SIM", 96.0, 135.6, 0.8, layer=T)
-    text(board, "VB", 140.6, 141.3, 0.8, layer=T)
-    text(board, "ST", 142.7, 141.3, 0.8, layer=T)
+    text(board, "VB", 137.6, 136.1, 0.8, layer=T)
+    text(board, "ST", 139.7, 136.1, 0.8, layer=T)
     text(board, "G", 95.6, 149.0, 0.8, layer=T)
     text(board, "NET", 106.0, 134.6, 0.8, layer=T)
     # bottom: title + header pin functions (readable from the bottom side)
