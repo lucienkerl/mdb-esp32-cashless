@@ -1710,20 +1710,45 @@
         "label": "Alertes de stock bas",
         "description": "Soyez notifié lorsqu’un produit passe sous le seuil de réapprovisionnement."
       },
+      "machine_offline": {
+        "label": "Machine hors ligne",
+        "description": "Une machine est injoignable depuis quelques minutes."
+      },
+      "machine_online": {
+        "label": "Machine de nouveau en ligne",
+        "description": "Une machine signalée est de nouveau joignable."
+      },
       "inbox": {
         "label": "Boîte de réception clients",
         "description": "Soyez notifié lorsqu’un client signale un problème, laisse un avis ou propose un produit."
       },
       "new_deals": {
         "label": "Nouvelles offres",
-        "description": "Recevez une notification quotidienne lorsque de nouvelles offres correspondant à vos produits sont trouvées."
+        "description": "Une fois par jour, lorsque de nouvelles offres correspondant à vos produits sont trouvées."
       }
     },
     "testNotificationSent": "Notification de test envoyée ({count} appareil). | Notification de test envoyée ({count} appareils).",
     "testNotificationFailed": "Échec de l’envoi de la notification de test",
     "pushUnsupported": "Les notifications push ne sont pas prises en charge par ce navigateur.",
     "pushNotConfigured": "Les notifications push ne sont pas configurées. VAPID_PUBLIC_KEY est manquant.",
-    "taxNamePlaceholder": "TVA 20 %"
+    "taxNamePlaceholder": "TVA 20 %",
+    "notifMatrix": {
+      "title": "Notifications",
+      "description": "Choisissez pour chaque événement les canaux qui vous avertissent. S’applique à tous vos appareils et aux applications.",
+      "event": "Événement",
+      "channels": {
+        "push": "Push",
+        "email": "E-mail"
+      },
+      "pushHint": "Le push arrive sur chaque appareil où il est activé (ce navigateur : voir ci-dessous ; app iOS : Réglages).",
+      "pushUnavailable": "Le push n’est pas configuré sur ce serveur (clés VAPID / APNs manquantes).",
+      "emailNotConfigured": "L’e-mail n’est pas encore configuré sur ce serveur. Un administrateur peut configurer SMTP dans Docker/.env.",
+      "emailNoAddress": "Votre compte n’a pas d’adresse e-mail.",
+      "emailGoesTo": "Les e-mails sont envoyés à",
+      "sendTestEmail": "Envoyer un e-mail de test",
+      "testEmailSent": "E-mail de test envoyé à {address}.",
+      "testEmailFailed": "L’e-mail de test n’a pas pu être envoyé : {error}"
+    }
   },
   "softap": {
     "title": "Accès WiFi (SoftAP)",

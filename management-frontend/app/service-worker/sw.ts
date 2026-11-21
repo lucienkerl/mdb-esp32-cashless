@@ -37,7 +37,11 @@ self.addEventListener('push', (event) => {
     badge: undefined,
     image: payload.image,
     data: payload.data ?? {},
-    tag: payload.data?.type ? String(payload.data.type) : undefined,
+    // One notification per type and machine: a second machine going offline
+    // must not replace the first one's alert.
+    tag: payload.data?.type
+      ? String(payload.data.type) + (payload.data.machine_id ? `:${payload.data.machine_id}` : '')
+      : undefined,
   }
 
   event.waitUntil(self.registration.showNotification(title, options))
@@ -52,8 +56,13 @@ self.addEventListener('notificationclick', (event) => {
   let targetUrl = '/'
   if (data?.type === 'sale' && data?.embedded_id) {
     targetUrl = `/machines`
-  } else if (data?.type === 'low_stock' && data?.machine_id) {
+  } else if (
+    (data?.type === 'low_stock' || data?.type === 'machine_offline' || data?.type === 'machine_online') &&
+    data?.machine_id
+  ) {
     targetUrl = `/machines/${data.machine_id}`
+  } else if (data?.type === 'machine_offline' || data?.type === 'machine_online') {
+    targetUrl = '/devices'
   }
 
   event.waitUntil(

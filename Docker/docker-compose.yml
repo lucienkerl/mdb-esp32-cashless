@@ -453,6 +453,16 @@ services:
       APNS_PRIVATE_KEY: ${APNS_PRIVATE_KEY:-}
       APNS_TOPIC: ${APNS_TOPIC:-}
       APNS_PRODUCTION: ${APNS_PRODUCTION:-false}
+      # Email notifications go out over the same SMTP server GoTrue uses for
+      # the auth mails (SMTP_HOST=supabase-mail = not configured → no email
+      # channel). SITE_URL builds the "open in VMflow" links in those mails.
+      SITE_URL: ${SITE_URL}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL}
+      SMTP_SENDER_NAME: ${SMTP_SENDER_NAME}
     command: ["start", "--main-service", "/home/deno/functions/main"]
 
   # ==========================================================================

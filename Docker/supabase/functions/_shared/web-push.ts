@@ -10,6 +10,7 @@
 
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { normalizeLocale, type Locale } from './notification-i18n.ts'
+import { loadRecipientIds } from './notification-recipients.ts'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -30,7 +31,7 @@ interface VapidConfig {
   subject: string     // mailto: or https: URI
 }
 
-interface PushPayload {
+export interface PushPayload {
   title: string
   body: string
   /**
@@ -589,10 +590,10 @@ export async function sendPushToUsers(
   payloadOrBuilder: PushPayload | ((locale: Locale) => PushPayload),
   options?: {
     /**
-     * Skip users who also have this OTHER notification type enabled. Useful
-     * to avoid redundant alerts when the current push duplicates info
-     * already delivered via a different channel (e.g. low_stock when sale
-     * already shows the stock count).
+     * Skip users who also have this OTHER notification type enabled on the
+     * push channel. Useful to avoid redundant alerts when the current push
+     * duplicates info already delivered by another type (e.g. low_stock when
+     * the sale push already shows the stock count).
      */
     suppressIfAlsoEnabled?: string
   },
@@ -647,65 +648,29 @@ export async function sendPushToUsers(
     ? { publicKey: publicKey!, privateKey: privateKey!, subject: subject! }
     : null
 
-  // Query subscriptions for users in this company who want this notification type.
+  // Members of this company who want this type on the push channel
+  // (notification_settings; missing row = push on).
+  const recipientIds = await loadRecipientIds(
+    adminClient,
+    companyId,
+    notificationType,
+    'push',
+    options?.suppressIfAlsoEnabled,
+  )
+  if (recipientIds.size === 0) {
+    return { sent: 0, expired: 0 }
+  }
+
   const { data: allSubs, error: subsError } = await adminClient
     .from('push_subscriptions')
     .select('id, endpoint, p256dh, auth, user_id, platform, fcm_token, apns_topic')
+    .in('user_id', [...recipientIds])
 
   if (subsError || !allSubs || allSubs.length === 0) {
     return { sent: 0, expired: 0 }
   }
 
-  // Filter by company membership
-  const { data: members } = await adminClient
-    .from('organization_members')
-    .select('user_id')
-    .eq('company_id', companyId)
-
-  if (!members || members.length === 0) {
-    return { sent: 0, expired: 0 }
-  }
-
-  const memberIds = new Set(members.map((m: { user_id: string }) => m.user_id))
-
-  // Check preferences (absence = enabled)
-  const { data: disabledPrefs } = await adminClient
-    .from('notification_preferences')
-    .select('user_id')
-    .eq('notification_type', notificationType)
-    .eq('enabled', false)
-
-  const disabledUserIds = new Set((disabledPrefs ?? []).map((p: { user_id: string }) => p.user_id))
-
-  // Users who have an "alternate" type enabled should not receive this push.
-  // Semantics: "enabled" = member AND no explicit row with enabled=false for
-  // that type (absence = enabled, matching the disabledPrefs semantics above).
-  const suppressedUserIds = new Set<string>()
-  if (options?.suppressIfAlsoEnabled) {
-    const { data: altDisabledPrefs } = await adminClient
-      .from('notification_preferences')
-      .select('user_id')
-      .eq('notification_type', options.suppressIfAlsoEnabled)
-      .eq('enabled', false)
-
-    const altDisabledUserIds = new Set(
-      (altDisabledPrefs ?? []).map((p: { user_id: string }) => p.user_id),
-    )
-
-    for (const memberId of memberIds) {
-      if (!altDisabledUserIds.has(memberId)) {
-        // This member has the other type enabled → suppress current push.
-        suppressedUserIds.add(memberId)
-      }
-    }
-  }
-
-  const subscriptions = allSubs.filter(
-    (s: { user_id: string }) =>
-      memberIds.has(s.user_id) &&
-      !disabledUserIds.has(s.user_id) &&
-      !suppressedUserIds.has(s.user_id),
-  ) as PushSubscription[]
+  const subscriptions = allSubs as PushSubscription[]
 
   if (subscriptions.length === 0) {
     return { sent: 0, expired: 0 }

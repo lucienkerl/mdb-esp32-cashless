@@ -1710,20 +1710,45 @@
         "label": "Meldingen bij lage voorraad",
         "description": "Ontvang een melding wanneer een product onder de bijvuldrempel zakt."
       },
+      "machine_offline": {
+        "label": "Automaat offline",
+        "description": "Een automaat is al enkele minuten niet bereikbaar."
+      },
+      "machine_online": {
+        "label": "Automaat weer online",
+        "description": "Een gemelde automaat is weer bereikbaar."
+      },
       "inbox": {
         "label": "Klantinbox",
         "description": "Ontvang een melding wanneer een klant een probleem meldt, feedback geeft of een productwens indient."
       },
       "new_deals": {
         "label": "Nieuwe aanbiedingen",
-        "description": "Ontvang dagelijks een pushmelding wanneer nieuwe aanbiedingen voor je producten worden gevonden."
+        "description": "Eén keer per dag, wanneer nieuwe aanbiedingen voor je producten worden gevonden."
       }
     },
     "testNotificationSent": "Testmelding verzonden ({count} apparaat). | Testmelding verzonden ({count} apparaten).",
     "testNotificationFailed": "Testmelding kon niet worden verzonden",
     "pushUnsupported": "Pushmeldingen worden niet ondersteund in deze browser.",
     "pushNotConfigured": "Pushmeldingen zijn niet geconfigureerd. VAPID_PUBLIC_KEY ontbreekt.",
-    "taxNamePlaceholder": "btw 21%"
+    "taxNamePlaceholder": "btw 21%",
+    "notifMatrix": {
+      "title": "Meldingen",
+      "description": "Kies per gebeurtenis via welke kanalen je een melding krijgt. Geldt voor al je apparaten en de apps.",
+      "event": "Gebeurtenis",
+      "channels": {
+        "push": "Push",
+        "email": "E-mail"
+      },
+      "pushHint": "Push komt aan op elk apparaat waar push aan staat (deze browser: zie hieronder; iOS-app: Instellingen).",
+      "pushUnavailable": "Push is op deze server niet ingesteld (VAPID-/APNs-sleutels ontbreken).",
+      "emailNotConfigured": "E-mail is op deze server nog niet ingesteld. Een beheerder kan SMTP instellen in Docker/.env.",
+      "emailNoAddress": "Je account heeft geen e-mailadres.",
+      "emailGoesTo": "E-mails gaan naar",
+      "sendTestEmail": "Test-e-mail sturen",
+      "testEmailSent": "Test-e-mail verstuurd naar {address}.",
+      "testEmailFailed": "Test-e-mail kon niet worden verstuurd: {error}"
+    }
   },
   "softap": {
     "title": "WiFi-toegang (SoftAP)",

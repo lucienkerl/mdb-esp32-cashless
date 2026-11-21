@@ -17,7 +17,6 @@ struct SettingsView: View {
             Section {
                 pushToggle
                 if notifications.isEnabled {
-                    notificationTypeToggles
                     testButton
                 }
             } header: {
@@ -27,6 +26,23 @@ struct SettingsView: View {
                     Text("Notifications are disabled in system settings. Open Settings to enable them.")
                         .foregroundStyle(.orange)
                 }
+            }
+
+            // MARK: - Notification Matrix (event × channel)
+            Section {
+                notificationMatrix
+            } header: {
+                HStack {
+                    Label("Notifications", systemImage: "slider.horizontal.3")
+                    Spacer()
+                    ForEach(NotificationService.channelKeys, id: \.self) { channel in
+                        Image(systemName: Self.channelIcon(channel))
+                            .frame(width: 44)
+                            .accessibilityLabel(Self.channelLabel(channel))
+                    }
+                }
+            } footer: {
+                notificationMatrixFooter
             }
 
             // MARK: - Deals Section
@@ -168,9 +184,7 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         .task {
             await notifications.checkPermissionStatus()
-            if notifications.isEnabled {
-                await notifications.fetchPreferences()
-            }
+            await notifications.fetchPreferences()
             await deals.loadSettings()
         }
         .alert("Sign Out", isPresented: $showSignOutConfirm) {
@@ -253,9 +267,19 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Notification Type Toggles
+    // MARK: - Notification Matrix
 
-    private var notificationTypeToggles: some View {
+    static func channelIcon(_ channel: String) -> String {
+        channel == "email" ? "envelope.fill" : "bell.fill"
+    }
+
+    static func channelLabel(_ channel: String) -> String {
+        channel == "email" ? String(localized: "Email") : String(localized: "Push")
+    }
+
+    /// One row per event type, one round toggle per channel (push, email).
+    /// Account-wide, so it is shown whether or not push is on for this device.
+    private var notificationMatrix: some View {
         ForEach(NotificationService.notificationTypes) { type in
             HStack(spacing: 12) {
                 Image(systemName: type.icon)
@@ -271,17 +295,45 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Spacer()
+                Spacer(minLength: 8)
 
-                Toggle("", isOn: Binding(
-                    get: { notifications.isTypeEnabled(type.key) },
-                    set: { newValue in
-                        Task {
-                            await notifications.togglePreference(type: type.key, enabled: newValue)
-                        }
-                    }
-                ))
-                .labelsHidden()
+                ForEach(NotificationService.channelKeys, id: \.self) { channel in
+                    channelToggle(type: type, channel: channel)
+                }
+            }
+        }
+    }
+
+    private func channelToggle(type: NotificationType, channel: String) -> some View {
+        let on = notifications.isEnabled(type.key, channel: channel)
+        let available = notifications.channelInfo(channel)?.available ?? (channel == "push")
+        return Button {
+            Task { await notifications.setEnabled(type.key, channel: channel, enabled: !on) }
+        } label: {
+            Image(systemName: Self.channelIcon(channel))
+                .font(.subheadline)
+                .foregroundStyle(on ? Color.white : Color.secondary)
+                .frame(width: 36, height: 36)
+                .background(Circle().fill(on ? Color.accentColor : Color(.tertiarySystemFill)))
+                .frame(width: 44)
+        }
+        .buttonStyle(.plain)
+        .disabled(!available)
+        .opacity(available ? 1 : 0.35)
+        .accessibilityLabel("\(type.label), \(Self.channelLabel(channel))")
+        .accessibilityValue(on ? String(localized: "On") : String(localized: "Off"))
+        .accessibilityAddTraits(.isToggle)
+    }
+
+    @ViewBuilder
+    private var notificationMatrixFooter: some View {
+        let email = notifications.channelInfo("email")
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Choose for each event whether it arrives as push, email or both. Applies to all your devices.")
+            if let email, email.configured == false {
+                Text("Email is not set up on this server yet.")
+            } else if let address = email?.address, !address.isEmpty {
+                Text("Emails go to \(address)")
             }
         }
     }

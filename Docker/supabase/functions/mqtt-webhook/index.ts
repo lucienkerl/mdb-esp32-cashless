@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { decodeBase64 } from 'https://deno.land/std@0.224.0/encoding/base64.ts'
-import { sendPushToUsers } from '../_shared/web-push.ts'
+import { notifyUsers } from '../_shared/notify.ts'
 import { lowStockCrossed, saleStockLine, summarizeProductStock } from './product-stock.ts'
 import type { ProductStock } from './product-stock.ts'
 import { t, formatPrice, type Locale } from '../_shared/notification-i18n.ts'
@@ -844,11 +844,11 @@ Deno.serve(async (req) => {
 
         // 1. Sale notification — three-line layout on iOS (title / subtitle /
         //    body), merged on Android+web (subtitle\nbody). Localized per
-        //    recipient via sendPushToUsers' locale grouping.
+        //    recipient and per channel (push / email) via notifyUsers.
         const itemLabel = productName ?? `Item #${effectiveItemNumber}`;
         const machineLabel = machine?.name ? ` · ${machine.name}` : '';
 
-        await sendPushToUsers(adminClient, embedded.company, 'sale', (locale: Locale) => {
+        await notifyUsers(adminClient, embedded.company, 'sale', (locale: Locale) => {
           const strings = t(locale);
           const priceStr = formatPrice(salePrice, locale);
 
@@ -864,6 +864,7 @@ Deno.serve(async (req) => {
             subtitle: `${itemLabel} — ${priceStr}`,
             body,
             image: productImageUrl,
+            link: machine ? `/machines/${machine.id}` : '/machines',
             data: { type: 'sale', embedded_id: embedded.id },
           };
         });
@@ -876,12 +877,13 @@ Deno.serve(async (req) => {
           const itemLabelLow = productName ?? `Item #${effectiveItemNumber}`;
           const machineName = machine.name;
 
-          await sendPushToUsers(adminClient, embedded.company, 'low_stock', (locale: Locale) => {
+          await notifyUsers(adminClient, embedded.company, 'low_stock', (locale: Locale) => {
             const strings = t(locale);
             return {
               title: strings.lowStockTitle,
               body: `${itemLabelLow} in ${machineName}: ${lowProduct.current_stock}/${lowProduct.capacity} ${strings.remaining}`,
               image: productImageUrl,
+              link: `/machines/${machine.id}`,
               data: { type: 'low_stock', machine_id: machine.id },
             };
           }, {

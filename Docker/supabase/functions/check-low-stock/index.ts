@@ -1,11 +1,11 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { sendPushToUsers } from '../_shared/web-push.ts'
+import { notifyUsers } from '../_shared/notify.ts'
 
 /**
  * check-low-stock
  *
  * Reads unsent rows from `low_stock_notifications`, groups by company,
- * sends push notifications via the existing web-push infrastructure,
+ * sends notifications over the channels each member chose (push / email),
  * then marks rows as sent.
  *
  * Can be called periodically (e.g. via cron) or triggered after stock changes.
@@ -97,9 +97,10 @@ Deno.serve(async (req) => {
         ? `Low stock: ${items[0].product_name}`
         : `Low stock: ${items.length} products`
 
-      const result = await sendPushToUsers(adminClient, companyId, 'low_stock', {
+      const result = await notifyUsers(adminClient, companyId, 'low_stock', () => ({
         title,
         body: productList,
+        link: '/warehouse',
         data: {
           type: 'low_stock',
           products: items.map(i => ({
@@ -108,9 +109,9 @@ Deno.serve(async (req) => {
             min_quantity: i.min_quantity,
           })),
         },
-      })
+      }))
 
-      totalSent += result.sent
+      totalSent += result.push.sent + result.email.sent
     }
 
     // Mark all as sent
