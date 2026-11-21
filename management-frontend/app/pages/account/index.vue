@@ -12,6 +12,7 @@ const { t } = useI18n()
       <AccountEmailCard />
       <AccountPasswordCard />
       <AccountAppearanceCard />
+      <AccountNotificationSettingsCard />
       <AccountPushNotificationsCard />
     </div>
   </div>

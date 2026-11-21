@@ -2,7 +2,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { NormalizedOffer } from '../_shared/providers/deal-source.ts'
 import { resolveProviders, type ResolvedProvider } from './resolve-providers.ts'
 import { toOfferDate } from './offer-date.ts'
-import { sendPushToUsers } from '../_shared/web-push.ts'
+import { notifyUsers } from '../_shared/notify.ts'
 import { t, type Locale } from '../_shared/notification-i18n.ts'
 
 const corsHeaders = {
@@ -801,11 +801,12 @@ Deno.serve(async (req) => {
     if (isScheduled && newOfferCount > 0) {
       try {
         const topRetailers = newRetailers.slice(0, 3).join(', ')
-        await sendPushToUsers(adminClient, companyId, 'new_deals', (locale: Locale) => {
+        await notifyUsers(adminClient, companyId, 'new_deals', (locale: Locale) => {
           const strings = t(locale)
           return {
             title: `🏷️ ${strings.newDealsTitle}`,
             body: strings.newDealsBody(newOfferCount, topRetailers),
+            link: '/deals',
             data: { type: 'new_deals', url: '/deals' },
           }
         })

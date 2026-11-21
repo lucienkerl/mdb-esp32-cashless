@@ -387,6 +387,13 @@ APNS_TEAM_ID = "env(APNS_TEAM_ID)"
 APNS_PRIVATE_KEY = "env(APNS_PRIVATE_KEY)"
 APNS_TOPIC = "env(APNS_TOPIC)"
 APNS_PRODUCTION = "env(APNS_PRODUCTION)"
+SITE_URL = "env(SITE_URL)"
+SMTP_HOST = "env(SMTP_HOST)"
+SMTP_PORT = "env(SMTP_PORT)"
+SMTP_USER = "env(SMTP_USER)"
+SMTP_PASS = "env(SMTP_PASS)"
+SMTP_ADMIN_EMAIL = "env(SMTP_ADMIN_EMAIL)"
+SMTP_SENDER_NAME = "env(SMTP_SENDER_NAME)"
 
 [analytics]
 enabled = true
@@ -518,6 +525,18 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/machine-insights/deno.json"
 entrypoint = "./functions/machine-insights/index.ts"
+
+[functions.notify-device-status]
+enabled = true
+verify_jwt = false
+import_map = "./functions/notify-device-status/deno.json"
+entrypoint = "./functions/notify-device-status/index.ts"
+
+[functions.notification-channels]
+enabled = true
+verify_jwt = false
+import_map = "./functions/notification-channels/deno.json"
+entrypoint = "./functions/notification-channels/index.ts"
 
 [functions.check-low-stock]
 enabled = true

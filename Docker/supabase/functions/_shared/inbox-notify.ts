@@ -2,11 +2,11 @@
 // an "inbox" push notification to all operators of the affected company AND
 // stamp the badge with the new open-ticket count for iOS.
 //
-// Per-user opt-out (notification_preferences row with type='inbox', enabled=false)
-// is honored by sendPushToUsers — we don't need to filter here.
+// Per-user channel choice (notification_settings, type='inbox') is honored by
+// notifyUsers — we don't need to filter here.
 
 import { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { sendPushToUsers } from './web-push.ts'
+import { notifyUsers } from './notify.ts'
 
 export type InboxKind = 'problem' | 'feedback' | 'wish'
 
@@ -118,18 +118,19 @@ export async function notifyInbox(params: NotifyParams): Promise<void> {
     : body
 
   try {
-    await sendPushToUsers(adminClient, companyId, 'inbox', {
+    await notifyUsers(adminClient, companyId, 'inbox', () => ({
       title,
       body: finalBody,
       badge,
+      link: '/inbox',
       data: {
         type: 'inbox',
         inbox_type: kind,
         machine_id: machineId,
       },
-    })
+    }))
   } catch (err) {
     // Push failures must NEVER fail the user-facing submit. Log + continue.
-    console.warn('[inbox-notify] sendPushToUsers failed:', err)
+    console.warn('[inbox-notify] notifyUsers failed:', err)
   }
 }

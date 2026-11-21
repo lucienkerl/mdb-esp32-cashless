@@ -5,18 +5,30 @@ import Supabase
 
 // MARK: - Models
 
-struct NotificationPreference: Codable, Identifiable {
-    let id: UUID
-    let userId: UUID
+/// One cell of the notification matrix (event type × channel), table
+/// `notification_settings`. A missing row means the channel's default:
+/// push on, every other channel off (opt-in) — same rule as the web
+/// (`app/lib/notificationSettings.ts`) and the backend.
+struct NotificationSetting: Codable, Equatable {
     let notificationType: String
-    let enabled: Bool
+    let channel: String
+    var enabled: Bool
 
     enum CodingKeys: String, CodingKey {
-        case id
-        case userId = "user_id"
         case notificationType = "notification_type"
+        case channel
         case enabled
     }
+}
+
+/// A delivery channel of the matrix, with what the server can do.
+struct NotificationChannelInfo: Codable, Identifiable, Equatable {
+    let key: String
+    let available: Bool
+    var configured: Bool?
+    var address: String?
+
+    var id: String { key }
 }
 
 struct NotificationType: Identifiable {
@@ -30,7 +42,8 @@ struct NotificationType: Identifiable {
 
 // MARK: - Service
 
-/// Manages push notification permissions, device registration, and per-type preferences.
+/// Manages push notification permissions, device registration, and the
+/// per-event, per-channel notification settings (push / email).
 @MainActor
 final class NotificationService: ObservableObject {
     static let shared = NotificationService()
@@ -39,7 +52,10 @@ final class NotificationService: ObservableObject {
 
     @Published var isEnabled: Bool = false
     @Published var permissionStatus: UNAuthorizationStatus = .notDetermined
-    @Published var preferences: [NotificationPreference] = []
+    @Published var settings: [NotificationSetting] = []
+    @Published var channels: [NotificationChannelInfo] = NotificationService.channelKeys.map {
+        NotificationChannelInfo(key: $0, available: $0 == "push")
+    }
     @Published var deviceToken: String?
     @Published var isRegistering: Bool = false
     @Published var error: String?
@@ -59,7 +75,10 @@ final class NotificationService: ObservableObject {
         case inbox
     }
 
-    /// Available notification types (matches web UI).
+    /// Matrix columns, in order (matches web UI).
+    static let channelKeys = ["push", "email"]
+
+    /// Matrix rows, in order (matches web UI).
     static let notificationTypes: [NotificationType] = [
         NotificationType(
             key: "sale",
@@ -74,6 +93,18 @@ final class NotificationService: ObservableObject {
             icon: "exclamationmark.triangle.fill"
         ),
         NotificationType(
+            key: "machine_offline",
+            label: String(localized: "Machine Offline"),
+            description: String(localized: "A machine has not been reachable for a few minutes"),
+            icon: "wifi.slash"
+        ),
+        NotificationType(
+            key: "machine_online",
+            label: String(localized: "Machine Back Online"),
+            description: String(localized: "A machine you were alerted about is reachable again"),
+            icon: "wifi"
+        ),
+        NotificationType(
             key: "inbox",
             label: String(localized: "Customer Inbox"),
             description: String(localized: "Get notified when a customer reports a problem, leaves feedback, or submits a product wish"),
@@ -82,7 +113,7 @@ final class NotificationService: ObservableObject {
         NotificationType(
             key: "new_deals",
             label: String(localized: "New Deals"),
-            description: String(localized: "Get a daily push when new retailer offers match your products"),
+            description: String(localized: "Once a day, when new retailer offers match your products"),
             icon: "tag.fill"
         ),
     ]
@@ -199,51 +230,77 @@ final class NotificationService: ObservableObject {
         isEnabled = false
     }
 
-    // MARK: - Notification Preferences
+    // MARK: - Notification Settings (event type × channel)
 
-    /// Fetch the user's per-type notification preferences.
+    /// Fetch the user's notification matrix and which channels the server can deliver.
     func fetchPreferences() async {
         do {
-            preferences = try await client
-                .from("notification_preferences")
-                .select("id, user_id, notification_type, enabled")
+            settings = try await client
+                .from("notification_settings")
+                .select("notification_type, channel, enabled")
                 .execute()
                 .value
         } catch is CancellationError {
         } catch {
-            print("[Push] Failed to fetch preferences: \(error)")
+            print("[Push] Failed to fetch notification settings: \(error)")
+        }
+
+        struct ChannelsResponse: Decodable { let channels: [NotificationChannelInfo] }
+        do {
+            let response: ChannelsResponse = try await client.functions.invoke(
+                "notification-channels",
+                options: .init(method: .get)
+            )
+            channels = Self.channelKeys.map { key in
+                response.channels.first { $0.key == key } ?? NotificationChannelInfo(key: key, available: false)
+            }
+        } catch is CancellationError {
+        } catch {
+            print("[Push] Failed to fetch notification channels: \(error)")
         }
     }
 
-    /// Whether a given notification type is enabled. Defaults to `true` if no preference row exists.
+    /// Default for a cell without a row: push on, every other channel opt-in.
+    static func channelDefault(_ channel: String) -> Bool { channel == "push" }
+
+    /// Whether `type` is on for `channel`.
+    func isEnabled(_ type: String, channel: String) -> Bool {
+        settings.first { $0.notificationType == type && $0.channel == channel }?.enabled
+            ?? Self.channelDefault(channel)
+    }
+
+    /// Whether `type` is on for any channel (row icon tint).
     func isTypeEnabled(_ type: String) -> Bool {
-        guard let pref = preferences.first(where: { $0.notificationType == type }) else {
-            return true
-        }
-        return pref.enabled
+        Self.channelKeys.contains { isEnabled(type, channel: $0) }
     }
 
-    /// Toggle a notification type on or off. Upserts to `notification_preferences`.
-    func togglePreference(type: String, enabled: Bool) async {
+    func channelInfo(_ key: String) -> NotificationChannelInfo? {
+        channels.first { $0.key == key }
+    }
+
+    /// Switch one cell. Optimistic; rolled back when the write fails.
+    func setEnabled(_ type: String, channel: String, enabled: Bool) async {
+        let before = settings
+        settings.removeAll { $0.notificationType == type && $0.channel == channel }
+        settings.append(NotificationSetting(notificationType: type, channel: channel, enabled: enabled))
         do {
             let userId = try await client.auth.session.user.id
-
             try await client
-                .from("notification_preferences")
+                .from("notification_settings")
                 .upsert(
                     [
                         "user_id": AnyJSON.string(userId.uuidString),
                         "notification_type": AnyJSON.string(type),
+                        "channel": AnyJSON.string(channel),
                         "enabled": AnyJSON.bool(enabled),
                         "updated_at": AnyJSON.string(ISO8601DateFormatter().string(from: Date())),
                     ],
-                    onConflict: "user_id,notification_type"
+                    onConflict: "user_id,notification_type,channel"
                 )
                 .execute()
-
-            await fetchPreferences()
         } catch {
-            print("[Push] Failed to toggle preference: \(error)")
+            settings = before
+            print("[Push] Failed to save notification setting: \(error)")
             self.error = error.localizedDescription
         }
     }
@@ -337,7 +394,7 @@ final class NotificationService: ObservableObject {
     /// Call on logout to clean up.
     func cleanupOnLogout() async {
         await unregisterDevice()
-        preferences = []
+        settings = []
         openInboxCount = 0
         await applyBadgeToAppIcon(0)
     }

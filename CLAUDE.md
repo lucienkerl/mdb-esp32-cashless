@@ -368,6 +368,8 @@ Tables:
 - `mdb_log` – MDB state-change diagnostics history per device
 - `mdb_trace` – short-lived raw bus trace batches per device (`frames` jsonb, `dropped`), written by `mqtt-webhook` only while a trace runs, pruned after 1 h, realtime-published
 - `push_subscriptions` – browser push notification registrations (endpoint, keys, user_agent)
+- `notification_settings` – per-user notification matrix: `(user_id, notification_type, channel, enabled)`. A missing row = the channel's default: **push on, every other channel off (opt-in)** — same rule in `functions/_shared/notification-settings.ts`, web `app/lib/notificationSettings.ts` and iOS `NotificationService`. Channels are free text (`push`, `email`), so a new channel needs no migration. The legacy `notification_preferences` (one switch per type, still written by old app versions) is kept in sync with the `push` column in both directions by triggers. Event types: `sale`, `low_stock`, `machine_offline`, `machine_online`, `inbox`, `new_deals`
+- **Machine offline / back online alerts**: pg_cron runs `dispatch_device_connectivity_alerts()` every minute. A device that stays `offline` longer than `companies.offline_alert_minutes` (default 5) gets one `machine_offline` notification (`embeddeds.offline_alerted_at` set); once it is `online` again a `machine_online` follows and the mark is cleared. Short blips stay silent in both directions. The dispatcher only decides when; `notify-device-status` phrases and sends
 - `history` – activity log for audit trail
 
 Key RPC functions:
@@ -410,6 +412,8 @@ All functions use `verify_jwt = false` in `config.toml` (workaround for ES256 `C
 | `send-credit` | yes | Encrypt + publish credit to device MQTT topic |
 | `request-credit` | yes | Related credit request flow |
 | `mqtt-webhook` | webhook secret | Receives forwarded MQTT payloads, decrypts + validates + writes to DB; on `card` resolves the card account and delivers its balance as credit, on a cashless `sale` charges it back |
+| `notify-device-status` | service role | Called by the pg_cron connectivity dispatcher; sends `machine_offline` / `machine_online` over each member's channels |
+| `notification-channels` | yes | `GET`: which channels the server can deliver (push keys / SMTP) and the caller's email address; `POST {channel:'email'}`: test email to the caller |
 | `trigger-ota` | admin | Publishes OTA firmware URL to device MQTT topic |
 | `import-products` | admin | Bulk import products from Nayax Excel export |
 | `register-push` | yes | Register browser push notification subscription |
@@ -445,7 +449,9 @@ When adding a new env var that the frontend or edge functions need in production
 **Shared modules** (`Docker/supabase/functions/_shared/`):
 - `mqtt-publish.ts` – reusable MQTT publish helper (connects to broker, publishes, disconnects). Speaks MQTT 3.1.1 over a **native WebSocket** rather than `npm:mqtt`: the library's Node path builds the upgrade with `ws`, which sets `options.createConnection`, and the edge runtime's node compatibility layer does not implement that — every publish died with `Not implemented: ClientRequest.options.createConnection`. Unit + stub-broker tests in `mqtt-publish.test.ts`
 - `scale.ts` – EUR ↔ MDB scale-factor units. Use `eurToScaleUnits()` for anything going onto the wire; never `amount / Math.pow(10, -2)`, which lands below the integer and gets truncated (see the money-arithmetic note in the firmware section)
-- `web-push.ts` – web push notification sender
+- `web-push.ts` – push sender (web VAPID, APNs, FCM); recipients come from `notification_settings` (channel `push`)
+- `notify.ts` – **the entry point for every notification**: `notifyUsers(adminClient, companyId, type, (locale) => message)` sends over each channel the members turned on (push via `web-push.ts`, email via `smtp.ts` + `notification-email.ts`, which renders the same message as a mail with an "open in VMflow" link). Email uses the SMTP server GoTrue already uses (`SMTP_*` + `SITE_URL` are passed to the functions container); `SMTP_HOST=supabase-mail` (setup placeholder) = no email channel. Adding a channel: `NOTIFICATION_CHANNELS` + a sender in `notify.ts` + a column in the clients
+- `smtp.ts` – zero-dependency SMTP client on `Deno.connect`/`startTls` (port 465 implicit TLS, else STARTTLS when offered; never sends a password unencrypted). Stub-server tests in `smtp.test.ts`
 
 ---
 
@@ -488,6 +494,7 @@ Public routes (no auth check): `/auth/login`, `/auth/register`, `/onboarding/*`
 - `useFirmware()` – CRUD for firmware versions in `firmware` storage bucket; `triggerOta(deviceId, firmwareId)` calls `trigger-ota` edge function
 - `useImportProducts()` – parses Nayax Excel exports, previews products, bulk imports via `import-products` edge function
 - `useNotifications()` – browser push notification registration and management via `register-push` edge function
+- `useNotificationSettings()` – the account-wide notification matrix (event type × channel) on `/account` (`components/account/NotificationSettingsCard.vue`); reads/writes `notification_settings`, asks `notification-channels` which channels the server can deliver, sends the test email
 - `useWarehouse()` – CRUD for warehouses, stock batches (FIFO), transactions, barcode lookups, min-stock alerts; `deductStock()` calls `deduct_warehouse_stock_fifo` DB function for refill operations
 - `useMdbLog()` – fetches MDB diagnostics history from `mdb_log` table with realtime subscription
 - `useCardAccounts()` – CRUD for prepaid RFID card accounts plus `adjustBalance()` (via the `card_account_topup` RPC, so the ledger always matches) and the per-account transaction history. Exports the unit-tested `extractCardSerials`/`keepsCardSerials` helpers the rename warning uses — dropping the serial from a name orphans the physical card
@@ -590,4 +597,4 @@ Firmware host-side tests need no board and compile the real sources:
   round trip, erased/torn/bit-flipped images are rejected, identical content
   gives identical bytes (no needless flash rewrite).
 
-Edge function tests (Deno): `Docker/supabase/functions/mqtt-webhook/*.test.ts` (`mdb-log`, `suppress`, `slot-offset`, `tray-mapping`, `stock-urgency`, `product-stock`, `card-payload`) and `Docker/supabase/functions/_shared/*.test.ts` (`notification-i18n`, `scale`, `mqtt-publish` — the last drives the publisher against an in-process stub broker), run with `deno test -A` from the respective directory
+Edge function tests (Deno): `Docker/supabase/functions/mqtt-webhook/*.test.ts` (`mdb-log`, `suppress`, `slot-offset`, `tray-mapping`, `stock-urgency`, `product-stock`, `card-payload`) and `Docker/supabase/functions/_shared/*.test.ts` (`notification-i18n`, `notification-settings`, `notification-email`, `smtp`, `scale`, `mqtt-publish` — the last drives the publisher against an in-process stub broker), run with `deno test -A` from the respective directory

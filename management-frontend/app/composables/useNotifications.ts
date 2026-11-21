@@ -1,40 +1,8 @@
 import { useSupabaseClient } from '#imports'
 
-// ── Notification types ──────────────────────────────────────────────────────
-export interface NotificationType {
-  key: string
-  label: string
-  description: string
-}
-
-export const notificationTypes: NotificationType[] = [
-  {
-    key: 'sale',
-    label: 'Sale notifications',
-    description: 'Get notified for every vending machine sale.',
-  },
-  {
-    key: 'low_stock',
-    label: 'Low stock alerts',
-    description: 'Get notified when a product drops below the refill threshold.',
-  },
-  {
-    key: 'inbox',
-    label: 'Customer inbox',
-    description: 'Get notified when a customer reports a problem, leaves feedback, or submits a product wish.',
-  },
-  {
-    key: 'new_deals',
-    label: 'New deals',
-    description: 'Get a daily push when new retailer offers matching your products are found.',
-  },
-]
-
-// ── Composable ──────────────────────────────────────────────────────────────
-interface NotificationPreference {
-  notification_type: string
-  enabled: boolean
-}
+// Which event types go out on which channel (push / email / …) is managed by
+// useNotificationSettings() and app/lib/notificationSettings.ts. This
+// composable only handles this browser's push subscription and devices.
 
 export interface PushDevice {
   id: string
@@ -51,7 +19,6 @@ export function useNotifications() {
   // Reactive state
   const permission = ref<NotificationPermission>('default')
   const isSubscribed = ref(false)
-  const preferences = ref<NotificationPreference[]>([])
   const devices = ref<PushDevice[]>([])
   const loading = ref(false)
   const error = ref('')
@@ -307,62 +274,6 @@ export function useNotifications() {
     }
   }
 
-  // ── Fetch notification preferences ──────────────────────────────────────
-  async function fetchPreferences() {
-    try {
-      const { data, error: fetchError } = await supabase
-        .from('notification_preferences')
-        .select('notification_type, enabled')
-
-      if (fetchError) throw fetchError
-
-      preferences.value = (data ?? []) as NotificationPreference[]
-    } catch (err: unknown) {
-      console.error('Failed to fetch notification preferences:', err)
-    }
-  }
-
-  // ── Check if a notification type is enabled ─────────────────────────────
-  // Default is enabled (absence of a row = enabled)
-  function isTypeEnabled(type: string): boolean {
-    const pref = preferences.value.find((p) => p.notification_type === type)
-    return pref ? pref.enabled : true
-  }
-
-  // ── Toggle a notification type preference ───────────────────────────────
-  async function togglePreference(type: string, enabled: boolean) {
-    error.value = ''
-    try {
-      const user = useSupabaseUser()
-      if (!user.value) return
-
-      const userId = user.value.id ?? (user.value as any).sub
-
-      const { error: upsertError } = await supabase
-        .from('notification_preferences')
-        .upsert(
-          {
-            user_id: userId,
-            notification_type: type,
-            enabled,
-          },
-          { onConflict: 'user_id,notification_type' },
-        )
-
-      if (upsertError) throw upsertError
-
-      // Update local state
-      const idx = preferences.value.findIndex((p) => p.notification_type === type)
-      if (idx >= 0) {
-        preferences.value[idx].enabled = enabled
-      } else {
-        preferences.value.push({ notification_type: type, enabled })
-      }
-    } catch (err: unknown) {
-      error.value = err instanceof Error ? err.message : 'Failed to update preference'
-    }
-  }
-
   // ── Fetch registered push devices ─────────────────────────────────────
   async function fetchDevices() {
     try {
@@ -402,14 +313,13 @@ export function useNotifications() {
   async function init() {
     if (import.meta.server) return
     refreshPermission()
-    await Promise.all([checkSubscription(), fetchPreferences(), fetchDevices()])
+    await Promise.all([checkSubscription(), fetchDevices()])
   }
 
   return {
     // State
     permission,
     isSubscribed,
-    preferences,
     devices,
     loading,
     error,
@@ -422,11 +332,8 @@ export function useNotifications() {
     subscribe,
     unsubscribe,
     checkSubscription,
-    fetchPreferences,
     fetchDevices,
     removeDevice,
-    isTypeEnabled,
-    togglePreference,
     init,
   }
 }

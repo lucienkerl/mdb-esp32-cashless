@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { IconBell, IconBellOff, IconDeviceMobile, IconSend, IconTrash } from '@tabler/icons-vue'
 import { Switch } from '~/components/ui/switch'
-import { notificationTypes } from '~/composables/useNotifications'
 import { timeAgo } from '~/lib/utils'
 
 const { t } = useI18n()
@@ -18,8 +17,6 @@ const {
   subscribe: subscribePush,
   unsubscribe: unsubscribePush,
   devices,
-  isTypeEnabled,
-  togglePreference,
   removeDevice,
   init: initNotifications,
 } = useNotifications()
@@ -239,27 +236,11 @@ function parseDeviceInfo(device: { endpoint: string; user_agent: string | null }
         />
       </div>
 
-      <!-- Per-type toggles (only visible when subscribed) -->
+      <!-- Test + devices (only visible when subscribed). Which events arrive
+           as push is chosen in the notification matrix (NotificationSettingsCard). -->
       <div v-if="isSubscribed" class="mt-6 space-y-4 border-t pt-5">
-        <h3 class="text-sm font-medium text-muted-foreground">{{ t('settings.notificationTypes') }}</h3>
-
-        <div
-          v-for="nt in notificationTypes"
-          :key="nt.key"
-          class="flex items-center justify-between"
-        >
-          <div class="space-y-0.5">
-            <label class="text-sm font-medium">{{ t(`settings.notifTypes.${nt.key}.label`) }}</label>
-            <p class="text-sm text-muted-foreground">{{ t(`settings.notifTypes.${nt.key}.description`) }}</p>
-          </div>
-          <Switch
-            :checked="isTypeEnabled(nt.key)"
-            @update:checked="(val: boolean) => togglePreference(nt.key, val)"
-          />
-        </div>
-
         <!-- Test notification -->
-        <div class="flex items-center justify-between pt-2">
+        <div class="flex items-center justify-between">
           <div class="space-y-0.5">
             <label class="text-sm font-medium">{{ t('settings.testNotificationLabel') }}</label>
             <p class="text-sm text-muted-foreground">

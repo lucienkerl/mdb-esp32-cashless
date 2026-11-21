@@ -1710,20 +1710,45 @@
         "label": "Warnungen bei niedrigem Bestand",
         "description": "Werden Sie benachrichtigt, wenn ein Produkt unter die Nachfüllschwelle fällt."
       },
+      "machine_offline": {
+        "label": "Automat offline",
+        "description": "Ein Automat ist seit einigen Minuten nicht erreichbar."
+      },
+      "machine_online": {
+        "label": "Automat wieder online",
+        "description": "Ein gemeldeter Automat ist wieder erreichbar."
+      },
       "inbox": {
         "label": "Kunden-Posteingang",
         "description": "Werden Sie benachrichtigt, wenn ein Kunde ein Problem meldet, Feedback gibt oder einen Produktwunsch einreicht."
       },
       "new_deals": {
         "label": "Neue Angebote",
-        "description": "Erhalten Sie täglich eine Push-Nachricht, wenn neue Händlerangebote zu Ihren Produkten gefunden werden."
+        "description": "Einmal täglich, wenn neue Händlerangebote zu Ihren Produkten gefunden werden."
       }
     },
     "testNotificationSent": "Testbenachrichtigung gesendet ({count} Gerät). | Testbenachrichtigung gesendet ({count} Geräte).",
     "testNotificationFailed": "Testbenachrichtigung konnte nicht gesendet werden",
     "pushUnsupported": "Push-Benachrichtigungen werden von diesem Browser nicht unterstützt.",
     "pushNotConfigured": "Push-Benachrichtigungen sind nicht konfiguriert. VAPID_PUBLIC_KEY fehlt.",
-    "taxNamePlaceholder": "MwSt. 19%"
+    "taxNamePlaceholder": "MwSt. 19%",
+    "notifMatrix": {
+      "title": "Benachrichtigungen",
+      "description": "Wählen Sie pro Ereignis, über welche Kanäle Sie benachrichtigt werden. Gilt für alle Ihre Geräte und die Apps.",
+      "event": "Ereignis",
+      "channels": {
+        "push": "Push",
+        "email": "E-Mail"
+      },
+      "pushHint": "Push kommt auf jedem Gerät an, auf dem Push eingeschaltet ist (dieser Browser: siehe unten; iOS-App: Einstellungen).",
+      "pushUnavailable": "Push ist auf diesem Server nicht eingerichtet (VAPID-/APNs-Schlüssel fehlen).",
+      "emailNotConfigured": "E-Mail ist auf diesem Server noch nicht eingerichtet. Ein Administrator kann SMTP in Docker/.env konfigurieren.",
+      "emailNoAddress": "Ihr Konto hat keine E-Mail-Adresse.",
+      "emailGoesTo": "E-Mails gehen an",
+      "sendTestEmail": "Test-E-Mail senden",
+      "testEmailSent": "Test-E-Mail an {address} gesendet.",
+      "testEmailFailed": "Test-E-Mail konnte nicht gesendet werden: {error}"
+    }
   },
   "softap": {
     "title": "WLAN-Zugang (SoftAP)",

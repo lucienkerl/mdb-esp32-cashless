@@ -1710,20 +1710,45 @@
         "label": "Low stock alerts",
         "description": "Get notified when a product drops below the refill threshold."
       },
+      "machine_offline": {
+        "label": "Machine offline",
+        "description": "A machine has not been reachable for a few minutes."
+      },
+      "machine_online": {
+        "label": "Machine back online",
+        "description": "A machine you were alerted about is reachable again."
+      },
       "inbox": {
         "label": "Customer inbox",
         "description": "Get notified when a customer reports a problem, leaves feedback, or submits a product wish."
       },
       "new_deals": {
         "label": "New deals",
-        "description": "Get a daily push when new retailer offers matching your products are found."
+        "description": "Once a day, when new retailer offers matching your products are found."
       }
     },
     "testNotificationSent": "Test notification sent ({count} device). | Test notification sent ({count} devices).",
     "testNotificationFailed": "Failed to send test notification",
     "pushUnsupported": "Push notifications are not supported in this browser.",
     "pushNotConfigured": "Push notifications are not configured. VAPID_PUBLIC_KEY is missing.",
-    "taxNamePlaceholder": "VAT 19%"
+    "taxNamePlaceholder": "VAT 19%",
+    "notifMatrix": {
+      "title": "Notifications",
+      "description": "Choose for each event which channels notify you. Applies to all your devices and the apps.",
+      "event": "Event",
+      "channels": {
+        "push": "Push",
+        "email": "Email"
+      },
+      "pushHint": "Push arrives on every device where push is turned on (this browser: see below; iOS app: Settings).",
+      "pushUnavailable": "Push is not set up on this server (VAPID / APNs keys missing).",
+      "emailNotConfigured": "Email is not set up on this server yet. An administrator can configure SMTP in Docker/.env.",
+      "emailNoAddress": "Your account has no email address.",
+      "emailGoesTo": "Emails go to",
+      "sendTestEmail": "Send test email",
+      "testEmailSent": "Test email sent to {address}.",
+      "testEmailFailed": "Test email could not be sent: {error}"
+    }
   },
   "softap": {
     "title": "WiFi access (SoftAP)",
